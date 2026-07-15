@@ -82,7 +82,7 @@ function renderPage(){
         </table>
         <div class="foot-signoff">
           <span>Valores ilustrativos — diária de internação é parâmetro configurável pelo hospital</span>
-          <span>Farmacêutico RT: Paulo Edson Fernandes — CRF-GO 9303</span>
+          <span>Farmacêutico RT: ${rtLinha()}</span>
         </div>
       </div>
     </div>

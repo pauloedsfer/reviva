@@ -1,45 +1,58 @@
 /* ============================================================
    paginas/escrituracao.js — Hospital Reviva
-   Lógica de renderização exclusiva desta página.
-   Depende de assets/dados.js (dados + cálculo) já carregado.
+   Livro de Registro (movimentações). Botão de impressão gera a
+   versão limpa para fiscalização (assets/relatorios.js).
    ============================================================ */
 
-function renderPage(){
+function _livroLinhas(paraImpressao) {
+  const running = {};
+  substances.forEach((s) => (running[s.id] = 0));
+  return movements.map((m) => {
+    running[m.subId] += m.tipo === "saida" ? -m.qtd : m.qtd;
+    const tipo = paraImpressao
+      ? (m.tipo === "entrada" ? "Entrada" : m.tipo === "devolucao" ? "Devolução" : "Saída")
+      : movTipoTag(m.tipo);
+    const pacRef = `${m.paciente ? patById(m.paciente).nome + " · " : ""}${m.ref}`;
+    if (paraImpressao) {
+      return `<tr>
+        <td class="mono">${m.id}</td><td class="mono">${fmtDate(m.data)}</td><td>${tipo}</td>
+        <td>${subById(m.subId).nome}</td><td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
+        <td>${pacRef}</td><td class="num mono">${running[m.subId]}</td></tr>`;
+    }
+    return `<tr>
+      <td><span class="folio">${m.id}</span></td><td class="mono">${fmtDate(m.data)}</td><td>${tipo}</td>
+      <td>${subById(m.subId).nome}</td><td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
+      <td style="color:var(--muted)">${pacRef}</td><td class="num mono"><b>${running[m.subId]}</b></td></tr>`;
+  }).join("");
+}
+
+function imprimirLivro() {
+  const corpo = `<table>
+    <thead><tr><th>Folio</th><th>Data</th><th>Tipo</th><th>Substância</th><th class="num">Qtd.</th><th>Paciente / Referência</th><th class="num">Saldo após</th></tr></thead>
+    <tbody>${_livroLinhas(true)}</tbody></table>`;
+  const periodo = movements.length
+    ? `Período: ${fmtDate(movements[0].data)} a ${fmtDate(movements[movements.length - 1].data)} · ${movements.length} lançamentos`
+    : "Sem movimentações registradas";
+  imprimirRelatorio("Livro de Registro Específico", periodo, corpo);
+}
+
+function renderPage() {
   return `
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">Livro de Registro Específico</div><div class="panel-title-sub">Toda entrada e saída de substâncias controladas, com folio sequencial</div></div>
         <div class="toolbar">
-          <select><option>Todas as substâncias</option>${substances.map(s=>`<option>${s.nome}</option>`).join('')}</select>
-          <button class="btn ghost sm">Exportar PDF</button>
-          <button class="btn sm">+ Novo lançamento</button>
+          <button class="btn sm" onclick="imprimirLivro()">Imprimir para fiscalização</button>
         </div>
       </div>
       <div class="panel-body">
         <table>
           <thead><tr><th>Folio</th><th>Data</th><th>Tipo</th><th>Substância</th><th>Qtd.</th><th>Paciente / Referência</th><th>Saldo após</th></tr></thead>
-          <tbody>
-            ${(()=>{
-              const running = {};
-              substances.forEach(s=> running[s.id] = 0);
-              return movements.map(m=>{
-                running[m.subId] += m.tipo==='saida' ? -m.qtd : m.qtd;
-                return `<tr>
-                  <td><span class="folio">${m.id}</span></td>
-                  <td class="mono">${fmtDate(m.data)}</td>
-                  <td>${movTipoTag(m.tipo)}</td>
-                  <td>${subById(m.subId).nome}</td>
-                  <td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
-                  <td style="color:var(--muted)">${m.paciente ? patById(m.paciente).nome+' · ' : ''}${m.ref}</td>
-                  <td class="num mono"><b>${running[m.subId]}</b></td>
-                </tr>`;
-              }).join('');
-            })()}
-          </tbody>
+          <tbody>${_livroLinhas(false)}</tbody>
         </table>
         <div class="foot-signoff">
-          <span>Responsável técnico: Paulo Edson Fernandes — CRF-GO 9303</span>
-          <span>Escrituração gerada automaticamente a partir das movimentações — sem digitação manual de saldo</span>
+          <span>Responsável técnico: ${rtLinha()}</span>
+          <span>Escrituração derivada das movimentações — sem digitação manual de saldo</span>
         </div>
       </div>
     </div>

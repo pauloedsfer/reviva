@@ -1,297 +1,294 @@
 /* ============================================================
    dados.js — Hospital Reviva | Sistema de Escrituração e Estoque
-   Fonte única de dados e funções de cálculo, compartilhada por
-   todas as páginas do sistema. Nenhuma página deve duplicar
-   dados ou lógica de cálculo — sempre referenciar este arquivo.
+   Fonte de dados e funções de cálculo, compartilhada por todas
+   as páginas. Os dados agora vêm do banco (Supabase); as funções
+   de cálculo e gráficos permanecem idênticas ao protótipo.
 
-   Arquitetura: MOVIMENTAÇÕES são a fonte única de verdade.
-   Saldos, custos e relatórios são sempre derivados delas.
+   Arquitetura (mantida): MOVIMENTAÇÕES são a fonte de verdade do
+   estoque. Saldos, custos e relatórios são sempre DERIVADOS delas.
+   O carregamento é assíncrono: layout.js chama carregarConfig() e
+   carregarDados() antes de renderizar a tela.
    ============================================================ */
 
 const CAPACIDADE_TOTAL = 35;
+const HOJE = new Date().toISOString().slice(0, 10); // data real de hoje
+const DIARIA_INTERNACAO = 180; // parâmetro configurável — hospedagem/estrutura, sem medicamentos
 
-const HOJE = "2026-07-14";
+/* ---- estado carregado do banco (preenchido por carregarDados) ---- */
+let patients = [];
+let substances = [];
+let invoices = [];
+let donations = [];
+let patientMeds = [];
+let initialInventory = [];   // inventário inicial (abertura do estoque)
+let returns = [];
+let dispensations = [];
+let prescriptions = [];
+let pops = [];
+let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
+let movements = [];
 
-const DIARIA_INTERNACAO = 180; // valor ilustrativo — hospedagem/estrutura, não inclui medicamentos
+/* ---- configuração (RT + estabelecimento), nunca hardcoded ---- */
+window.RT = null;
+window.ESTAB = null;
 
-const patients = [
-  { id: "P01", nome: "J. A. S.", leito: "Q-01", admissao: "2026-06-30", prescritor: "Dr. R. Almeida — CRM-GO 11234" },
-  { id: "P02", nome: "M. T. O.", leito: "Q-02", admissao: "2026-07-02", prescritor: "Dr. R. Almeida — CRM-GO 11234" },
-  { id: "P03", nome: "C. F. L.", leito: "Q-03", admissao: "2026-07-05", prescritor: "Dra. L. Cardoso — CRM-GO 9870" },
-  { id: "P04", nome: "V. R. P.", leito: "Q-04", admissao: "2026-07-09", prescritor: "Dra. L. Cardoso — CRM-GO 9870" },
-];
+/* ---------------- carregamento do banco ---------------- */
+async function carregarConfig() {
+  const [{ data: rt }, { data: est }] = await Promise.all([
+    window.SB.from("responsavel_tecnico").select("*").eq("ativo", true).limit(1),
+    window.SB.from("estabelecimento").select("*").limit(1),
+  ]);
+  window.RT = (rt && rt[0]) || null;
+  window.ESTAB = (est && est[0]) || null;
+}
 
-const substances = [
-  { id: "S01", nome: "Diazepam 10mg comp.", lista: "B1", unidade: "comp." },
-  { id: "S02", nome: "Clonazepam 2mg comp.", lista: "B1", unidade: "comp." },
-  { id: "S03", nome: "Haloperidol 5mg comp.", lista: "C1", unidade: "comp." },
-  { id: "S04", nome: "Prometazina 25mg comp.", lista: "C1", unidade: "comp." },
-  { id: "S05", nome: "Naltrexona 50mg comp.", lista: "—", unidade: "comp." },
-  { id: "S06", nome: "Dissulfiram 250mg comp.", lista: "—", unidade: "comp." },
-];
+async function carregarDados() {
+  const q = (sel) => window.SB.from(sel.t).select(sel.s || "*");
+  const [
+    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist,
+  ] = await Promise.all([
+    window.SB.from("substancias").select("*"),
+    window.SB.from("pacientes").select("*, prescritores(nome,conselho,uf,numero)"),
+    window.SB.from("prescricoes").select("*"),
+    window.SB.from("notas_fiscais").select("*, fornecedores(nome), nota_fiscal_itens(*)"),
+    window.SB.from("doacoes").select("*, doacao_itens(*)"),
+    window.SB.from("medicacao_propria").select("*, medicacao_propria_itens(*)"),
+    window.SB.from("inventario_inicial").select("*"),
+    window.SB.from("dispensacoes").select("*"),
+    window.SB.from("devolucoes").select("*"),
+    window.SB.from("pops").select("*"),
+    window.SB.from("carrinho_emergencia").select("*").limit(1),
+    window.SB.from("carrinho_itens").select("*"),
+    window.SB.from("carrinho_historico").select("*"),
+  ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
 
-// Notas fiscais — cada item gera um lote em estoque. canal: 'drogaria' (início, poucos pacientes) ou 'distribuidora' (escala)
+  substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade }));
 
-const invoices = [
-  { id:"NF001", numero:"4482", data:"2026-07-10", fornecedor:"Drogaria São João — Anápolis", canal:"drogaria", itens:[
-    { subId:"S01", qtd:60, lote:"DZP-2607", validade:"2028-01-31", custoUnit:0.38 },
-    { subId:"S02", qtd:60, lote:"CLZ-2607", validade:"2027-11-30", custoUnit:0.52 },
-    { subId:"S03", qtd:40, lote:"HAL-2607", validade:"2027-09-30", custoUnit:1.15 },
-    { subId:"S04", qtd:30, lote:"PRO-2607", validade:"2027-08-31", custoUnit:0.90 },
-    { subId:"S05", qtd:30, lote:"NTX-2607", validade:"2027-06-30", custoUnit:4.20 },
-    { subId:"S06", qtd:30, lote:"DSF-2607", validade:"2027-05-31", custoUnit:2.75 },
-  ]},
-  { id:"NF002", numero:"5104", data:"2026-07-13", fornecedor:"Farmoquímica Distribuidora Ltda", canal:"distribuidora", itens:[
-    { subId:"S01", qtd:60, lote:"DZP-2701", validade:"2027-08-15", custoUnit:0.40 },
-    { subId:"S03", qtd:20, lote:"HAL-2701", validade:"2026-09-30", custoUnit:1.20 },
-  ]},
-];
+  patients = pacs.map((p) => {
+    const pr = p.prescritores;
+    const prescritor = pr ? `${pr.nome} — ${pr.conselho}-${pr.uf} ${pr.numero}` : "";
+    return { id: p.id, nome: p.nome_completo, leito: p.leito, admissao: p.data_admissao,
+             prescritor, cpf: p.cpf, prontuario: p.prontuario, endereco: p.endereco };
+  });
 
-// Doações — sem custo real ao hospital; entram no estoque geral, disponível para qualquer paciente
+  prescriptions = presc.map((x) => ({
+    paciente: x.paciente_id, subId: x.substancia_id, dose: x.dose, via: x.via,
+    horarios: Array.isArray(x.horarios) ? x.horarios : (x.horarios || []),
+  }));
 
-const donations = [
-  { id:"DO001", data:"2026-07-12", doador:"Farmácia Solidária Anápolis", itens:[
-    { subId:"S05", qtd:15, lote:"NTX-DOA1", validade:"2027-02-28", valorEstimado:4.50 },
-    { subId:"S06", qtd:20, lote:"DSF-DOA1", validade:"2027-01-31", valorEstimado:2.80 },
-  ]},
-];
+  invoices = invs.map((nf) => ({
+    id: nf.id, numero: nf.numero, data: nf.data_emissao,
+    fornecedor: nf.fornecedores ? nf.fornecedores.nome : "", canal: nf.canal,
+    itens: (nf.nota_fiscal_itens || []).map((it) => ({
+      subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
+      validade: it.validade, custoUnit: Number(it.custo_unit),
+    })),
+  }));
 
-// Medicação trazida pelo próprio paciente/família — CUSTÓDIA, não é doação ao hospital.
-// Fica vinculada a um único paciente, sem custo, e não pode ser usada em outro paciente. Devolvida se sobrar na alta.
+  donations = dons.map((d) => ({
+    id: d.id, data: d.data, doador: d.doador,
+    itens: (d.doacao_itens || []).map((it) => ({
+      subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
+      validade: it.validade, valorEstimado: Number(it.valor_estimado),
+    })),
+  }));
 
-const patientMeds = [
-  { id:"PM001", data:"2026-07-09", paciente:"P04", itens:[
-    { subId:"S05", qtd:14, lote:"PROP-P04-01", validade:"2027-04-30", obs:"Trazido pela família na admissão, embalagem original lacrada" },
-  ]},
-];
+  patientMeds = mprop.map((m) => ({
+    id: m.id, data: m.data, paciente: m.paciente_id,
+    itens: (m.medicacao_propria_itens || []).map((it) => ({
+      subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
+      validade: it.validade, obs: it.obs,
+    })),
+  }));
 
-// Devoluções ao estoque — medicação SOS não utilizada ou recusada pelo paciente, reintegrada ao lote de origem
+  initialInventory = inv.map((i) => ({
+    subId: i.substancia_id, qtd: i.quantidade, lote: i.numero_lote, validade: i.validade,
+    custoUnit: Number(i.custo_unit), data: i.data, obs: i.observacao,
+  }));
 
-const returns = [
-  { data:"2026-07-13", subId:"S04", lote:"PRO-2607", qtd:1, motivo:"SOS não administrado — paciente já estava calmo", paciente:"P03" },
-];
+  dispensations = disp.map((d) => ({
+    data: d.data, subId: d.substancia_id, lote: d.numero_lote, qtd: d.quantidade,
+    ref: d.referencia, paciente: d.paciente_id,
+  }));
 
-// Dispensações (saídas) — base da Dose Unitária, já referenciando o lote consumido
+  returns = devs.map((r) => ({
+    data: r.data, subId: r.substancia_id, lote: r.numero_lote, qtd: r.quantidade,
+    motivo: r.motivo, paciente: r.paciente_id,
+  }));
 
-const dispensations = [
-  { data:"2026-07-11", subId:"S01", lote:"DZP-2607", qtd:1, ref:"Dose 22h", paciente:"P01" },
-  { data:"2026-07-11", subId:"S03", lote:"HAL-2607", qtd:1, ref:"Dose 08h", paciente:"P03" },
-  { data:"2026-07-12", subId:"S01", lote:"DZP-2607", qtd:1, ref:"Dose 22h", paciente:"P01" },
-  { data:"2026-07-12", subId:"S02", lote:"CLZ-2607", qtd:1, ref:"Dose 22h", paciente:"P02" },
-  { data:"2026-07-12", subId:"S04", lote:"PRO-2607", qtd:2, ref:"Dose 08h + SOS", paciente:"P03" },
-  { data:"2026-07-13", subId:"S01", lote:"DZP-2607", qtd:1, ref:"Dose 22h", paciente:"P01" },
-  { data:"2026-07-13", subId:"S02", lote:"CLZ-2607", qtd:1, ref:"Dose 22h", paciente:"P02" },
-  { data:"2026-07-13", subId:"S03", lote:"HAL-2607", qtd:1, ref:"Dose 08h", paciente:"P03" },
-  { data:"2026-07-14", subId:"S01", lote:"DZP-2607", qtd:1, ref:"Dose 08h", paciente:"P01" },
-  { data:"2026-07-14", subId:"S05", lote:"PROP-P04-01", qtd:1, ref:"Dose 08h (medicação própria)", paciente:"P04" },
-  { data:"2026-07-14", subId:"S06", lote:"DSF-2607", qtd:1, ref:"Dose 08h", paciente:"P03" },
-];
+  pops = popsR.map((p) => ({ area: p.area, titulo: p.titulo,
+    status: p.status === "vigente" ? "ok" : "pendente" }));
 
-const prescriptions = [
-  { paciente:"P01", subId:"S01", dose:"1 comp.", via:"VO", horarios:["08h","22h"] },
-  { paciente:"P02", subId:"S02", dose:"1 comp.", via:"VO", horarios:["22h"] },
-  { paciente:"P03", subId:"S03", dose:"1 comp.", via:"VO", horarios:["08h"] },
-  { paciente:"P03", subId:"S06", dose:"1 comp.", via:"VO", horarios:["08h"] },
-  { paciente:"P03", subId:"S04", dose:"1 comp.", via:"VO", horarios:["SOS"] },
-  { paciente:"P04", subId:"S05", dose:"1 comp.", via:"VO", horarios:["08h"] },
-];
+  const c = cart[0];
+  if (c) {
+    emergencyCart = {
+      lacreAtual: c.lacre_atual, status: c.status, ultimaConferencia: c.ultima_conferencia,
+      responsavelConferencia: (window.RT ? window.RT.nome : "—"),
+      itens: cartItens.filter((i) => i.carrinho_id === c.id)
+        .map((i) => ({ nome: i.nome, qtdPadrao: i.qtd_padrao, validade: i.validade })),
+      historico: cartHist.filter((h) => h.carrinho_id === c.id)
+        .sort((a, b) => (a.data < b.data ? 1 : -1))
+        .map((h) => ({ data: h.data, evento: h.evento, responsavel: (window.RT ? window.RT.nome : "—") })),
+    };
+  }
 
-// Carrinho de emergência — itens padronizados, controle de lacre
+  movements = buildMovements();
+}
 
-const emergencyCart = {
-  lacreAtual: "LAC-004821",
-  status: "intacto",
-  ultimaConferencia: "2026-07-10",
-  responsavelConferencia: "Paulo Edson Fernandes — CRF-GO 9303",
-  itens: [
-    { nome:"Adrenalina 1mg/mL amp.", qtdPadrao: 5, validade:"2027-04-30" },
-    { nome:"Atropina 0,25mg/mL amp.", qtdPadrao: 5, validade:"2027-02-28" },
-    { nome:"Diazepam 10mg/2mL amp.", qtdPadrao: 3, validade:"2027-06-30" },
-    { nome:"Flumazenil 0,1mg/mL amp.", qtdPadrao: 3, validade:"2026-11-30" },
-    { nome:"Naloxona 0,4mg/mL amp.", qtdPadrao: 5, validade:"2027-01-31" },
-    { nome:"Soro Glicosado 50% 10mL amp.", qtdPadrao: 5, validade:"2027-08-31" },
-  ],
-  historico: [
-    { data:"2026-07-10", evento:"Conferência de rotina — lacre íntegro, itens completos", responsavel:"Paulo Edson Fernandes" },
-    { data:"2026-06-15", evento:"Lacre rompido em atendimento de emergência — carrinho reabastecido e relacrado (novo lacre LAC-004821)", responsavel:"Paulo Edson Fernandes" },
-  ],
-};
+/* Linha de identificação do RT, montada a partir da configuração. */
+function rtLinha() {
+  const rt = window.RT;
+  if (!rt) return "Responsável técnico não configurado";
+  return `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}`;
+}
 
-// POPs necessários para blindar cada etapa do fluxo perante fiscalização
+/* ---------------- helpers (idênticos ao protótipo) ---------------- */
+const $ = (sel, el = document) => el.querySelector(sel);
+const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
+const patById = (id) => patients.find((p) => p.id === id) || { nome: "—", leito: "—" };
+const fmtDate = (d) => { if (!d) return "—"; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; };
+const fmtBRL = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const diffDias = (d1, d2) => Math.round((new Date(d2) - new Date(d1)) / 86400000);
 
-const pops = [
-  { area:"Farmácia", titulo:"Admissão e Cadastro do Paciente", status:"pendente" },
-  { area:"Farmácia", titulo:"Recebimento e Conferência de Notas Fiscais", status:"pendente" },
-  { area:"Farmácia", titulo:"Recebimento de Doações", status:"pendente" },
-  { area:"Farmácia", titulo:"Medicação Trazida pelo Paciente (Custódia)", status:"pendente" },
-  { area:"Farmácia", titulo:"Preparo e Etiquetagem da Dose Unitária", status:"pendente" },
-  { area:"Enfermagem", titulo:"Dupla Checagem e Administração de Medicamentos", status:"pendente" },
-  { area:"Farmácia", titulo:"Devolução e Reintegração de Medicação SOS ao Estoque", status:"pendente" },
-  { area:"Farmácia + Enfermagem", titulo:"Controle do Carrinho de Emergência e Lacre", status:"pendente" },
-  { area:"Farmácia", titulo:"Escrituração e Balanço Mensal de Controlados", status:"pendente" },
-  { area:"Farmácia", titulo:"Backup e Continuidade do Sistema", status:"pendente" },
-];
-
-/* ---------------- helpers ---------------- */
-const $ = (sel, el=document) => el.querySelector(sel);
-
-const subById = id => substances.find(s => s.id === id);
-
-const patById = id => patients.find(p => p.id === id);
-
-const fmtDate = d => { const [y,m,dd]=d.split('-'); return `${dd}/${m}/${y}`; };
-
-const fmtBRL = v => (v||0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
-
-const diffDias = (d1,d2) => Math.round((new Date(d2) - new Date(d1)) / 86400000);
-
-function allLotes(){
+function allLotes() {
   const list = [];
-  invoices.forEach(nf => nf.itens.forEach(it => list.push({
-    subId:it.subId, lote:it.lote, validade:it.validade, qtd:it.qtd, custoUnit:it.custoUnit,
-    origem:'compra', canal:nf.canal, fonte:`NF ${nf.numero} — ${nf.fornecedor}`, data:nf.data,
+  initialInventory.forEach((it) => list.push({
+    subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: it.custoUnit,
+    origem: "inventario", fonte: "Inventário inicial", data: it.data,
+  }));
+  invoices.forEach((nf) => nf.itens.forEach((it) => list.push({
+    subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: it.custoUnit,
+    origem: "compra", canal: nf.canal, fonte: `NF ${nf.numero} — ${nf.fornecedor}`, data: nf.data,
   })));
-  donations.forEach(d => d.itens.forEach(it => list.push({
-    subId:it.subId, lote:it.lote, validade:it.validade, qtd:it.qtd, custoUnit:0, valorEstimado:it.valorEstimado,
-    origem:'doacao', fonte:`Doação — ${d.doador}`, data:d.data,
+  donations.forEach((d) => d.itens.forEach((it) => list.push({
+    subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: 0, valorEstimado: it.valorEstimado,
+    origem: "doacao", fonte: `Doação — ${d.doador}`, data: d.data,
   })));
-  patientMeds.forEach(pm => pm.itens.forEach(it => list.push({
-    subId:it.subId, lote:it.lote, validade:it.validade, qtd:it.qtd, custoUnit:0,
-    origem:'proprio', restritoPaciente:pm.paciente, fonte:`Medicação própria — ${patById(pm.paciente).nome}`, data:pm.data,
+  patientMeds.forEach((pm) => pm.itens.forEach((it) => list.push({
+    subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: 0,
+    origem: "proprio", restritoPaciente: pm.paciente, fonte: `Medicação própria — ${patById(pm.paciente).nome}`, data: pm.data,
   })));
   return list;
 }
 
-function saldoLote(lote){
-  const l = allLotes().find(x=>x.lote===lote);
-  if(!l) return 0;
-  const consumido = dispensations.filter(x=>x.lote===lote).reduce((a,x)=>a+x.qtd,0);
-  const devolvido = returns.filter(x=>x.lote===lote).reduce((a,x)=>a+x.qtd,0);
+function saldoLote(lote) {
+  const l = allLotes().find((x) => x.lote === lote);
+  if (!l) return 0;
+  const consumido = dispensations.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
+  const devolvido = returns.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
   return l.qtd - consumido + devolvido;
 }
 
-function saldo(subId){
-  return allLotes().filter(l=>l.subId===subId && l.origem!=='proprio').reduce((a,l)=>a+saldoLote(l.lote),0);
+function saldo(subId) {
+  return allLotes().filter((l) => l.subId === subId && l.origem !== "proprio").reduce((a, l) => a + saldoLote(l.lote), 0);
 }
 
-function custoMedio(subId){
-  const compras = allLotes().filter(l=>l.subId===subId && l.origem==='compra');
-  const totalQtd = compras.reduce((a,l)=>a+l.qtd,0);
-  const totalVal = compras.reduce((a,l)=>a+l.qtd*l.custoUnit,0);
-  return totalQtd ? totalVal/totalQtd : 0;
+function custoMedio(subId) {
+  const compras = allLotes().filter((l) => l.subId === subId && l.origem === "compra");
+  const totalQtd = compras.reduce((a, l) => a + l.qtd, 0);
+  const totalVal = compras.reduce((a, l) => a + l.qtd * l.custoUnit, 0);
+  return totalQtd ? totalVal / totalQtd : 0;
 }
 
-function validadeStatus(validade){
+function validadeStatus(validade) {
   const dias = diffDias(HOJE, validade);
-  if(dias < 0) return { key:'vencido', label:'Vencido', dias };
-  if(dias <= 90) return { key:'critico', label:`Vence em ${dias}d`, dias };
-  return { key:'ok', label:'Regular', dias };
+  if (dias < 0) return { key: "vencido", label: "Vencido", dias };
+  if (dias <= 90) return { key: "critico", label: `Vence em ${dias}d`, dias };
+  return { key: "ok", label: "Regular", dias };
 }
 
-function movTipoTag(tipo){
-  if(tipo==='entrada') return '<span class="tag tag-in">ENTRADA</span>';
-  if(tipo==='devolucao') return '<span class="tag tag-dev">DEVOLUÇÃO</span>';
+function movTipoTag(tipo) {
+  if (tipo === "entrada") return '<span class="tag tag-in">ENTRADA</span>';
+  if (tipo === "devolucao") return '<span class="tag tag-dev">DEVOLUÇÃO</span>';
   return '<span class="tag tag-out">SAÍDA</span>';
 }
+function movSign(tipo) { return tipo === "saida" ? "−" : "+"; }
 
-function movSign(tipo){ return tipo==='saida' ? '−' : '+'; }
-
-// Movimentações — geradas a partir de NF, doações, medicação própria, dispensações e devoluções. Fonte única de verdade do estoque.
-
-const movements = (() => {
-  let seq = 0;
-  const nextId = () => 'M' + String(++seq).padStart(3,'0');
+/* Movimentações — derivadas de inventário, NF, doações, custódia, dispensações e devoluções. */
+function buildMovements() {
   const list = [];
-  allLotes().forEach(l => list.push({
-    id: nextId(), data:l.data, tipo:'entrada', subId:l.subId, qtd:l.qtd, ref:l.fonte,
-    paciente:l.restritoPaciente||null, lote:l.lote, custoUnit:l.custoUnit, origem:l.origem,
+  allLotes().forEach((l) => list.push({
+    data: l.data, tipo: "entrada", subId: l.subId, qtd: l.qtd, ref: l.fonte,
+    paciente: l.restritoPaciente || null, lote: l.lote, custoUnit: l.custoUnit, origem: l.origem,
   }));
-  dispensations.forEach(d => {
-    const lote = allLotes().find(l => l.lote === d.lote);
+  dispensations.forEach((d) => {
+    const lote = allLotes().find((l) => l.lote === d.lote);
     list.push({
-      id: nextId(), data:d.data, tipo:'saida', subId:d.subId, qtd:d.qtd, ref:d.ref,
-      paciente:d.paciente, lote:d.lote, custoUnit: lote ? lote.custoUnit : custoMedio(d.subId),
+      data: d.data, tipo: "saida", subId: d.subId, qtd: d.qtd, ref: d.ref,
+      paciente: d.paciente, lote: d.lote, custoUnit: lote ? lote.custoUnit : custoMedio(d.subId),
     });
   });
-  returns.forEach(r => {
-    const lote = allLotes().find(l => l.lote === r.lote);
+  returns.forEach((r) => {
+    const lote = allLotes().find((l) => l.lote === r.lote);
     list.push({
-      id: nextId(), data:r.data, tipo:'devolucao', subId:r.subId, qtd:r.qtd, ref:`Devolução — ${r.motivo}`,
-      paciente:r.paciente, lote:r.lote, custoUnit: lote ? lote.custoUnit : custoMedio(r.subId),
+      data: r.data, tipo: "devolucao", subId: r.subId, qtd: r.qtd, ref: `Devolução — ${r.motivo}`,
+      paciente: r.paciente, lote: r.lote, custoUnit: lote ? lote.custoUnit : custoMedio(r.subId),
     });
   });
-  list.sort((a,b)=> a.data < b.data ? -1 : a.data > b.data ? 1 : 0);
-  list.forEach((m,i)=> m.id = 'M' + String(i+1).padStart(3,'0'));
+  list.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+  list.forEach((m, i) => (m.id = "M" + String(i + 1).padStart(3, "0")));
   return list;
-})();
-
-function diasInternado(p){ return diffDias(p.admissao, HOJE) + 1; }
-
-function custoMedicamentosPaciente(patId){
-  return movements.filter(m=>m.tipo==='saida' && m.paciente===patId).reduce((a,m)=>a+m.qtd*(m.custoUnit||0), 0);
 }
 
-function custoDiariasPaciente(p){ return diasInternado(p) * DIARIA_INTERNACAO; }
-
-function custoTotalPaciente(p){ return custoDiariasPaciente(p) + custoMedicamentosPaciente(p.id); }
-
-function periodoDispensacaoDias(){
-  if(!dispensations.length) return 1;
-  const datas = dispensations.map(d=>d.data).sort();
-  return Math.max(diffDias(datas[0], datas[datas.length-1]) + 1, 1);
+function diasInternado(p) { return diffDias(p.admissao, HOJE) + 1; }
+function custoMedicamentosPaciente(patId) {
+  return movements.filter((m) => m.tipo === "saida" && m.paciente === patId).reduce((a, m) => a + m.qtd * (m.custoUnit || 0), 0);
 }
-
-function consumoMedioDiario(subId){
-  const total = dispensations.filter(d=>d.subId===subId).reduce((a,d)=>a+d.qtd, 0);
+function custoDiariasPaciente(p) { return diasInternado(p) * DIARIA_INTERNACAO; }
+function custoTotalPaciente(p) { return custoDiariasPaciente(p) + custoMedicamentosPaciente(p.id); }
+function periodoDispensacaoDias() {
+  if (!dispensations.length) return 1;
+  const datas = dispensations.map((d) => d.data).sort();
+  return Math.max(diffDias(datas[0], datas[datas.length - 1]) + 1, 1);
+}
+function consumoMedioDiario(subId) {
+  const total = dispensations.filter((d) => d.subId === subId).reduce((a, d) => a + d.qtd, 0);
   return total / periodoDispensacaoDias();
 }
 
-/* ---------------- mini gráficos SVG (sem dependências externas) ---------------- */
+/* ---------------- mini gráficos SVG (sem dependências) ---------------- */
+const CHART_COLORS = { primary: "#2C5F5A", accent: "#A9784F", success: "#5C7F58", warn: "#8B4A3A", line: "#DEDACD", ink: "#1E2A28", muted: "#8A928F" };
 
-const CHART_COLORS = { primary:'#2C5F5A', accent:'#A9784F', success:'#5C7F58', warn:'#8B4A3A', line:'#DEDACD', ink:'#1E2A28', muted:'#8A928F' };
-
-function svgBarChart(data, opts={}){
+function svgBarChart(data, opts = {}) {
   const width = opts.width || 600, height = opts.height || 190;
-  const pad = { top:26, right:14, bottom:30, left:14 };
+  const pad = { top: 26, right: 14, bottom: 30, left: 14 };
   const chartW = width - pad.left - pad.right, chartH = height - pad.top - pad.bottom;
-  const max = Math.max(...data.map(d=>d.value), 1);
-  const gap = chartW / data.length;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  const gap = chartW / (data.length || 1);
   const barW = Math.min(gap * 0.5, 46);
-  let bars = '';
-  data.forEach((d,i)=>{
-    const h = max ? (d.value/max) * chartH : 0;
-    const x = pad.left + i*gap + (gap-barW)/2;
+  let bars = "";
+  data.forEach((d, i) => {
+    const h = max ? (d.value / max) * chartH : 0;
+    const x = pad.left + i * gap + (gap - barW) / 2;
     const y = pad.top + chartH - h;
-    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h,1).toFixed(1)}" rx="5" fill="${opts.color||CHART_COLORS.primary}"/>
-      <text x="${(x+barW/2).toFixed(1)}" y="${(y-8).toFixed(1)}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${opts.valueFmt ? opts.valueFmt(d.value) : d.value}</text>
-      <text x="${(x+barW/2).toFixed(1)}" y="${height-10}" text-anchor="middle" font-size="10.5" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.muted}">${d.label}</text>`;
+    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h, 1).toFixed(1)}" rx="5" fill="${opts.color || CHART_COLORS.primary}"/>
+      <text x="${(x + barW / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${opts.valueFmt ? opts.valueFmt(d.value) : d.value}</text>
+      <text x="${(x + barW / 2).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="10.5" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.muted}">${d.label}</text>`;
   });
   return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:${height}px;display:block">${bars}</svg>`;
 }
 
-function svgHBarChart(data, opts={}){
+function svgHBarChart(data, opts = {}) {
   const width = opts.width || 600;
   const barH = opts.barHeight || 24, rowGap = opts.gap || 16;
   const labelW = opts.labelWidth || 168;
   const chartW = width - labelW - 74;
-  const max = Math.max(...data.map(d=>d.value), 1);
-  const height = data.length * (barH + rowGap);
-  let rows = '';
-  data.forEach((d,i)=>{
+  const max = Math.max(...data.map((d) => d.value), 1);
+  const height = (data.length || 1) * (barH + rowGap);
+  let rows = "";
+  data.forEach((d, i) => {
     const y = i * (barH + rowGap);
-    const w = Math.max((d.value/max) * chartW, 2);
-    rows += `<text x="0" y="${y+barH/2+4}" font-size="12" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.ink}">${d.label}</text>
-      <rect x="${labelW}" y="${y}" width="${w.toFixed(1)}" height="${barH}" rx="5" fill="${opts.color||CHART_COLORS.primary}"/>
-      <text x="${(labelW+w+8).toFixed(1)}" y="${y+barH/2+4}" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${opts.valueFmt ? opts.valueFmt(d.value) : d.value}</text>`;
+    const w = Math.max((d.value / max) * chartW, 2);
+    rows += `<text x="0" y="${y + barH / 2 + 4}" font-size="12" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.ink}">${d.label}</text>
+      <rect x="${labelW}" y="${y}" width="${w.toFixed(1)}" height="${barH}" rx="5" fill="${opts.color || CHART_COLORS.primary}"/>
+      <text x="${(labelW + w + 8).toFixed(1)}" y="${y + barH / 2 + 4}" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${opts.valueFmt ? opts.valueFmt(d.value) : d.value}</text>`;
   });
   return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:${height}px;display:block">${rows}</svg>`;
 }
 
-function listaTagClass(lista){
-  if(lista==='A') return 'tag-a';
-  if(lista.startsWith('B')) return 'tag-b';
-  if(lista.startsWith('C')) return 'tag-c';
-  return '';
+function listaTagClass(lista) {
+  if (lista === "A") return "tag-a";
+  if (lista.startsWith("B")) return "tag-b";
+  if (lista.startsWith("C")) return "tag-c";
+  return "";
 }
-
-/* ---------------- nav render ---------------- */

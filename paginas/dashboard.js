@@ -5,7 +5,7 @@
    ============================================================ */
 
 function renderPage(){
-  const totalSaidas = movements.filter(m=>m.tipo==='saida' && m.data==='2026-07-14').length;
+  const totalSaidas = movements.filter(m=>m.tipo==='saida' && m.data===HOJE).length;
   const baixos = substances.filter(s=> saldo(s.id) <= 10).length;
   return `
     <div class="note-box"><b>Ambiente de demonstração.</b> Os dados abaixo são fictícios, montados apenas para ilustrar como o sistema organiza pacientes, estoque de controlados e escrituração num único fluxo — sem planilhas soltas.</div>

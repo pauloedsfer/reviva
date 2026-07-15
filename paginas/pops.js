@@ -27,7 +27,7 @@ function renderPage(){
           </tbody>
         </table>
         <div class="foot-signoff">
-          <span>Farmacêutico RT: Paulo Edson Fernandes — CRF-GO 9303</span>
+          <span>Farmacêutico RT: ${rtLinha()}</span>
           <span>Cada POP deve ser assinado pelo RT e pela coordenação de enfermagem quando envolver dupla checagem</span>
         </div>
       </div>

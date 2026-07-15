@@ -27,8 +27,9 @@
     </div>
     <nav id="nav"></nav>
     <div class="sidebar-foot">
-      <div class="sidebar-foot-name">Paulo Edson Fernandes</div>
-      <div class="sidebar-foot-role">Farmacêutico RT · CRF-GO 9303</div>
+      <div class="sidebar-foot-name" id="footRtName">—</div>
+      <div class="sidebar-foot-role" id="footRtRole">—</div>
+      <button class="btn ghost sm" id="btnLogout" style="margin-top:10px;width:100%">Sair</button>
     </div>
   </aside>
 
@@ -41,14 +42,18 @@
           <div class="page-sub" id="pageSub"></div>
         </div>
       </div>
-      <span class="badge-proto">Protótipo — dados fictícios</span>
+      <span class="badge-proto" id="testBanner" style="display:none"></span>
     </div>
     <div id="viewport"></div>
   </main>
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/config.js"></script>
+<script src="assets/supabase.js"></script>
 <script src="assets/dados.js"></script>
+<script src="assets/relatorios.js"></script>
 <script src="assets/layout.js"></script>
 <script src="paginas/escrituracao.js"></script>
 </body>

@@ -1,10 +1,9 @@
 /* ============================================================
    layout.js — Hospital Reviva
-   Estrutura de navegação compartilhada por todas as páginas:
-   menu lateral, título da página, gaveta mobile.
-   Cada página HTML define <body data-page="ID"> e carrega,
-   depois deste arquivo, seu próprio paginas/ID.js contendo
-   window.renderPage().
+   Navegação compartilhada + inicialização assíncrona:
+   1) exige login  2) carrega config (RT/estabelecimento) e dados
+   do banco  3) só então renderiza a tela. Preenche o rodapé do RT
+   dinamicamente e mostra o banner de dados de teste quando houver.
    ============================================================ */
 
 const NAV = [
@@ -32,7 +31,8 @@ const NAV = [
     { id: "balanco", label: "Balanço Mensal (BMPO)", href: "balanco.html" },
     { id: "pops", label: "POPs do Fluxo", href: "pops.html" },
   ]},
-  { group: "Roadmap", items: [
+  { group: "Sistema", items: [
+    { id: "configuracoes", label: "Configurações (RT & Estabelecimento)", href: "configuracoes.html" },
     { id: "roadmap", label: "Evoluções futuras", href: "roadmap.html" },
   ]},
 ];
@@ -49,55 +49,113 @@ const TITLES = {
   doacoes: ["Doações", "Entradas sem custo ao hospital — valor estimado para relatório de economia"],
   previsao: ["Previsão de Compras", "Consumo médio, dias restantes e sugestão de reposição"],
   financeiro: ["Custos & Indicadores", "Custo com medicamentos, diárias de internação e custo por paciente"],
-  escrituracao: ["Livro de Registro", "Todas as movimentações — fonte única de verdade do estoque"],
+  escrituracao: ["Livro de Registro", "Todas as movimentações — fonte de verdade do estoque"],
   balanco: ["Balanço Mensal (BMPO)", "Estoque inicial, entradas, saídas e saldo final por substância"],
   pops: ["POPs do Fluxo", "Procedimentos que precisam existir formalmente para blindar o sistema"],
+  configuracoes: ["Configurações", "Dados do Responsável Técnico e do estabelecimento — usados nos rodapés e relatórios"],
   roadmap: ["Evoluções futuras", "Possibilidades de expansão do sistema em próximas fases"],
 };
 
-function renderNav(activePage){
-  const nav = document.getElementById('nav');
-  nav.innerHTML = NAV.map(group => `
+function renderNav(activePage) {
+  const nav = document.getElementById("nav");
+  nav.innerHTML = NAV.map((group) => `
     <div class="nav-group-label">${group.group}</div>
-    ${group.items.map(it => `
-      <a class="nav-item${it.id===activePage ? ' active' : ''}" href="${it.href}">
+    ${group.items.map((it) => `
+      <a class="nav-item${it.id === activePage ? " active" : ""}" href="${it.href}">
         <span class="nav-dot"></span><span class="label">${it.label}</span>
       </a>
-    `).join('')}
-  `).join('');
+    `).join("")}
+  `).join("");
 }
 
-function renderTitle(activePage){
+function renderTitle(activePage) {
   const t = TITLES[activePage];
-  if(!t) return;
-  const titleEl = document.getElementById('pageTitle');
+  if (!t) return;
+  const titleEl = document.getElementById("pageTitle");
   titleEl.textContent = t[0];
-  titleEl.classList.toggle('long', t[0].length > 40);
-  document.getElementById('pageSub').textContent = t[1];
-  document.title = t[0] + ' — Hospital Reviva';
+  titleEl.classList.toggle("long", t[0].length > 40);
+  document.getElementById("pageSub").textContent = t[1];
+  document.title = t[0] + " — Hospital Reviva";
 }
 
-function initLayout(){
+function aplicarRTFooter() {
+  const nameEl = document.getElementById("footRtName");
+  const roleEl = document.getElementById("footRtRole");
+  const rt = window.RT;
+  if (nameEl) nameEl.textContent = rt ? rt.nome : "RT não configurado";
+  if (roleEl) roleEl.textContent = rt ? `Farmacêutico RT · ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "Configure em Configurações";
+}
+
+async function aplicarBanner() {
+  const el = document.getElementById("testBanner");
+  if (!el) return;
+  const tem = await temDadosTeste();
+  if (tem) {
+    el.style.display = "inline-flex";
+    el.innerHTML = `⚠ Dados de teste — apagar antes do uso real
+      <button class="btn ghost sm" style="margin-left:10px" onclick="acaoLimparTeste()">Limpar dados de teste</button>`;
+  } else {
+    el.style.display = "none";
+  }
+}
+
+async function acaoLimparTeste() {
+  if (!confirm("Isto vai APAGAR toda a massa de teste (pacientes, notas, movimentações fictícias). A configuração do RT/estabelecimento é preservada.\n\nConfirmar?")) return;
+  try {
+    const msg = await limparDadosTeste();
+    alert(msg || "Dados de teste removidos.");
+    window.location.reload();
+  } catch (e) {
+    alert("Erro ao limpar: " + (e.message || e));
+  }
+}
+
+function wireChrome() {
+  const sidebarEl = document.getElementById("sidebar");
+  const backdropEl = document.getElementById("backdrop");
+  const open = () => { sidebarEl.classList.add("open"); backdropEl.classList.add("open"); };
+  const close = () => { sidebarEl.classList.remove("open"); backdropEl.classList.remove("open"); };
+  const menuBtn = document.getElementById("menuBtn");
+  const closeBtn = document.getElementById("sidebarClose");
+  if (menuBtn) menuBtn.addEventListener("click", open);
+  if (closeBtn) closeBtn.addEventListener("click", close);
+  if (backdropEl) backdropEl.addEventListener("click", close);
+  const logout = document.getElementById("btnLogout");
+  if (logout) logout.addEventListener("click", sair);
+  if (window.matchMedia("(max-width:820px)").matches) open();
+}
+
+async function initLayout() {
+  // 1) trava de login (redireciona se não houver sessão)
+  const logado = await exigirLogin();
+  if (!logado) return;
+
   const page = document.body.dataset.page;
   renderNav(page);
   renderTitle(page);
 
-  if (typeof renderPage === 'function') {
-    document.getElementById('viewport').innerHTML = renderPage();
+  // 2) carrega configuração e dados do banco antes de renderizar
+  try {
+    await carregarConfig();
+    await carregarDados();
+  } catch (e) {
+    aplicarRTFooter();
+    wireChrome();
+    document.getElementById("viewport").innerHTML =
+      `<div class="note-box"><b>Não foi possível carregar os dados do banco.</b><br>${e.message || e}
+       <br><br>Verifique se <code>assets/config.js</code> tem a URL e a chave corretas, e se o <code>schema.sql</code> foi executado no Supabase.</div>`;
+    return;
   }
 
-  const sidebarEl = document.getElementById('sidebar');
-  const backdropEl = document.getElementById('backdrop');
-  const openDrawer = () => { sidebarEl.classList.add('open'); backdropEl.classList.add('open'); };
-  const closeDrawer = () => { sidebarEl.classList.remove('open'); backdropEl.classList.remove('open'); };
-  document.getElementById('menuBtn').addEventListener('click', openDrawer);
-  document.getElementById('sidebarClose').addEventListener('click', closeDrawer);
-  backdropEl.addEventListener('click', closeDrawer);
+  aplicarRTFooter();
+  await aplicarBanner();
 
-  // No celular, a sidebar já começa visível para deixar claro que a navegação está ali
-  if (window.matchMedia('(max-width:820px)').matches){
-    openDrawer();
+  if (typeof renderPage === "function") {
+    document.getElementById("viewport").innerHTML = renderPage();
   }
+  if (typeof afterRender === "function") afterRender();
+
+  wireChrome();
 }
 
-document.addEventListener('DOMContentLoaded', initLayout);
+document.addEventListener("DOMContentLoaded", initLayout);
