@@ -137,6 +137,7 @@ async function initLayout() {
   // 2) carrega configuração e dados do banco antes de renderizar
   try {
     await carregarConfig();
+    await ensureUsuario();
     await carregarDados();
   } catch (e) {
     aplicarRTFooter();

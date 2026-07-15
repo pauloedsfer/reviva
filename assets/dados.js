@@ -24,6 +24,8 @@ let initialInventory = [];   // inventário inicial (abertura do estoque)
 let returns = [];
 let dispensations = [];
 let prescriptions = [];
+let prescritores = [];
+let fornecedores = [];
 let pops = [];
 let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
 let movements = [];
@@ -45,7 +47,7 @@ async function carregarConfig() {
 async function carregarDados() {
   const q = (sel) => window.SB.from(sel.t).select(sel.s || "*");
   const [
-    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist,
+    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns,
   ] = await Promise.all([
     window.SB.from("substancias").select("*"),
     window.SB.from("pacientes").select("*, prescritores(nome,conselho,uf,numero)"),
@@ -60,20 +62,26 @@ async function carregarDados() {
     window.SB.from("carrinho_emergencia").select("*").limit(1),
     window.SB.from("carrinho_itens").select("*"),
     window.SB.from("carrinho_historico").select("*"),
+    window.SB.from("prescritores").select("*"),
+    window.SB.from("fornecedores").select("*"),
   ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
 
   substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade }));
+  prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero }));
+  fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo }));
 
   patients = pacs.map((p) => {
     const pr = p.prescritores;
     const prescritor = pr ? `${pr.nome} — ${pr.conselho}-${pr.uf} ${pr.numero}` : "";
     return { id: p.id, nome: p.nome_completo, leito: p.leito, admissao: p.data_admissao,
-             prescritor, cpf: p.cpf, prontuario: p.prontuario, endereco: p.endereco };
+             prescritor, prescritorId: p.prescritor_id, cpf: p.cpf, prontuario: p.prontuario,
+             endereco: p.endereco, telefone: p.telefone, dataNascimento: p.data_nascimento, ativo: p.ativo };
   });
 
   prescriptions = presc.map((x) => ({
-    paciente: x.paciente_id, subId: x.substancia_id, dose: x.dose, via: x.via,
+    id: x.id, paciente: x.paciente_id, subId: x.substancia_id, dose: x.dose, via: x.via,
     horarios: Array.isArray(x.horarios) ? x.horarios : (x.horarios || []),
+    prescritorId: x.prescritor_id, dataInicio: x.data_inicio, ativo: x.ativo,
   }));
 
   invoices = invs.map((nf) => ({
@@ -122,7 +130,7 @@ async function carregarDados() {
   const c = cart[0];
   if (c) {
     emergencyCart = {
-      lacreAtual: c.lacre_atual, status: c.status, ultimaConferencia: c.ultima_conferencia,
+      id: c.id, lacreAtual: c.lacre_atual, status: c.status, ultimaConferencia: c.ultima_conferencia,
       responsavelConferencia: (window.RT ? window.RT.nome : "—"),
       itens: cartItens.filter((i) => i.carrinho_id === c.id)
         .map((i) => ({ nome: i.nome, qtdPadrao: i.qtd_padrao, validade: i.validade })),
@@ -146,6 +154,13 @@ function rtLinha() {
 const $ = (sel, el = document) => el.querySelector(sel);
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
 const patById = (id) => patients.find((p) => p.id === id) || { nome: "—", leito: "—" };
+const prescById = (id) => prescritores.find((p) => p.id === id) || null;
+const prescNome = (id) => { const p = prescById(id); return p ? `${p.nome} — ${p.conselho}-${p.uf} ${p.numero}` : "—"; };
+// Lotes existentes de uma substância com saldo > 0 (para devolução escolher a origem).
+function lotesComSaldo(subId) {
+  return allLotes().filter((l) => l.subId === subId).map((l) => l.lote)
+    .filter((v, i, a) => a.indexOf(v) === i);
+}
 const fmtDate = (d) => { if (!d) return "—"; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; };
 const fmtBRL = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const diffDias = (d1, d2) => Math.round((new Date(d2) - new Date(d1)) / 86400000);

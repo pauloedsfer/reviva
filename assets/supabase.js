@@ -39,6 +39,24 @@ async function sair() {
   window.location.href = "login.html";
 }
 
+// Garante uma linha em `usuarios` para o login atual (costura de multiusuário/auditoria).
+// Assim os lançamentos podem gravar quem registrou. Best-effort: se falhar, segue sem.
+async function ensureUsuario() {
+  try {
+    const s = await getSession();
+    if (!s) { window.USUARIO_ID = null; return null; }
+    const u = s.user;
+    const { error } = await window.SB.from("usuarios")
+      .upsert({ id: u.id, email: u.email, nome: u.email || "Responsável" }, { onConflict: "id" });
+    if (error) throw error;
+    window.USUARIO_ID = u.id;
+  } catch (e) { window.USUARIO_ID = null; }
+  return window.USUARIO_ID;
+}
+
+// Devolve {usuario_id} para espalhar nos inserts (ou {} se indisponível).
+function usuarioId() { return window.USUARIO_ID ? { usuario_id: window.USUARIO_ID } : {}; }
+
 // Existe massa de teste no banco? (usado para exibir o banner)
 async function temDadosTeste() {
   try {

@@ -43,8 +43,21 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 - **Relatórios imprimíveis** (Livro de Registro e BMPO) com cabeçalho do estabelecimento e assinatura do RT, sem o aviso de "documento de conferência" (como você definiu). O BMPO calcula o **estoque inicial** a partir das movimentações anteriores ao mês.
 - **Banner + limpeza** de dados de teste.
 
-## O que fica para a próxima fase (não incluído aqui, por combinação)
+## Lançamentos disponíveis nesta versão
 
-- **Formulários de lançamento** dentro do sistema (novo paciente, nova NF, nova dispensação, etc.). Por enquanto, para inserir/editar dados você usa o **Table Editor** do Supabase — ou pedimos que eu construa as telas de entrada na Parte 3.
-- **Login multiperfil** (farmácia/enfermagem/administração) e acesso simultâneo em rede. A estrutura já está pronta para isso (coluna de usuário nas tabelas + RLS ligada); ativar é configuração de política, não retrabalho.
+Agora o sistema é **gravável pelas telas** (não precisa mais do Table Editor do Supabase para o dia a dia):
+
+- **Pacientes** — cadastrar e editar (nome, CPF, prontuário, leito, endereço, admissão, prescritor).
+- **Prescrições** — nova/editar, com **data da prescrição** e **médico prescritor** (dá para criar um prescritor novo na hora). Horários separados por vírgula; use SOS.
+- **Dose Unitária** — **Imprimir etiquetas do dia** gera uma etiqueta por **horário** de cada paciente (ex.: João → uma 08h e uma 22h). E **Registrar devolução** reintegra ao lote de origem.
+- **Medicação do Paciente** — registrar custódia (cabeçalho + itens), restrita ao paciente.
+- **Carrinho de Emergência** — registrar rompimento e reposição do lacre (atualiza status e grava no histórico).
+- **Notas Fiscais** e **Doações** — lançar com múltiplos itens; cada item vira um lote rastreável.
+
+Quem registrou cada lançamento fica gravado (coluna de usuário) — é a mesma costura que habilita o multiperfil depois.
+
+## O que fica para a próxima fase (não incluído, por combinação)
+
+- **Login multiperfil** (farmácia/enfermagem/administração) e acesso simultâneo em rede. A estrutura já está pronta (coluna de usuário nas tabelas + RLS ligada); ativar é configuração de política, não retrabalho.
 - **Prescrição eletrônica** (Fase 4 do roadmap).
+- Edição/estorno de NF, doação e dispensação já lançadas (hoje o razão é derivado; correções entram como novos lançamentos).
