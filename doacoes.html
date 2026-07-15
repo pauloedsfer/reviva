@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hospital Reviva</title>
+<link rel="icon" href="assets/logo-reviva.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body data-page="doacoes">
+<div class="app">
+
+  <div class="backdrop" id="backdrop"></div>
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-close" id="sidebarClose" aria-label="Fechar menu">✕</button>
+    <div class="brand">
+      <div class="brand-logo">
+        <img src="assets/logo-reviva.png" alt="Hospital Reviva" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="fallback" style="display:none;">R</div>
+      </div>
+      <div class="brand-text">
+        <div class="brand-mark">Hospital Reviva</div>
+        <div class="brand-sub">Clínica de Reabilitação</div>
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="sidebar-foot-name">Paulo Edson Fernandes</div>
+      <div class="sidebar-foot-role">Farmacêutico RT · CRF-GO 9303</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="menu-btn" id="menuBtn" aria-label="Abrir menu"><span></span></button>
+        <div>
+          <div class="page-title" id="pageTitle"></div>
+          <div class="page-sub" id="pageSub"></div>
+        </div>
+      </div>
+      <span class="badge-proto">Protótipo — dados fictícios</span>
+    </div>
+    <div id="viewport"></div>
+  </main>
+
+</div>
+
+<script src="assets/dados.js"></script>
+<script src="assets/layout.js"></script>
+<script src="paginas/doacoes.js"></script>
+</body>
+</html>
