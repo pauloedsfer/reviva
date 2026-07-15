@@ -1,52 +1,102 @@
 /* ============================================================
    paginas/prescricoes.js — Hospital Reviva
-   Mapa de prescrição: nova/editar prescrição, com data e médico.
+   Nova prescrição com VÁRIAS substâncias (cabeçalho + linhas),
+   cada substância vira uma linha do mapa. Edição individual por linha.
    ============================================================ */
 
-function _formPrescricao(pr) {
-  pr = pr || {};
-  const horarios = (pr.horarios || []).join(", ");
-  return `
+/* -------- linhas de medicamento (para a nova prescrição múltipla) -------- */
+function addMedRow() {
+  const cont = document.getElementById("prMeds");
+  const row = document.createElement("div");
+  row.className = "item-row";
+  row.style.gridTemplateColumns = "1.6fr .9fr .6fr 1fr .5fr";
+  row.innerHTML = `
+    <div><select class="m-sub">${_optSubs()}</select></div>
+    <div><input type="text" class="m-dose" value="1 comp." placeholder="Dose"></div>
+    <div><input type="text" class="m-via" value="VO" placeholder="Via"></div>
+    <div><input type="text" class="m-hor" placeholder="08h, 22h"></div>
+    <button type="button" class="item-del" onclick="this.parentElement.remove()">✕</button>`;
+  cont.appendChild(row);
+}
+function coletarMeds() {
+  const rows = Array.from(document.querySelectorAll("#prMeds .item-row"));
+  const meds = rows.map((r) => ({
+    sub: r.querySelector(".m-sub").value,
+    dose: r.querySelector(".m-dose").value.trim(),
+    via: r.querySelector(".m-via").value.trim(),
+    horarios: r.querySelector(".m-hor").value.split(",").map((h) => h.trim()).filter(Boolean),
+  })).filter((m) => m.sub && m.horarios.length);
+  if (!meds.length) throw new Error("Adicione ao menos uma substância com horário(s).");
+  return meds;
+}
+
+/* -------- nova prescrição (múltiplas substâncias) -------- */
+function abrirFormPrescricao() {
+  const corpo = `
     <div class="ff row2">
-      <div><label>Paciente *</label><select id="rPac">${_optPats(pr.paciente)}</select></div>
-      <div><label>Data da prescrição *</label><input id="rData" type="date" value="${pr.dataInicio || new Date().toISOString().slice(0,10)}"></div>
+      <div><label>Paciente *</label><select id="rPac">${_optPats()}</select></div>
+      <div><label>Data da prescrição *</label><input id="rData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
-    <div class="ff"><label>Substância *</label><select id="rSub">${_optSubs(pr.subId)}</select></div>
     <div class="ff"><label>Médico prescritor</label>
-      <select id="rPresc" onchange="_toggleBloco('rPresc','blocoNovoPresc')">${_optPresc(pr.prescritorId)}</select>
+      <select id="rPresc" onchange="_toggleBloco('rPresc','blocoNovoPresc')">${_optPresc()}</select>
+    </div>
+    ${_blocoNovoPrescritor()}
+    <div class="item-head">Medicamentos da prescrição</div>
+    <div id="prMeds"></div>
+    <button type="button" class="btn ghost sm add-item" onclick="addMedRow()">+ Adicionar substância</button>
+    <div class="note-box" style="margin:8px 0 0">Horários separados por vírgula (ex.: <b>08h, 22h</b>) ou <b>SOS</b>.</div>
+  `;
+  abrirModal("Nova prescrição", corpo, async () => {
+    const pac = fv("rPac"); const data = fv("rData");
+    if (!pac) throw new Error("Selecione o paciente.");
+    if (!data) throw new Error("Informe a data da prescrição.");
+    const prescritorId = await resolvePrescritor("rPresc");
+    const meds = coletarMeds();
+    const rows = meds.map((m) => ({
+      paciente_id: pac, substancia_id: m.sub, prescritor_id: prescritorId,
+      dose: m.dose || null, via: m.via || null, horarios: m.horarios,
+      data_inicio: data, ativo: true, ...usuarioId(),
+    }));
+    const { error } = await window.SB.from("prescricoes").insert(rows);
+    if (error) throw error;
+  }, "Cadastrar prescrição");
+  addMedRow();
+}
+
+/* -------- edição individual de uma linha -------- */
+function abrirEditarPrescricao(id) {
+  const pr = prescriptions.find((x) => x.id === id); if (!pr) return;
+  const corpo = `
+    <div class="ff row2">
+      <div><label>Paciente *</label><select id="ePac">${_optPats(pr.paciente)}</select></div>
+      <div><label>Data da prescrição *</label><input id="eData" type="date" value="${pr.dataInicio || new Date().toISOString().slice(0,10)}"></div>
+    </div>
+    <div class="ff"><label>Substância *</label><select id="eSub">${_optSubs(pr.subId)}</select></div>
+    <div class="ff"><label>Médico prescritor</label>
+      <select id="ePresc" onchange="_toggleBloco('ePresc','blocoNovoPresc')">${_optPresc(pr.prescritorId)}</select>
     </div>
     ${_blocoNovoPrescritor()}
     <div class="ff row3">
-      <div><label>Dose</label><input id="rDose" value="${(pr.dose || "1 comp.").replace(/"/g, "&quot;")}"></div>
-      <div><label>Via</label><input id="rVia" value="${pr.via || "VO"}"></div>
-      <div><label>Horários</label><input id="rHor" value="${horarios}" placeholder="08h, 22h ou SOS"></div>
+      <div><label>Dose</label><input id="eDose" value="${(pr.dose || "").replace(/"/g, "&quot;")}"></div>
+      <div><label>Via</label><input id="eVia" value="${pr.via || "VO"}"></div>
+      <div><label>Horários</label><input id="eHor" value="${(pr.horarios || []).join(", ")}"></div>
     </div>
-    <div class="note-box" style="margin:6px 0 0">Separe os horários por vírgula. Use <b>SOS</b> para se necessário.</div>
   `;
-}
-
-function abrirFormPrescricao(id) {
-  const pr = id ? prescriptions.find((x) => x.id === id) : null;
-  abrirModal(id ? "Editar prescrição" : "Nova prescrição", _formPrescricao(pr), async () => {
-    const pac = fv("rPac"); const sub = fv("rSub"); const data = fv("rData");
-    if (!pac) throw new Error("Selecione o paciente.");
-    if (!sub) throw new Error("Selecione a substância.");
-    if (!data) throw new Error("Informe a data da prescrição.");
-    const prescritorId = await resolvePrescritor("rPresc");
-    const horarios = fv("rHor").split(",").map((h) => h.trim()).filter(Boolean);
+  abrirModal("Editar prescrição", corpo, async () => {
+    const pac = fv("ePac"); const sub = fv("eSub"); const data = fv("eData");
+    if (!pac || !sub || !data) throw new Error("Paciente, substância e data são obrigatórios.");
+    // no form de edição, o select de prescritor tem id ePresc; resolvePrescritor lê os campos np*
+    let prescritorId = fv("ePresc");
+    if (prescritorId === "__novo__") prescritorId = await resolvePrescritor("ePresc");
     const dados = {
-      paciente_id: pac, substancia_id: sub, prescritor_id: prescritorId,
-      dose: fvOrNull("rDose"), via: fvOrNull("rVia"), horarios: horarios,
-      data_inicio: data, ativo: true,
+      paciente_id: pac, substancia_id: sub, prescritor_id: prescritorId || null,
+      dose: fvOrNull("eDose"), via: fvOrNull("eVia"),
+      horarios: fv("eHor").split(",").map((h) => h.trim()).filter(Boolean),
+      data_inicio: data,
     };
-    if (id) {
-      const { error } = await window.SB.from("prescricoes").update(dados).eq("id", id);
-      if (error) throw error;
-    } else {
-      const { error } = await window.SB.from("prescricoes").insert({ ...dados, ...usuarioId() });
-      if (error) throw error;
-    }
-  }, id ? "Salvar alterações" : "Cadastrar prescrição");
+    const { error } = await window.SB.from("prescricoes").update(dados).eq("id", id);
+    if (error) throw error;
+  }, "Salvar alterações");
 }
 
 function renderPage() {
@@ -69,7 +119,7 @@ function renderPage() {
                 <td>${pr.horarios.map(h=>`<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${h}</span>`).join(' ')}</td>
                 <td style="color:var(--muted)">${pr.prescritorId ? prescNome(pr.prescritorId) : "—"}</td>
                 <td class="mono">${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"}</td>
-                <td><button class="btn ghost sm" onclick="abrirFormPrescricao('${pr.id}')">Editar</button></td>
+                <td><button class="btn ghost sm" onclick="abrirEditarPrescricao('${pr.id}')">Editar</button></td>
               </tr>
             `).join('')}
           </tbody>

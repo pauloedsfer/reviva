@@ -115,7 +115,7 @@ async function carregarDados() {
   }));
 
   dispensations = disp.map((d) => ({
-    data: d.data, subId: d.substancia_id, lote: d.numero_lote, qtd: d.quantidade,
+    id: d.id, data: d.data, subId: d.substancia_id, lote: d.numero_lote, qtd: d.quantidade,
     ref: d.referencia, paciente: d.paciente_id,
   }));
 
@@ -161,6 +161,16 @@ function lotesComSaldo(subId) {
   return allLotes().filter((l) => l.subId === subId).map((l) => l.lote)
     .filter((v, i, a) => a.indexOf(v) === i);
 }
+// Lotes disponíveis (saldo > 0) com validade e saldo, ordenados por FEFO (validade mais próxima primeiro).
+function lotesDisponiveis(subId) {
+  return allLotes().filter((l) => l.subId === subId)
+    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
+    .filter((x) => x.saldo > 0)
+    .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
+}
+function loteFEFO(subId) { const d = lotesDisponiveis(subId); return d[0] ? d[0].lote : ""; }
+// Quantidade a partir do texto da dose ("1 comp." -> 1, "2 comp" -> 2; padrão 1).
+function qtdDaDose(dose) { const m = (dose || "").match(/\d+/); return m ? parseInt(m[0], 10) : 1; }
 const fmtDate = (d) => { if (!d) return "—"; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; };
 const fmtBRL = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const diffDias = (d1, d2) => Math.round((new Date(d2) - new Date(d1)) / 86400000);

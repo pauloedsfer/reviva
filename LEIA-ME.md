@@ -47,12 +47,15 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 
 Agora o sistema é **gravável pelas telas** (não precisa mais do Table Editor do Supabase para o dia a dia):
 
-- **Pacientes** — cadastrar e editar (nome, CPF, prontuário, leito, endereço, admissão, prescritor).
-- **Prescrições** — nova/editar, com **data da prescrição** e **médico prescritor** (dá para criar um prescritor novo na hora). Horários separados por vírgula; use SOS.
-- **Dose Unitária** — **Imprimir etiquetas do dia** gera uma etiqueta por **horário** de cada paciente (ex.: João → uma 08h e uma 22h). E **Registrar devolução** reintegra ao lote de origem.
-- **Medicação do Paciente** — registrar custódia (cabeçalho + itens), restrita ao paciente.
-- **Carrinho de Emergência** — registrar rompimento e reposição do lacre (atualiza status e grava no histórico).
-- **Notas Fiscais** e **Doações** — lançar com múltiplos itens; cada item vira um lote rastreável.
+- **Substâncias** (tela Estoque) — **+ Nova substância** e edição (nome, princípio ativo, concentração, forma, lista da Portaria 344/98, unidade).
+- **Pacientes** — cadastrar e editar.
+- **Prescrições** — nova prescrição com **várias substâncias de uma vez** (cabeçalho com paciente/data/prescritor + várias linhas de medicamento). Edição individual por linha. Dá para criar um prescritor novo na hora.
+- **Dose Unitária — hoje** — o coração do dia:
+  - **A dispensar hoje**: seleciona as doses (com lote de saída pré-escolhido por FEFO), clica em **Confirmar dispensação** → baixa automática no estoque.
+  - **Dispensados hoje**: o que já saiu, com **Estornar** para desfazer engano (devolve ao estoque).
+  - **Registrar devolução** (SOS não usado) e **Imprimir etiquetas** (uma por horário de cada paciente).
+- **Medicação do Paciente** (custódia), **Notas Fiscais** e **Doações** — lançamento com múltiplos itens; cada item vira lote rastreável.
+- **Carrinho de Emergência** — registrar rompimento/reposição do lacre.
 
 Quem registrou cada lançamento fica gravado (coluna de usuário) — é a mesma costura que habilita o multiperfil depois.
 
