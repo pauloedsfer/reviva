@@ -55,11 +55,11 @@ function renderPage() {
       </div>
       <div class="panel-body">
         <table>
-          <thead><tr><th>Paciente</th><th>Leito</th><th>Admissão</th><th>Dias internado</th><th>Prescritor</th><th>Custo até agora</th><th></th></tr></thead>
+          <thead><tr><th>Paciente</th><th>Leito</th><th>Admissão</th><th>Dias internado</th><th>Prescritor</th><th>Medicamentos (custo)</th><th></th></tr></thead>
           <tbody>
             ${patients.map(p=>{
               const dias = diasInternado(p);
-              const custo = custoTotalPaciente(p);
+              const custo = custoMedicamentosPaciente(p.id);
               return `<tr>
                 <td><b>${p.nome}</b></td>
                 <td class="mono">${p.leito || "—"}</td>
@@ -74,6 +74,5 @@ function renderPage() {
         </table>
       </div>
     </div>
-    <div class="note-box">Custo = diária de internação (${fmtBRL(DIARIA_INTERNACAO)}/dia, valor ilustrativo) + medicamentos efetivamente dispensados. Detalhamento em <b>Custos &amp; Indicadores</b>.</div>
-  `;
+    <div class="note-box">O valor mostrado é apenas o <b>custo de medicamentos</b> efetivamente dispensados ao paciente (a custo de aquisição). Medicação em custódia não gera custo. Diária de internação, salários e sistema não entram — o foco é a farmácia. Detalhamento em <b>Custos &amp; Indicadores</b>.</div>`;
 }

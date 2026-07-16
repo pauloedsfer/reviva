@@ -50,7 +50,7 @@ const TITLES = {
   notasfiscais: ["Notas Fiscais", "Entradas por compra — cada item gera um lote em estoque"],
   doacoes: ["Doações", "Entradas sem custo ao hospital — valor estimado para relatório de economia"],
   previsao: ["Previsão de Compras", "Consumo médio, dias restantes e sugestão de reposição"],
-  financeiro: ["Custos & Indicadores", "Custo com medicamentos, diárias de internação e custo por paciente"],
+  financeiro: ["Custos & Indicadores", "Custos da farmácia — medicamentos dispensados, valor em estoque e economia com doações"],
   escrituracao: ["Livro de Registro", "Todas as movimentações — fonte de verdade do estoque"],
   balanco: ["Balanço Mensal (BMPO)", "Estoque inicial, entradas, saídas e saldo final por substância"],
   pops: ["POPs do Fluxo", "Procedimentos que precisam existir formalmente para blindar o sistema"],
