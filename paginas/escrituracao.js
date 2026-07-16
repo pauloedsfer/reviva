@@ -7,11 +7,11 @@
 function _livroLinhas(paraImpressao) {
   const running = {};
   substances.forEach((s) => (running[s.id] = 0));
+  const TXT = { entrada: "Entrada", devolucao: "Devolução", saida: "Saída", ajuste_entrada: "Ajuste +", ajuste_saida: "Ajuste −" };
   return movements.map((m) => {
-    running[m.subId] += m.tipo === "saida" ? -m.qtd : m.qtd;
-    const tipo = paraImpressao
-      ? (m.tipo === "entrada" ? "Entrada" : m.tipo === "devolucao" ? "Devolução" : "Saída")
-      : movTipoTag(m.tipo);
+    const neg = (m.tipo === "saida" || m.tipo === "ajuste_saida");
+    running[m.subId] += neg ? -m.qtd : m.qtd;
+    const tipo = paraImpressao ? (TXT[m.tipo] || m.tipo) : movTipoTag(m.tipo);
     const pacRef = `${m.paciente ? patById(m.paciente).nome + " · " : ""}${m.ref}`;
     if (paraImpressao) {
       return `<tr>

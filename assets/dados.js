@@ -22,6 +22,7 @@ let donations = [];
 let patientMeds = [];
 let initialInventory = [];   // inventário inicial (abertura do estoque)
 let returns = [];
+let ajustes = [];
 let dispensations = [];
 let prescriptions = [];
 let prescritores = [];
@@ -140,6 +141,18 @@ async function carregarDados() {
     };
   }
 
+  // Ajustes de inventário (tabela adicionada por migration_ajustes.sql).
+  // Carrega de forma tolerante: se a migração ainda não rodou, segue sem ajustes.
+  try {
+    const { data: ajs, error: eaj } = await window.SB.from("ajustes_estoque").select("*");
+    if (eaj) throw eaj;
+    ajustes = (ajs || []).map((a) => ({
+      id: a.id, data: a.data, subId: a.substancia_id, lote: a.numero_lote,
+      delta: a.quantidade, saldoSistema: a.saldo_sistema, contagemFisica: a.contagem_fisica,
+      justificativa: a.justificativa,
+    }));
+  } catch (e) { ajustes = []; }
+
   movements = buildMovements();
 }
 
@@ -201,7 +214,8 @@ function saldoLote(lote) {
   if (!l) return 0;
   const consumido = dispensations.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
   const devolvido = returns.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
-  return l.qtd - consumido + devolvido;
+  const ajustado = ajustes.filter((x) => x.lote === lote).reduce((a, x) => a + x.delta, 0);
+  return l.qtd - consumido + devolvido + ajustado;
 }
 
 function saldo(subId) {
@@ -225,9 +239,11 @@ function validadeStatus(validade) {
 function movTipoTag(tipo) {
   if (tipo === "entrada") return '<span class="tag tag-in">ENTRADA</span>';
   if (tipo === "devolucao") return '<span class="tag tag-dev">DEVOLUÇÃO</span>';
+  if (tipo === "ajuste_entrada") return '<span class="tag tag-in">AJUSTE +</span>';
+  if (tipo === "ajuste_saida") return '<span class="tag tag-out">AJUSTE −</span>';
   return '<span class="tag tag-out">SAÍDA</span>';
 }
-function movSign(tipo) { return tipo === "saida" ? "−" : "+"; }
+function movSign(tipo) { return (tipo === "saida" || tipo === "ajuste_saida") ? "−" : "+"; }
 
 /* Movimentações — derivadas de inventário, NF, doações, custódia, dispensações e devoluções. */
 function buildMovements() {
@@ -248,6 +264,13 @@ function buildMovements() {
     list.push({
       data: r.data, tipo: "devolucao", subId: r.subId, qtd: r.qtd, ref: `Devolução — ${r.motivo}`,
       paciente: r.paciente, lote: r.lote, custoUnit: lote ? lote.custoUnit : custoMedio(r.subId),
+    });
+  });
+  ajustes.forEach((a) => {
+    list.push({
+      data: a.data, tipo: a.delta >= 0 ? "ajuste_entrada" : "ajuste_saida", subId: a.subId,
+      qtd: Math.abs(a.delta), ref: `Ajuste de inventário — ${a.justificativa}`,
+      paciente: null, lote: a.lote, custoUnit: 0, origem: "ajuste",
     });
   });
   list.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));

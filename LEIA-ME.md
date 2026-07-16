@@ -1,6 +1,10 @@
-# Hospital Reviva — Sistema conectado ao banco (Parte 2)
+# Hospital Reviva — Sistema conectado ao banco
 
-O sistema agora lê e grava no seu banco Supabase, tem **login**, **cadastro do RT como dado** (tela de Configurações) e **impressão do Livro de Registro e do BMPO** para fiscalização. Siga os passos abaixo uma única vez.
+O sistema lê e grava no seu banco Supabase, tem **login**, **cadastro do RT como dado**, **lançamentos pelas telas**, **dispensação com baixa de estoque**, **ajuste de inventário** e **impressão do Livro de Registro e do BMPO** para fiscalização.
+
+## ⚠ Antes de usar o Ajuste de Estoque: rodar a migração (uma vez)
+
+O recurso de **Ajuste de Estoque / Inventário** depende de uma tabela nova. Rode o arquivo **`migration_ajustes.sql`** uma única vez no **SQL Editor** do Supabase (New query → cola → Run). É aditivo e seguro: não apaga nada, só cria a tabela `ajustes_estoque` e estende as views. Se você abrir a tela de Ajustes antes de rodar, o resto do sistema continua funcionando normalmente — só os ajustes não aparecem. Siga os passos abaixo uma única vez.
 
 ## 1. Conectar ao seu banco
 
@@ -48,6 +52,7 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 Agora o sistema é **gravável pelas telas** (não precisa mais do Table Editor do Supabase para o dia a dia):
 
 - **Substâncias** (tela Estoque) — **+ Nova substância** e edição (nome, princípio ativo, concentração, forma, lista da Portaria 344/98, unidade).
+- **Ajuste de Estoque / Inventário** — conte um lote fisicamente e informe a quantidade real; se divergir do sistema, registra um **ajuste com justificativa obrigatória** que reconcilia o saldo (aparece no Livro como movimentação). Requer a migração acima.
 - **Pacientes** — cadastrar e editar.
 - **Prescrições** — nova prescrição com **várias substâncias de uma vez** (cabeçalho com paciente/data/prescritor + várias linhas de medicamento). Edição individual por linha. Dá para criar um prescritor novo na hora.
 - **Dose Unitária — hoje** — o coração do dia:

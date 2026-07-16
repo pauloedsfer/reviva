@@ -14,6 +14,7 @@ const NAV = [
   ]},
   { group: "Farmácia", items: [
     { id: "estoque", label: "Substâncias, Lotes & Validade", href: "estoque.html" },
+    { id: "ajustes", label: "Ajuste de Estoque / Inventário", href: "ajustes.html" },
     { id: "prescricoes", label: "Prescrições ativas", href: "prescricoes.html" },
     { id: "medicacaopropria", label: "Medicação do Paciente", href: "medicacaopropria.html" },
     { id: "carrinho", label: "Carrinho de Emergência", href: "carrinho.html" },
@@ -42,6 +43,7 @@ const TITLES = {
   pacientes: ["Pacientes", "Cadastro ativo — capacidade e ocupação atual"],
   dose: ["Dose Unitária — hoje", "Kits de dose por paciente e horário, prontos para dupla checagem"],
   estoque: ["Substâncias, Lotes & Validade", "Saldo por lote calculado a partir das movimentações"],
+  ajustes: ["Ajuste de Estoque / Inventário", "Reconcilia a contagem física com o sistema — via lançamento, com justificativa"],
   prescricoes: ["Prescrições ativas", "Base para a montagem diária da dose unitária"],
   medicacaopropria: ["Medicação do Paciente", "Custódia — trazida pelo paciente/família, sem custo e restrita a ele"],
   carrinho: ["Carrinho de Emergência", "Controle de lacre e itens padronizados"],

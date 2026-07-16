@@ -35,11 +35,12 @@ function _bmpoLinha(s, mes) {
   movements.forEach((m) => {
     if (m.subId !== s.id) return;
     if (proprios.has(m.lote)) return; // custódia fora do BMPO
-    const sinal = m.tipo === "saida" ? -m.qtd : m.qtd;
+    const neg = (m.tipo === "saida" || m.tipo === "ajuste_saida");
+    const sinal = neg ? -m.qtd : m.qtd;
     if (m.data < inicioMes) { inicial += sinal; return; }
     if (m.data.slice(0, 7) !== mes) return;
-    if (m.tipo === "saida") saidas += m.qtd;
-    else entradas += m.qtd; // entrada e devolução
+    if (neg) saidas += m.qtd;
+    else entradas += m.qtd; // entrada, devolução e ajuste positivo
   });
   return { inicial, entradas, saidas, final: inicial + entradas - saidas };
 }
