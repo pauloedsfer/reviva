@@ -11,6 +11,7 @@ const NAV = [
     { id: "dashboard", label: "Painel", href: "index.html" },
     { id: "pacientes", label: "Pacientes", href: "pacientes.html" },
     { id: "dose", label: "Dose Unitária — hoje", href: "dose.html" },
+    { id: "mapa", label: "Mapa de Medicação (impressão)", href: "mapa.html" },
   ]},
   { group: "Farmácia", items: [
     { id: "estoque", label: "Substâncias, Lotes & Validade", href: "estoque.html" },
@@ -42,6 +43,7 @@ const TITLES = {
   dashboard: ["Sistema de Controle de Estoque e Escrituração de Medicamentos da Farmácia Hospitalar", "Visão geral da farmácia e da ocupação"],
   pacientes: ["Pacientes", "Cadastro ativo — capacidade e ocupação atual"],
   dose: ["Dose Unitária — hoje", "Kits de dose por paciente e horário, prontos para dupla checagem"],
+  mapa: ["Mapa de Medicação", "Mapa diário para a enfermagem — imprima por dia, com espaço para anotações à mão"],
   estoque: ["Substâncias, Lotes & Validade", "Saldo por lote calculado a partir das movimentações"],
   ajustes: ["Ajuste de Estoque / Inventário", "Reconcilia a contagem física com o sistema — via lançamento, com justificativa"],
   prescricoes: ["Prescrições ativas", "Base para a montagem diária da dose unitária"],

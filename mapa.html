@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hospital Reviva</title>
+<link rel="icon" href="assets/logo-reviva.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/estilos.css">
+</head>
+<body data-page="mapa">
+<div class="app">
+
+  <div class="backdrop" id="backdrop"></div>
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-close" id="sidebarClose" aria-label="Fechar menu">✕</button>
+    <div class="brand">
+      <div class="brand-logo">
+        <img src="assets/logo-reviva.png" alt="Hospital Reviva" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="fallback" style="display:none;">R</div>
+      </div>
+      <div class="brand-text">
+        <div class="brand-mark">Hospital Reviva</div>
+        <div class="brand-sub">Clínica de Reabilitação</div>
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="sidebar-foot-name" id="footRtName">—</div>
+      <div class="sidebar-foot-role" id="footRtRole">—</div>
+      <button class="btn ghost sm" id="btnLogout" style="margin-top:10px;width:100%">Sair</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="menu-btn" id="menuBtn" aria-label="Abrir menu"><span></span></button>
+        <div>
+          <div class="page-title" id="pageTitle"></div>
+          <div class="page-sub" id="pageSub"></div>
+        </div>
+      </div>
+      <span class="badge-proto" id="testBanner" style="display:none"></span>
+    </div>
+    <div id="viewport"></div>
+  </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/config.js"></script>
+<script src="assets/supabase.js"></script>
+<script src="assets/dados.js"></script>
+<script src="assets/relatorios.js"></script>
+<script src="assets/forms.js"></script>
+<script src="assets/layout.js"></script>
+<script src="paginas/mapa.js"></script>
+</body>
+</html>

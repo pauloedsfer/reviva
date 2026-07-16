@@ -60,6 +60,7 @@ Agora o sistema é **gravável pelas telas** (não precisa mais do Table Editor 
 - **Ajuste de Estoque / Inventário** — conte um lote fisicamente e informe a quantidade real; se divergir do sistema, registra um **ajuste com justificativa obrigatória** que reconcilia o saldo (aparece no Livro como movimentação). Requer a migração acima.
 - **Pacientes** — cadastrar e editar.
 - **Prescrições** — nova prescrição com **várias substâncias de uma vez** (cabeçalho com paciente/data/prescritor + várias linhas de medicamento). Edição individual por linha. Dá para criar um prescritor novo na hora.
+- **Mapa de Medicação (impressão)** — gera o mapa diário da enfermagem, um por dia (uma página por dia): Nome/Idade/Leito e medicações nas colunas Manhã/Tarde/Noite (ou Manhã/Noite). Escolha data inicial e nº de dias para deixar o fim de semana pronto, com linhas em branco por paciente e fichas de paciente em branco para anotarem à mão.
 - **Dose Unitária — hoje** — o coração do dia:
   - **A dispensar hoje**: seleciona as doses (com lote de saída pré-escolhido por FEFO), clica em **Confirmar dispensação** → baixa automática no estoque.
   - **Dispensados hoje**: o que já saiu, com **Estornar** para desfazer engano (devolve ao estoque).

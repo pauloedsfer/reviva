@@ -67,7 +67,8 @@ async function carregarDados() {
     window.SB.from("fornecedores").select("*"),
   ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
 
-  substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade }));
+  substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
+    principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma }));
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
   fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo }));
 
