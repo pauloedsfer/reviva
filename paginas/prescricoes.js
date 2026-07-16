@@ -117,7 +117,7 @@ function renderPage() {
                 <td>${pr.dose || "—"}</td>
                 <td class="mono">${pr.via || "—"}</td>
                 <td>${pr.horarios.map(h=>`<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${h}</span>`).join(' ')}</td>
-                <td style="color:var(--muted)">${pr.prescritorId ? prescNome(pr.prescritorId) : "—"}</td>
+                <td style="color:var(--muted)">${pr.prescritorId ? prescNome(pr.prescritorId) + ((prescById(pr.prescritorId)||{}).externo ? ' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">EXTERNO</span>' : '') : "—"}</td>
                 <td class="mono">${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"}</td>
                 <td><button class="btn ghost sm" onclick="abrirEditarPrescricao('${pr.id}')">Editar</button></td>
               </tr>

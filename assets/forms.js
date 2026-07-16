@@ -108,7 +108,7 @@ function _optPats(sel) {
 }
 function _optPresc(sel) {
   return `<option value="">— selecione —</option>` +
-    prescritores.map((p) => `<option value="${p.id}"${p.id === sel ? " selected" : ""}>${p.nome} (${p.conselho}-${p.uf} ${p.numero})</option>`).join("") +
+    prescritores.map((p) => `<option value="${p.id}"${p.id === sel ? " selected" : ""}>${p.nome} (${p.conselho}-${p.uf} ${p.numero})${p.externo ? " · externo" : ""}</option>`).join("") +
     `<option value="__novo__">+ Novo prescritor…</option>`;
 }
 function _optForn(sel) {
@@ -162,7 +162,7 @@ async function resolvePrescritor(selectId) {
   if (val !== "__novo__") return null;
   const nome = fv("npNome");
   if (!nome) throw new Error("Informe o nome do novo prescritor.");
-  const novo = { nome, conselho: fv("npConselho") || "CRM", uf: fv("npUf"), numero: fv("npNumero") };
+  const novo = { nome, conselho: fv("npConselho") || "CRM", uf: fv("npUf"), numero: fv("npNumero"), externo: fv("npVinculo") === "externo" };
   const { data, error } = await window.SB.from("prescritores").insert(novo).select("id").single();
   if (error) throw error;
   return data.id;
@@ -186,6 +186,12 @@ function _blocoNovoPrescritor() {
       <div><label>Conselho</label><input id="npConselho" value="CRM"></div>
       <div><label>UF</label><input id="npUf" placeholder="GO"></div>
       <div><label>Número</label><input id="npNumero" placeholder="12345"></div>
+    </div>
+    <div class="ff"><label>Vínculo</label>
+      <select id="npVinculo">
+        <option value="interno">Interno (médico da clínica)</option>
+        <option value="externo">Externo (prescrição trazida de fora)</option>
+      </select>
     </div></div>`;
 }
 function _blocoNovoFornecedor() {

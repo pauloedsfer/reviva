@@ -6,6 +6,11 @@ O sistema lê e grava no seu banco Supabase, tem **login**, **cadastro do RT com
 
 O recurso de **Ajuste de Estoque / Inventário** depende de uma tabela nova. Rode o arquivo **`migration_ajustes.sql`** uma única vez no **SQL Editor** do Supabase (New query → cola → Run). É aditivo e seguro: não apaga nada, só cria a tabela `ajustes_estoque` e estende as views. Se você abrir a tela de Ajustes antes de rodar, o resto do sistema continua funcionando normalmente — só os ajustes não aparecem. Siga os passos abaixo uma única vez.
 
+
+## ⚠ Prescrições externas: rodar a migração (uma vez)
+
+Para marcar prescritores como **interno/externo** (prescrições que o paciente traz de médicos de fora), rode **`migration_prescritor_externo.sql`** uma vez no SQL Editor. Aditivo e seguro. Depois disso, ao criar um prescritor pelo botão "+ Novo prescritor", você escolhe o **vínculo**, e prescrições de médicos externos aparecem com a tag EXTERNO.
+
 ## 1. Conectar ao seu banco
 
 Abra `assets/config.js` e cole os dois valores do seu projeto Supabase:
