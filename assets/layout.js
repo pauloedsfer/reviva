@@ -10,7 +10,7 @@ const NAV = [
   { group: "Operação", items: [
     { id: "dashboard", label: "Painel", href: "index.html" },
     { id: "pacientes", label: "Pacientes", href: "pacientes.html" },
-    { id: "dose", label: "Dose Unitária — hoje", href: "dose.html" },
+    { id: "dose", label: "Dispensação (dose unitária)", href: "dose.html" },
     { id: "mapa", label: "Mapa de Medicação (impressão)", href: "mapa.html" },
   ]},
   { group: "Farmácia", items: [
@@ -21,6 +21,7 @@ const NAV = [
     { id: "carrinho", label: "Carrinho de Emergência", href: "carrinho.html" },
   ]},
   { group: "Suprimentos", items: [
+    { id: "cotacao", label: "Cotação de Compras", href: "cotacao.html" },
     { id: "notasfiscais", label: "Notas Fiscais", href: "notasfiscais.html" },
     { id: "doacoes", label: "Doações", href: "doacoes.html" },
     { id: "previsao", label: "Previsão de Compras", href: "previsao.html" },
@@ -42,13 +43,14 @@ const NAV = [
 const TITLES = {
   dashboard: ["Sistema de Controle de Estoque e Escrituração de Medicamentos da Farmácia Hospitalar", "Visão geral da farmácia e da ocupação"],
   pacientes: ["Pacientes", "Cadastro ativo — capacidade e ocupação atual"],
-  dose: ["Dose Unitária — hoje", "Kits de dose por paciente e horário, prontos para dupla checagem"],
+  dose: ["Dispensação — Dose Unitária", "Dê baixa por data — selecione o dia, inclusive retroativo, a partir dos mapas"],
   mapa: ["Mapa de Medicação", "Mapa diário para a enfermagem — imprima por dia, com espaço para anotações à mão"],
   estoque: ["Substâncias, Lotes & Validade", "Saldo por lote calculado a partir das movimentações"],
   ajustes: ["Ajuste de Estoque / Inventário", "Reconcilia a contagem física com o sistema — via lançamento, com justificativa"],
   prescricoes: ["Prescrições ativas", "Base para a montagem diária da dose unitária"],
   medicacaopropria: ["Medicação do Paciente", "Custódia — trazida pelo paciente/família, sem custo e restrita a ele"],
   carrinho: ["Carrinho de Emergência", "Controle de lacre e itens padronizados"],
+  cotacao: ["Cotação de Compras", "Monte a lista a cotar e gere a planilha para enviar aos fornecedores"],
   notasfiscais: ["Notas Fiscais", "Entradas por compra — cada item gera um lote em estoque"],
   doacoes: ["Doações", "Entradas sem custo ao hospital — valor estimado para relatório de economia"],
   previsao: ["Previsão de Compras", "Consumo médio, dias restantes e sugestão de reposição"],

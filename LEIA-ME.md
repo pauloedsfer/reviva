@@ -11,6 +11,11 @@ O recurso de **Ajuste de Estoque / Inventário** depende de uma tabela nova. Rod
 
 Para marcar prescritores como **interno/externo** (prescrições que o paciente traz de médicos de fora), rode **`migration_prescritor_externo.sql`** uma vez no SQL Editor. Aditivo e seguro. Depois disso, ao criar um prescritor pelo botão "+ Novo prescritor", você escolhe o **vínculo**, e prescrições de médicos externos aparecem com a tag EXTERNO.
 
+
+## ⚠ Cotação de compras: rodar a migração (uma vez)
+
+Para o módulo de **Cotação** (menu Suprimentos), rode **`migration_cotacao.sql`** uma vez no SQL Editor. Aditivo e seguro. Você cria uma cotação, adiciona itens (de substâncias cadastradas ou digitados livres, com quantidade da padronização) e **imprime a solicitação** no formato para o fornecedor preencher (unid./caixa, preço, validade). A entrada dos preços e a comparação entre fornecedores (Fase B) virão depois.
+
 ## 1. Conectar ao seu banco
 
 Abra `assets/config.js` e cole os dois valores do seu projeto Supabase:
@@ -61,10 +66,11 @@ Agora o sistema é **gravável pelas telas** (não precisa mais do Table Editor 
 - **Pacientes** — cadastrar e editar.
 - **Prescrições** — nova prescrição com **várias substâncias de uma vez** (cabeçalho com paciente/data/prescritor + várias linhas de medicamento). Edição individual por linha. Dá para criar um prescritor novo na hora.
 - **Mapa de Medicação (impressão)** — gera o mapa diário da enfermagem, um por dia (uma página por dia): Nome/Idade/Leito e medicações nas colunas Manhã/Tarde/Noite (ou Manhã/Noite). Escolha data inicial e nº de dias para deixar o fim de semana pronto, com linhas em branco por paciente e fichas de paciente em branco para anotarem à mão.
-- **Dose Unitária — hoje** — o coração do dia:
-  - **A dispensar hoje**: seleciona as doses (com lote de saída pré-escolhido por FEFO), clica em **Confirmar dispensação** → baixa automática no estoque.
-  - **Dispensados hoje**: o que já saiu, com **Estornar** para desfazer engano (devolve ao estoque).
-  - **Registrar devolução** (SOS não usado) e **Imprimir etiquetas** (uma por horário de cada paciente).
+- **Dispensação (dose unitária)** — baixa **por data**:
+  - **Seletor de dia** (padrão hoje): escolha uma data — inclusive **dias passados** — para dar baixa **retroativa** a partir dos Mapas de Medicação preenchidos. Pendentes, baixa e a data gravada no estoque respeitam o dia escolhido.
+  - **A dispensar**: seleciona as doses (lote de saída pré-escolhido por FEFO) e **Confirmar dispensação** → baixa no estoque na data selecionada.
+  - **Dispensados na data**: o que saiu, com **Estornar** para desfazer engano.
+  - **Registrar devolução** e **Etiquetas do dia**.
 - **Medicação do Paciente** (custódia) — lançamento com múltiplos itens + botão **🖶 Termo de Custódia**, que escolhe o paciente e gera um comprovante imprimível (dados do paciente, medicações recebidas, declaração e assinaturas do paciente/responsável e do RT). **Notas Fiscais** e **Doações** — lançamento com múltiplos itens; cada item vira lote rastreável.
 - **Carrinho de Emergência** — registrar rompimento/reposição do lacre.
 

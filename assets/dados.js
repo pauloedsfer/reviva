@@ -28,6 +28,7 @@ let prescriptions = [];
 let prescritores = [];
 let fornecedores = [];
 let pops = [];
+let cotacoes = [];
 let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
 let movements = [];
 
@@ -155,6 +156,18 @@ async function carregarDados() {
   } catch (e) { ajustes = []; }
 
   movements = buildMovements();
+
+  // Cotações (tabela adicionada por migration_cotacao.sql). Carga tolerante.
+  try {
+    const { data: cots, error: ec } = await window.SB.from("cotacoes").select("*, cotacao_itens(*)");
+    if (ec) throw ec;
+    cotacoes = (cots || []).map((c) => ({
+      id: c.id, identificador: c.identificador, data: c.data, status: c.status, observacao: c.observacao,
+      itens: (c.cotacao_itens || [])
+        .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+        .map((it) => ({ id: it.id, substanciaId: it.substancia_id, descricao: it.descricao, unidade: it.unidade, quantidade: it.quantidade })),
+    })).sort((a, b) => (a.data < b.data ? 1 : -1));
+  } catch (e) { cotacoes = []; }
 }
 
 /* Linha de identificação do RT, montada a partir da configuração. */

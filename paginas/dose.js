@@ -1,9 +1,14 @@
 /* ============================================================
    paginas/dose.js — Hospital Reviva
-   Dispensação do dia: seleciona doses pendentes -> confirma ->
-   baixa no estoque (dispensacoes) -> vão para "dispensados hoje".
-   Impressão de etiquetas por horário e registro de devolução.
+   Dispensação POR DATA (dose unitária). Selecione o dia — inclusive
+   dias passados — para dar baixa retroativa a partir dos Mapas de
+   Medicação preenchidos. Pendentes, baixa e a data gravada no
+   estoque respeitam o dia escolhido. Etiquetas e devolução também.
    ============================================================ */
+
+let _dataRef = null;
+function dataRef() { return _dataRef || HOJE; }
+function mudarDataDisp(v) { _dataRef = v || HOJE; document.getElementById("viewport").innerHTML = renderPage(); }
 
 function _slots() {
   const set = new Set();
@@ -13,11 +18,17 @@ function _slots() {
   return arr;
 }
 
-// Todas as doses esperadas hoje (uma por prescrição x horário).
+// Prescrições ativas NA data de referência (início <= data). Sem início = sempre.
+function _prescricoesNaData(d) {
+  return prescriptions.filter((pr) => !pr.dataInicio || pr.dataInicio <= d);
+}
+
+// Doses esperadas para a data de referência.
 function _dosesEsperadas() {
+  const d = dataRef();
   const list = [];
   patients.forEach((p) => {
-    prescriptions.filter((pr) => pr.paciente === p.id).forEach((pr) => {
+    _prescricoesNaData(d).filter((pr) => pr.paciente === p.id).forEach((pr) => {
       pr.horarios.forEach((h) => {
         list.push({ pac: p.id, nomePac: p.nome, leito: p.leito || "", subId: pr.subId,
                     dose: pr.dose || "", horario: h, qtd: qtdDaDose(pr.dose) });
@@ -26,15 +37,17 @@ function _dosesEsperadas() {
   });
   return list.sort((a, b) => (a.nomePac + a.horario).localeCompare(b.nomePac + b.horario));
 }
-function _dispensadoHoje(pac, subId, horario) {
-  return dispensations.some((d) => d.data === HOJE && d.paciente === pac && d.subId === subId && d.ref === "Dose " + horario);
+function _dispensadoNaData(pac, subId, horario) {
+  const d = dataRef();
+  return dispensations.some((x) => x.data === d && x.paciente === pac && x.subId === subId && x.ref === "Dose " + horario);
 }
 
-/* -------- etiquetas -------- */
+/* -------- etiquetas (para a data de referência) -------- */
 function _gerarEtiquetas() {
   const slots = _slots(); const labels = [];
+  const d = dataRef();
   patients.forEach((p) => {
-    const pres = prescriptions.filter((pr) => pr.paciente === p.id);
+    const pres = _prescricoesNaData(d).filter((pr) => pr.paciente === p.id);
     slots.forEach((slot) => {
       const items = pres.filter((pr) => pr.horarios.includes(slot));
       if (items.length) labels.push({ patient: p, slot, items });
@@ -45,12 +58,12 @@ function _gerarEtiquetas() {
 window.printLabels = function () {
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
-  const hoje = new Date().toLocaleDateString("pt-BR");
+  const dataTxt = fmtDate(dataRef());
   const labels = _gerarEtiquetas();
-  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas."); return; }
+  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nessa data."); return; }
   const cards = labels.map((l) => `
     <div class="lbl">
-      <div class="lbl-h">${hosp} — Dose Unitária · ${hoje}</div>
+      <div class="lbl-h">${hosp} — Dose Unitária · ${dataTxt}</div>
       <div class="lbl-p">${l.patient.nome}</div>
       <div class="lbl-b">${l.patient.leito || ""}</div>
       <div class="lbl-t">${l.slot}${l.slot === "SOS" ? " — se necessário" : ""}</div>
@@ -82,6 +95,7 @@ function _selLote(subId) {
 }
 
 async function confirmarDispensacao() {
+  const d = dataRef();
   const checks = Array.from(document.querySelectorAll(".disp-check:checked"));
   if (!checks.length) { alert("Selecione ao menos uma dose para dispensar."); return; }
   const rows = [];
@@ -90,11 +104,12 @@ async function confirmarDispensacao() {
     const sel = tr.querySelector(".disp-lote");
     const lote = sel ? sel.value : "";
     if (!lote) { alert(`Sem lote com saldo para ${c.dataset.nome} (${subById(c.dataset.sub).nome}). Dê entrada de estoque antes.`); return; }
-    rows.push({ data: HOJE, substancia_id: c.dataset.sub, numero_lote: lote,
+    rows.push({ data: d, substancia_id: c.dataset.sub, numero_lote: lote,
       quantidade: Number(c.dataset.qtd), referencia: "Dose " + c.dataset.hor,
       paciente_id: c.dataset.pac, ...usuarioId() });
   }
-  if (!confirm(`Confirmar a dispensação de ${rows.length} dose(s)? Isso dará baixa no estoque.`)) return;
+  const msgData = d === HOJE ? "" : ` na data ${fmtDate(d)} (baixa retroativa)`;
+  if (!confirm(`Confirmar a dispensação de ${rows.length} dose(s)${msgData}? Isso dará baixa no estoque.`)) return;
   const btn = document.getElementById("btnDispensar");
   if (btn) { btn.disabled = true; btn.textContent = "Dispensando…"; }
   try {
@@ -121,77 +136,92 @@ function marcarTodas(v) {
 }
 
 function renderPage() {
+  const d = dataRef();
+  const ehHoje = d === HOJE;
   const esperadas = _dosesEsperadas();
-  const pendentes = esperadas.filter((d) => !_dispensadoHoje(d.pac, d.subId, d.horario));
-  const dispensadasHoje = dispensations.filter((d) => d.data === HOJE && d.ref && d.ref.indexOf("Dose ") === 0);
-  const returnsHoje = returns.filter((r) => r.data === HOJE);
+  const pendentes = esperadas.filter((x) => !_dispensadoNaData(x.pac, x.subId, x.horario));
+  const dispensadasData = dispensations.filter((x) => x.data === d && x.ref && x.ref.indexOf("Dose ") === 0);
+  const returnsData = returns.filter((r) => r.data === d);
+
+  const bannerRetro = ehHoje ? "" :
+    `<div class="note-box" style="border-color:#E0C9A6;background:#FBF3E4"><b>Dispensação retroativa — ${fmtDate(d)}.</b> Você está dando baixa em um dia passado, a partir do Mapa de Medicação preenchido. As saídas serão gravadas com esta data.</div>`;
 
   const pendentesHtml = pendentes.length ? `
     <table>
       <thead><tr><th style="width:34px"><input type="checkbox" onclick="marcarTodas(this.checked)"></th><th>Paciente</th><th>Horário</th><th>Substância</th><th>Qtd.</th><th>Lote (saída)</th></tr></thead>
       <tbody>
-        ${pendentes.map((d) => {
-          const semSaldo = lotesDisponiveis(d.subId).length === 0;
+        ${pendentes.map((x) => {
+          const semSaldo = lotesDisponiveis(x.subId).length === 0;
           return `<tr>
             <td><input type="checkbox" class="disp-check" ${semSaldo ? "disabled" : ""}
-                 data-pac="${d.pac}" data-sub="${d.subId}" data-hor="${d.horario}" data-qtd="${d.qtd}" data-nome="${d.nomePac.replace(/"/g,'&quot;')}"></td>
-            <td><b>${d.nomePac}</b> <span style="color:var(--muted)">· ${d.leito}</span></td>
-            <td><span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${d.horario}</span></td>
-            <td>${subById(d.subId).nome}</td>
-            <td class="num mono">${d.qtd}</td>
-            <td>${_selLote(d.subId)}</td>
+                 data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
+            <td><b>${x.nomePac}</b> <span style="color:var(--muted)">· ${x.leito}</span></td>
+            <td><span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${x.horario}</span></td>
+            <td>${subById(x.subId).nome}</td>
+            <td class="num mono">${x.qtd}</td>
+            <td>${_selLote(x.subId)}</td>
           </tr>`;
         }).join("")}
       </tbody>
     </table>
-    <div style="margin-top:14px;text-align:right"><button class="btn" id="btnDispensar" onclick="confirmarDispensacao()">Confirmar dispensação</button></div>
-  ` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nada pendente — todas as doses de hoje já foram dispensadas (ou não há prescrições ativas).</div>`;
+    <div style="margin-top:14px;text-align:right"><button class="btn" id="btnDispensar" onclick="confirmarDispensacao()">Confirmar dispensação${ehHoje ? "" : " (retroativa)"}</button></div>
+  ` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nada pendente nesta data — todas as doses já foram dispensadas (ou não há prescrições ativas em ${fmtDate(d)}).</div>`;
 
-  const dispHtml = dispensadasHoje.length ? `
+  const dispHtml = dispensadasData.length ? `
     <table>
       <thead><tr><th>Paciente</th><th>Horário/Ref.</th><th>Substância</th><th>Lote</th><th>Qtd.</th><th></th></tr></thead>
       <tbody>
-        ${dispensadasHoje.map((d) => `<tr>
-          <td><b>${d.paciente ? patById(d.paciente).nome : "—"}</b></td>
-          <td>${d.ref}</td>
-          <td>${subById(d.subId).nome}</td>
-          <td><span class="folio">${d.lote}</span></td>
-          <td class="num mono">−${d.qtd}</td>
-          <td><button class="btn ghost sm" onclick="estornarDispensacao('${d.id}')">Estornar</button></td>
+        ${dispensadasData.map((x) => `<tr>
+          <td><b>${x.paciente ? patById(x.paciente).nome : "—"}</b></td>
+          <td>${x.ref}</td>
+          <td>${subById(x.subId).nome}</td>
+          <td><span class="folio">${x.lote}</span></td>
+          <td class="num mono">−${x.qtd}</td>
+          <td><button class="btn ghost sm" onclick="estornarDispensacao('${x.id}')">Estornar</button></td>
         </tr>`).join("")}
       </tbody>
-    </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma dose dispensada hoje ainda.</div>`;
+    </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma dose dispensada nesta data.</div>`;
 
   return `
-    <div class="note-box"><b>Fluxo do dia — ${fmtDate(HOJE)}.</b> Selecione as doses que vão para a enfermaria e confirme a dispensação — a baixa no estoque é automática. Estorne se algo for lançado por engano.</div>
-    <div class="print-btn-row"><button class="btn ghost" onclick="window.printLabels()">🖶 Imprimir etiquetas do dia</button></div>
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Dispensação por data</div><div class="panel-title-sub">Selecione o dia para dar baixa — inclusive dias passados, a partir dos mapas preenchidos</div></div>
+        <div class="toolbar">
+          <label style="font-size:12px;color:var(--muted);align-self:center">Dia:</label>
+          <input type="date" value="${d}" max="${HOJE}" onchange="mudarDataDisp(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+          <button class="btn ghost sm" onclick="window.printLabels()">🖶 Etiquetas do dia</button>
+        </div>
+      </div>
+    </div>
+
+    ${bannerRetro}
 
     <div class="panel">
-      <div class="panel-head"><div><div class="panel-title">A dispensar hoje</div><div class="panel-title-sub">${pendentes.length} dose(s) pendente(s) · lote de saída pré-selecionado por validade mais próxima (FEFO)</div></div></div>
+      <div class="panel-head"><div><div class="panel-title">A dispensar — ${fmtDate(d)}</div><div class="panel-title-sub">${pendentes.length} dose(s) pendente(s) · lote de saída pré-selecionado por validade mais próxima (FEFO)</div></div></div>
       <div class="panel-body">${pendentesHtml}</div>
     </div>
 
     <div class="panel">
-      <div class="panel-head"><div><div class="panel-title">Dispensados hoje</div><div class="panel-title-sub">${dispensadasHoje.length} baixa(s) registrada(s) hoje</div></div></div>
+      <div class="panel-head"><div><div class="panel-title">Dispensados — ${fmtDate(d)}</div><div class="panel-title-sub">${dispensadasData.length} baixa(s) nesta data</div></div></div>
       <div class="panel-body">${dispHtml}</div>
     </div>
 
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Devoluções ao estoque — hoje</div><div class="panel-title-sub">Medicação SOS não utilizada ou recusada, reintegrada ao lote de origem</div></div>
+        <div><div class="panel-title">Devoluções ao estoque — ${fmtDate(d)}</div><div class="panel-title-sub">Medicação SOS não utilizada ou recusada, reintegrada ao lote de origem</div></div>
         <button class="btn sm" onclick="abrirFormDevolucao()">+ Registrar devolução</button>
       </div>
       <div class="panel-body">
-        ${returnsHoje.length ? `<table>
+        ${returnsData.length ? `<table>
           <thead><tr><th>Paciente</th><th>Substância</th><th>Lote</th><th>Qtd.</th><th>Motivo</th></tr></thead>
-          <tbody>${returnsHoje.map((r) => `<tr>
+          <tbody>${returnsData.map((r) => `<tr>
             <td><b>${r.paciente ? patById(r.paciente).nome : "—"}</b></td>
             <td>${subById(r.subId).nome}</td>
             <td><span class="folio">${r.lote}</span></td>
             <td class="num mono">+${r.qtd}</td>
             <td style="color:var(--muted)">${r.motivo || ""}</td>
           </tr>`).join("")}</tbody>
-        </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma devolução registrada hoje.</div>`}
+        </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma devolução registrada nesta data.</div>`}
       </div>
     </div>
   `;
@@ -209,7 +239,7 @@ function abrirFormDevolucao() {
   const primeiraSub = substances[0] ? substances[0].id : "";
   const corpo = `
     <div class="ff row2">
-      <div><label>Data *</label><input id="dvData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><label>Data *</label><input id="dvData" type="date" value="${dataRef()}"></div>
       <div><label>Paciente</label><select id="dvPac">${_optPats()}</select></div>
     </div>
     <div class="ff row2">
