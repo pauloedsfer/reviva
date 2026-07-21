@@ -7,10 +7,13 @@
    quais linhas aparecem, nunca recalculam o saldo dentro do recorte.
    ============================================================ */
 
-let _lvFiltro = { pac: "", de: "", ate: "", tipo: "todos", sub: "", lista: "" };
+// validade de um lote (para exibir no livro)
+function _validadeLote(lote) { const l = allLotes().find((x) => x.lote === lote); return l ? l.validade : null; }
+
+let _lvFiltro = { pac: "", de: "", ate: "", tipo: "todos", sub: "", lista: "", lote: "" };
 
 function _lvSet(campo, valor) { _lvFiltro[campo] = valor; document.getElementById("viewport").innerHTML = renderPage(); }
-function _lvLimpar() { _lvFiltro = { pac: "", de: "", ate: "", tipo: "todos", sub: "", lista: "" }; document.getElementById("viewport").innerHTML = renderPage(); }
+function _lvLimpar() { _lvFiltro = { pac: "", de: "", ate: "", tipo: "todos", sub: "", lista: "", lote: "" }; document.getElementById("viewport").innerHTML = renderPage(); }
 
 // aplica os filtros escolhidos a um lançamento já enriquecido com saldo real
 function _lvPassa(m) {
@@ -20,6 +23,7 @@ function _lvPassa(m) {
   if (f.ate && m.data > f.ate) return false;
   if (f.sub && m.subId !== f.sub) return false;
   if (f.lista) { const s = subById(m.subId); if ((s.lista || "") !== f.lista) return false; }
+  if (f.lote && m.lote !== f.lote) return false;
   if (f.tipo !== "todos") {
     if (f.tipo === "entrada" && m.tipo !== "entrada") return false;
     if (f.tipo === "saida" && m.tipo !== "saida") return false;
@@ -50,12 +54,14 @@ function _livroLinhas(paraImpressao) {
     if (paraImpressao) {
       return `<tr>
         <td class="mono">${m.id}</td><td class="mono">${fmtDate(m.data)}</td><td>${tipo}</td>
-        <td>${subById(m.subId).nome}</td><td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
+        <td>${subById(m.subId).nome}</td><td class="mono">${m.lote || "—"}</td><td class="mono">${fmtDate(_validadeLote(m.lote))}</td>
+        <td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
         <td>${pacRef}</td><td class="num mono">${saldo}</td></tr>`;
     }
     return `<tr>
       <td><span class="folio">${m.id}</span></td><td class="mono">${fmtDate(m.data)}</td><td>${tipo}</td>
-      <td>${subById(m.subId).nome}</td><td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
+      <td>${subById(m.subId).nome}</td><td class="mono">${m.lote || "—"}</td><td class="mono">${fmtDate(_validadeLote(m.lote))}</td>
+      <td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
       <td style="color:var(--muted)">${pacRef}</td><td class="num mono"><b>${saldo}</b></td></tr>`;
   }).join("");
 }
@@ -66,6 +72,7 @@ function _lvDescricao() {
   if (f.pac) p.push("Paciente: " + patById(f.pac).nome);
   if (f.sub) p.push("Substância: " + subById(f.sub).nome);
   if (f.lista) p.push("Lista: " + f.lista);
+  if (f.lote) p.push("Lote: " + f.lote);
   if (f.tipo !== "todos") p.push("Tipo: " + ({ entrada: "entradas", saida: "saídas", devolucao: "devoluções", ajuste: "ajustes de inventário" }[f.tipo]));
   if (f.de || f.ate) p.push(`Período: ${f.de ? fmtDate(f.de) : "início"} a ${f.ate ? fmtDate(f.ate) : "hoje"}`);
   return p.length ? p.join(" · ") : "Todos os lançamentos";
@@ -74,7 +81,7 @@ function _lvDescricao() {
 function imprimirLivro() {
   const linhas = _livroDados();
   const corpo = `<table>
-    <thead><tr><th>Folio</th><th>Data</th><th>Tipo</th><th>Substância</th><th class="num">Qtd.</th><th>Paciente / Referência</th><th class="num">Saldo após</th></tr></thead>
+    <thead><tr><th>Folio</th><th>Data</th><th>Tipo</th><th>Substância</th><th>Lote</th><th>Validade</th><th class="num">Qtd.</th><th>Paciente / Referência</th><th class="num">Saldo após</th></tr></thead>
     <tbody>${_livroLinhas(true)}</tbody></table>`;
   const periodo = linhas.length
     ? `${_lvDescricao()} · ${linhas.length} lançamento(s)`
@@ -95,9 +102,12 @@ function renderPage() {
     listas.map((l) => `<option value="${l}"${l === f.lista ? " selected" : ""}>Lista ${l}</option>`).join("");
   const optTipo = [["todos", "Todos os tipos"], ["entrada", "Entradas"], ["saida", "Saídas"], ["devolucao", "Devoluções"], ["ajuste", "Ajustes de inventário"]]
     .map(([v, t]) => `<option value="${v}"${v === f.tipo ? " selected" : ""}>${t}</option>`).join("");
+  const lotesDisp = [...new Set(allLotes().filter((l) => !f.sub || l.subId === f.sub).map((l) => l.lote))].sort();
+  const optLote = `<option value="">Todos os lotes</option>` +
+    lotesDisp.map((l) => `<option value="${l}"${l === f.lote ? " selected" : ""}>${l}</option>`).join("");
 
   const total = _livroDados().length;
-  const ativo = f.pac || f.sub || f.lista || f.de || f.ate || f.tipo !== "todos";
+  const ativo = f.pac || f.sub || f.lista || f.lote || f.de || f.ate || f.tipo !== "todos";
 
   return `
     <div class="panel">
@@ -118,6 +128,8 @@ function renderPage() {
             <select onchange="_lvSet('sub',this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optSubs}</select></div>
           <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Lista / classe</label>
             <select onchange="_lvSet('lista',this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optLista}</select></div>
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Lote</label>
+            <select onchange="_lvSet('lote',this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optLote}</select></div>
           <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">De</label>
             <input type="date" value="${f.de}" onchange="_lvSet('de',this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
           <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Até</label>
@@ -125,8 +137,8 @@ function renderPage() {
         </div>
         <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">${_lvDescricao()} · <b>${total}</b> lançamento(s)</div>
         <table>
-          <thead><tr><th>Folio</th><th>Data</th><th>Tipo</th><th>Substância</th><th>Qtd.</th><th>Paciente / Referência</th><th>Saldo após</th></tr></thead>
-          <tbody>${_livroLinhas(false) || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:10px">Nenhum lançamento no recorte selecionado.</td></tr>`}</tbody>
+          <thead><tr><th>Folio</th><th>Data</th><th>Tipo</th><th>Substância</th><th>Lote</th><th>Validade</th><th>Qtd.</th><th>Paciente / Referência</th><th>Saldo após</th></tr></thead>
+          <tbody>${_livroLinhas(false) || `<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:10px">Nenhum lançamento no recorte selecionado.</td></tr>`}</tbody>
         </table>
         <div class="foot-signoff">
           <span>Responsável técnico: ${rtLinha()}</span>
