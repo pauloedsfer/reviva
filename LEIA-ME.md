@@ -23,6 +23,11 @@ Para o fluxo de **alta** (custódia aguardando retirada, devolução à família
 
 Como funciona: na tela **Pacientes**, o botão **Dar alta** encerra as prescrições, grava a data, libera o leito e move o paciente para a aba **Arquivo (altas)** — nada é apagado. A custódia com saldo fica **aguardando retirada**; depois, na tela **Medicação do Paciente**, você decide item a item: **Devolver à família** (imprime o Termo de Devolução) ou **Integrar ao estoque** (passa a contar no estoque geral e no BMPO). Na dispensação, o lote padrão é o de **custódia do próprio paciente** (★); custódia de outros pacientes nunca aparece; estoque geral é escolha manual. O **Extrato de Alta** sai em duas versões: com valores (diretoria) ou sem valores (família), reimprimível a qualquer momento no Arquivo.
 
+
+## ⚠ Quantidade por horário na prescrição: rodar a migração (uma vez)
+
+Para dispensar **mais de um comprimido do mesmo medicamento por horário**, rode **`migration_qtd_dose.sql`** uma vez no SQL Editor (aditivo, seguro). A prescrição passa a ter o campo **Qtd. por horário** (padrão 1) — a dispensação usa esse número diretamente (não depende mais de deduzir pelo texto da dose). Aparece na tabela de prescrições e no mapa (ex.: "2×/dose").
+
 ## 1. Conectar ao seu banco
 
 Abra `assets/config.js` e cole os dois valores do seu projeto Supabase:
@@ -72,7 +77,7 @@ Agora o sistema é **gravável pelas telas** (não precisa mais do Table Editor 
 - **Ajuste de Estoque / Inventário** — conte um lote fisicamente e informe a quantidade real; se divergir do sistema, registra um **ajuste com justificativa obrigatória** que reconcilia o saldo (aparece no Livro como movimentação). Requer a migração acima.
 - **Pacientes** — cadastrar e editar.
 - **Prescrições** — nova prescrição com **várias substâncias de uma vez** (cabeçalho com paciente/data/prescritor + várias linhas de medicamento). Edição individual por linha. Dá para criar um prescritor novo na hora.
-- **Mapa de Medicação (impressão)** — dois formatos: **por paciente** (uma folha por paciente, dias em colunas para a enfermagem rubricar cada administração e arquivar no prontuário — padrão 5 dias) e **por dia** (uma folha por dia com todos os pacientes, colunas Manhã/Tarde/Noite ou Manhã/Noite). Ambos com linhas em branco para anotações à mão.
+- **Mapa de Medicação (impressão)** — dois formatos: **por paciente** (uma folha por paciente, dias em colunas para a enfermagem rubricar cada administração e arquivar no prontuário — padrão 5 dias) e **por dia** (uma folha por dia com todos os pacientes, colunas Manhã/Tarde/Noite ou Manhã/Noite). Ambos com linhas em branco para anotações à mão, opção de **gerar fichas/páginas em branco** para novos pacientes e um liga/desliga para **ignorar pacientes sem prescrição** na impressão.
 - **Dispensação (dose unitária)** — baixa **por data**:
   - **Seletor de dia** (padrão hoje): escolha uma data — inclusive **dias passados** — para dar baixa **retroativa** a partir dos Mapas de Medicação preenchidos. Pendentes, baixa e a data gravada no estoque respeitam o dia escolhido.
   - **A dispensar**: seleciona as doses (lote de saída pré-escolhido por FEFO) e **Confirmar dispensação** → baixa no estoque na data selecionada.

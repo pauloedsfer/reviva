@@ -97,10 +97,12 @@ function imprimirMapa() {
   const nDias = Math.max(1, Math.min(14, parseInt(document.getElementById("mapaDias").value, 10) || 1));
   const blankRows = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaLinhas").value, 10)));
   const blankPacs = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaFichas").value, 10)));
+  const pularSemPresc = document.getElementById("mapaSemPresc").value === "pular";
 
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
-  const pacsAll = patients.slice().sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || a.nome.localeCompare(b.nome));
+  let pacsAll = patients.slice().sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || a.nome.localeCompare(b.nome));
+  if (pularSemPresc) pacsAll = pacsAll.filter((p) => _temPrescricao(p));
 
   const paginas = [];
   for (let i = 0; i < nDias; i++) {
@@ -165,6 +167,7 @@ function _diasSpan(dataIni, nDias) {
   return dias;
 }
 const _DOW = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+function _temPrescricao(p) { return prescriptions.some((pr) => pr.paciente === p.id && (pr.horarios || []).length); }
 
 function imprimirMapaPaciente() {
   const nPer = document.getElementById("mapaPeriodos").value === "2" ? 2 : 3;
@@ -174,15 +177,18 @@ function imprimirMapaPaciente() {
   const dataIni = document.getElementById("mapaData").value || new Date().toISOString().slice(0, 10);
   const nDias = Math.max(1, Math.min(14, parseInt(document.getElementById("mapaDias").value, 10) || 5));
   const blankRows = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaLinhas").value, 10)));
+  const blankPacs = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaFichas").value, 10)));
+  const pularSemPresc = document.getElementById("mapaSemPresc").value === "pular";
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
   const dias = _diasSpan(dataIni, nDias);
 
   // pacientes internados em algum dia do período — uma PÁGINA por paciente
-  const pacs = patients
+  let pacs = patients
     .filter((p) => dias.some((d) => _internadoEm(p, d.toISOString().slice(0, 10))))
     .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || a.nome.localeCompare(b.nome));
-  if (!pacs.length) { alert("Nenhum paciente internado no período selecionado."); return; }
+  if (pularSemPresc) pacs = pacs.filter((p) => _temPrescricao(p));
+  if (!pacs.length && !blankPacs) { alert("Nenhum paciente com prescrição no período (ou todos foram ignorados). Ajuste a opção 'Pacientes sem prescrição' ou gere fichas em branco."); return; }
 
   const paginas = pacs.map((p) => {
     // repete o MESMO bloco do Mapa Diário, um por dia, para este paciente
@@ -204,6 +210,25 @@ function imprimirMapaPaciente() {
           <div class="cab-d">${fmtDate(dias[0].toISOString().slice(0,10))} a ${fmtDate(dias[dias.length-1].toISOString().slice(0,10))}</div>
         </div>
         ${blocosDia}
+        <div class="rodape">Enfermagem responsável: ____________________________ &nbsp;·&nbsp; Arquivar no prontuário do paciente</div>
+      </section>`;
+  }).join("");
+
+  // fichas em branco para novos pacientes (uma folha cada, blocos de dia vazios)
+  const brancas = Array.from({ length: blankPacs }, () => {
+    const blocos = dias.map((d) => `
+      <div class="dia-bloco">
+        <div class="dia-cab"><span class="dia-data">${_fmtDiaLongo(d)}</span> <span class="dia-pac"><b>Paciente:</b> __________________ · Idade: ____ · Leito: ____</span></div>
+        <table>
+          <thead><tr><th class="med">Medicação</th>${periodos.map((per) => `<th>${per.label}</th>`).join("")}</tr></thead>
+          <tbody>${_linhasVazias(blankRows + 3, periodos.length)}</tbody>
+        </table>
+      </div>`).join("");
+    return `
+      <section class="folha">
+        <div class="cab"><div class="cab-h">${hosp}</div><div class="cab-t">Mapa de Medicação — novo paciente</div>
+          <div class="cab-d">${fmtDate(dias[0].toISOString().slice(0,10))} a ${fmtDate(dias[dias.length-1].toISOString().slice(0,10))}</div></div>
+        ${blocos}
         <div class="rodape">Enfermagem responsável: ____________________________ &nbsp;·&nbsp; Arquivar no prontuário do paciente</div>
       </section>`;
   }).join("");
@@ -230,7 +255,7 @@ function imprimirMapaPaciente() {
     @media print{ .toolbar{ display:none; } }
   </style></head><body>
     <div class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
-    ${paginas}
+    ${paginas}${brancas}
   </body></html>`;
 
   const win = window.open("", "_blank");
@@ -267,6 +292,12 @@ function renderPage() {
           </div>
           <div><label>Linhas em branco por paciente</label><input id="mapaLinhas" type="number" min="0" max="10" value="3"></div>
           <div><label>Fichas de paciente em branco (no fim)</label><input id="mapaFichas" type="number" min="0" max="10" value="2"></div>
+          <div><label>Pacientes sem prescrição</label>
+            <select id="mapaSemPresc">
+              <option value="incluir">Incluir no mapa</option>
+              <option value="pular" selected>Ignorar (não imprimir)</option>
+            </select>
+          </div>
         </div>
         <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="imprimirMapaPaciente()">🖶 Mapa por paciente (prontuário)</button>
