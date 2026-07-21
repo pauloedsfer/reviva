@@ -8,6 +8,13 @@
    mão no fim de semana — e depois dar baixa no sistema.
    ============================================================ */
 
+// Paciente internado na data d (admitido até lá, sem alta anterior).
+function _internadoEm(p, dISO) {
+  if (p.admissao && p.admissao > dISO) return false;
+  if (p.dataAlta && p.dataAlta < dISO) return false;
+  return true;
+}
+
 function _idade(dataNasc) {
   if (!dataNasc) return "";
   const n = new Date(dataNasc), h = new Date();
@@ -93,12 +100,14 @@ function imprimirMapa() {
 
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
-  const pacs = patients.slice().sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || a.nome.localeCompare(b.nome));
+  const pacsAll = patients.slice().sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || a.nome.localeCompare(b.nome));
 
   const paginas = [];
   for (let i = 0; i < nDias; i++) {
     const d = new Date(dataIni + "T00:00:00");
     d.setDate(d.getDate() + i);
+    const dISO = d.toISOString().slice(0, 10);
+    const pacs = pacsAll.filter((p) => _internadoEm(p, dISO));
     const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows)).join("");
     const fichas = Array.from({ length: blankPacs }, () => _fichaVazia(periodos, blankRows)).join("");
     paginas.push(`

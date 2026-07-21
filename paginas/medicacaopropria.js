@@ -172,10 +172,18 @@ function renderPage(){
       </div>
       <div class="panel-body">
         ${patientMeds.length ? `<table>
-          <thead><tr><th>Paciente</th><th>Substância</th><th>Lote</th><th>Validade</th><th>Recebido</th><th>Saldo em custódia</th><th>Origem</th></tr></thead>
+          <thead><tr><th>Paciente</th><th>Substância</th><th>Lote</th><th>Validade</th><th>Recebido</th><th>Saldo</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             ${patientMeds.flatMap(pm => pm.itens.map(it=>{
               const bal = saldoLote(it.lote);
+              const st = statusCustodia(pm, it);
+              const stTag = st === "aguardando" ? '<span class="pill warn">● aguardando retirada</span>'
+                : st === "devolvido" ? '<span class="pill">● devolvido à família</span>'
+                : st === "integrado" ? '<span class="tag" style="background:var(--accent)">INTEGRADO AO ESTOQUE</span>'
+                : '<span class="tag tag-proprio">EM CUSTÓDIA</span>';
+              const acoes = (st === "aguardando" && bal > 0) ? `
+                <button class="btn ghost sm" onclick="abrirDevolucaoFamilia('${it.id}')">Devolver à família</button>
+                <button class="btn ghost sm" onclick="integrarAoEstoque('${it.id}')">Integrar ao estoque</button>` : "";
               return `<tr>
                 <td><b>${patById(pm.paciente).nome}</b> <span style="color:var(--muted)">· ${patById(pm.paciente).leito}</span></td>
                 <td>${subById(it.subId).nome}</td>
@@ -183,7 +191,8 @@ function renderPage(){
                 <td class="mono">${fmtDate(it.validade)}</td>
                 <td class="num mono">${it.qtd}</td>
                 <td class="num mono"><b>${bal}</b></td>
-                <td><span class="tag tag-proprio">PRÓPRIA DO PACIENTE</span></td>
+                <td>${stTag}</td>
+                <td style="text-align:right;white-space:nowrap">${acoes}</td>
               </tr>`;
             })).join('')}
           </tbody>
@@ -191,4 +200,84 @@ function renderPage(){
       </div>
     </div>
   `;
+}
+
+
+/* -------- destino da custódia (após a alta) -------- */
+function _acharItemCustodia(itemId) {
+  for (const pm of patientMeds) {
+    const it = pm.itens.find((x) => x.id === itemId);
+    if (it) return { pm, it };
+  }
+  return null;
+}
+
+function abrirDevolucaoFamilia(itemId) {
+  const f = _acharItemCustodia(itemId); if (!f) return;
+  const saldoAtual = saldoLote(f.it.lote);
+  const corpo = `
+    <div class="ff row2">
+      <div><label>Data *</label><input id="dfData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div><label>Quantidade devolvida *</label><input id="dfQtd" type="number" min="1" max="${saldoAtual}" value="${saldoAtual}"></div>
+    </div>
+    <div class="ff"><label>Recebido por (nome do familiar/responsável)</label><input id="dfQuem" placeholder="Ex.: Maria (mãe)"></div>
+    <div class="note-box" style="margin:0"><b>${subById(f.it.subId).nome}</b> · lote ${f.it.lote} · saldo ${saldoAtual}. Após registrar, o Termo de Devolução abre para impressão e assinatura.</div>
+  `;
+  abrirModal("Devolver custódia à família", corpo, async () => {
+    const data = fv("dfData"); const qtd = fvNum("dfQtd");
+    if (!data) throw new Error("Informe a data.");
+    if (!qtd || qtd < 1 || qtd > saldoAtual) throw new Error("Quantidade inválida (máx. " + saldoAtual + ").");
+    const { error } = await window.SB.from("custodia_destinos").insert({
+      data, medicacao_propria_item_id: itemId, tipo: "devolucao_familia", quantidade: qtd,
+      obs: fvOrNull("dfQuem"), ...usuarioId(),
+    });
+    if (error) throw error;
+    setTimeout(() => imprimirTermoDevolucao(itemId, qtd, fv("dfQuem"), data), 400);
+  }, "Registrar devolução");
+}
+
+async function integrarAoEstoque(itemId) {
+  const f = _acharItemCustodia(itemId); if (!f) return;
+  const saldoAtual = saldoLote(f.it.lote);
+  if (!confirm(`Integrar ao estoque geral o saldo de ${saldoAtual} de ${subById(f.it.subId).nome} (lote ${f.it.lote})?\n\nA medicação deixa de ser restrita ao paciente e passa a contar no estoque do hospital (entra no BMPO).`)) return;
+  const { error } = await window.SB.from("custodia_destinos").insert({
+    data: new Date().toISOString().slice(0, 10), medicacao_propria_item_id: itemId,
+    tipo: "integracao_estoque", quantidade: saldoAtual, obs: "Família não retirou — integrado por decisão do RT", ...usuarioId(),
+  });
+  if (error) { alert("Erro: " + error.message); return; }
+  await recarregarTela();
+}
+
+function imprimirTermoDevolucao(itemId, qtd, quem, data) {
+  const f = _acharItemCustodia(itemId); if (!f) return;
+  const p = patById(f.pm.paciente);
+  const est = window.ESTAB || {}, rt = window.RT || {};
+  const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "Responsável Técnico";
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Termo de Devolução — ${_esc(p.nome)}</title>
+  <style>@page{size:A4 portrait;margin:16mm 14mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:12px;margin:0;line-height:1.55}
+  .estab{border-bottom:2px solid #2C5F5A;padding-bottom:8px;margin-bottom:12px}.estab .n{font-size:15px;font-weight:700}.estab .s{font-size:10.5px;color:#4a544f}
+  h1{font-size:15px;text-align:center;margin:14px 0 4px}.ref{text-align:center;font-size:10.5px;color:#6a736e;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #cfd6cf;padding:6px 8px;font-size:11px;text-align:left}
+  th{background:#EEF2EC;text-transform:uppercase;font-size:10px}.mono{font-family:"IBM Plex Mono",monospace}
+  .decl{font-size:11.5px;text-align:justify;margin:14px 0}
+  .assin{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:46px}.linha{border-top:1px solid #1E2A28;padding-top:5px;font-size:10.5px;text-align:center}
+  .btnp{position:fixed;top:14px;right:14px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}@media print{.btnp{display:none}}
+  </style></head><body>
+  <button class="btnp" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <div class="estab"><div class="n">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</div>
+    <div class="s">${est.cnpj ? "CNPJ: " + _esc(est.cnpj) + " · " : ""}${_esc(est.endereco || "")}${est.municipio_uf ? " — " + _esc(est.municipio_uf) : ""}</div></div>
+  <h1>Termo de Devolução de Medicação em Custódia</h1>
+  <div class="ref">Devolução ao paciente/responsável do saldo de medicação de sua propriedade</div>
+  <p><b>Paciente:</b> ${_esc(p.nome)} &nbsp;·&nbsp; <b>Prontuário:</b> ${_esc(p.prontuario || "—")} &nbsp;·&nbsp; <b>Alta:</b> ${p.dataAlta ? fmtDate(p.dataAlta) : "—"}</p>
+  <table><thead><tr><th>Medicamento</th><th>Lote</th><th>Validade</th><th>Qtd. devolvida</th></tr></thead>
+  <tbody><tr><td>${_esc(subById(f.it.subId).nome)}</td><td class="mono">${_esc(f.it.lote)}</td><td class="mono">${f.it.validade ? fmtDate(f.it.validade) : "—"}</td><td class="mono">${qtd}</td></tr></tbody></table>
+  <div class="decl">Declaro ter recebido, nesta data, a medicação acima relacionada, de propriedade do(a) paciente, que se encontrava sob custódia da farmácia do estabelecimento. A conferência da quantidade foi realizada no ato da entrega.</div>
+  <p><b>Recebido por:</b> ${_esc(quem || "____________________________")} &nbsp;·&nbsp; <b>Data:</b> ${fmtDate(data)}</p>
+  <div class="assin">
+    <div class="linha">Paciente ou responsável (assinatura)</div>
+    <div class="linha">${_esc(rtTxt)}<br>Farmacêutico(a) Responsável Técnico</div>
+  </div>
+  </body></html>`;
+  const win = window.open("", "_blank"); if (!win) { alert("Permita pop-ups para imprimir o termo."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }

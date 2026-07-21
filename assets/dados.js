@@ -29,6 +29,7 @@ let prescritores = [];
 let fornecedores = [];
 let pops = [];
 let cotacoes = [];
+let custodiaDestinos = [];
 let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
 let movements = [];
 
@@ -78,7 +79,7 @@ async function carregarDados() {
     const prescritor = pr ? `${pr.nome} — ${pr.conselho}-${pr.uf} ${pr.numero}` : "";
     return { id: p.id, nome: p.nome_completo, leito: p.leito, admissao: p.data_admissao,
              prescritor, prescritorId: p.prescritor_id, cpf: p.cpf, prontuario: p.prontuario,
-             endereco: p.endereco, telefone: p.telefone, dataNascimento: p.data_nascimento, ativo: p.ativo };
+             endereco: p.endereco, telefone: p.telefone, dataNascimento: p.data_nascimento, ativo: p.ativo, dataAlta: p.data_alta };
   });
 
   prescriptions = presc.map((x) => ({
@@ -107,7 +108,7 @@ async function carregarDados() {
   patientMeds = mprop.map((m) => ({
     id: m.id, data: m.data, paciente: m.paciente_id,
     itens: (m.medicacao_propria_itens || []).map((it) => ({
-      subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
+      id: it.id, subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
       validade: it.validade, obs: it.obs,
     })),
   }));
@@ -155,19 +156,31 @@ async function carregarDados() {
     }));
   } catch (e) { ajustes = []; }
 
+
+  // Destinos de custódia (migration_alta.sql). Carga tolerante.
+  try {
+    const { data: cds, error: ecd } = await window.SB.from("custodia_destinos").select("*");
+    if (ecd) throw ecd;
+    custodiaDestinos = (cds || []).map((d) => ({ id: d.id, data: d.data, itemId: d.medicacao_propria_item_id, tipo: d.tipo, qtd: d.quantidade, obs: d.obs }));
+  } catch (e) { custodiaDestinos = []; }
+
   movements = buildMovements();
 
   // Cotações (tabela adicionada por migration_cotacao.sql). Carga tolerante.
   try {
-    const { data: cots, error: ec } = await window.SB.from("cotacoes").select("*, cotacao_itens(*)");
+    const { data: cots, error: ec } = await window.SB.from("cotacoes").select("*, cotacao_itens(*, cotacao_precos(*))");
     if (ec) throw ec;
     cotacoes = (cots || []).map((c) => ({
       id: c.id, identificador: c.identificador, data: c.data, status: c.status, observacao: c.observacao,
       itens: (c.cotacao_itens || [])
         .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
-        .map((it) => ({ id: it.id, substanciaId: it.substancia_id, descricao: it.descricao, unidade: it.unidade, quantidade: it.quantidade })),
+        .map((it) => ({ id: it.id, substanciaId: it.substancia_id, descricao: it.descricao, unidade: it.unidade, quantidade: it.quantidade,
+          precos: (it.cotacao_precos || []).map((p) => ({ id: p.id, fornecedorId: p.fornecedor_id, disponivel: p.disponivel,
+            unidPorCaixa: p.unid_por_caixa == null ? null : Number(p.unid_por_caixa),
+            precoCaixa: p.preco_caixa == null ? null : Number(p.preco_caixa), validade: p.validade })) })),
     })).sort((a, b) => (a.data < b.data ? 1 : -1));
   } catch (e) { cotacoes = []; }
+
 }
 
 /* Linha de identificação do RT, montada a partir da configuração. */
@@ -190,7 +203,15 @@ function lotesComSaldo(subId) {
 }
 // Lotes disponíveis (saldo > 0) com validade e saldo, ordenados por FEFO (validade mais próxima primeiro).
 function lotesDisponiveis(subId) {
-  return allLotes().filter((l) => l.subId === subId)
+  // Estoque GERAL: exclui custódia de pacientes (não-integrada)
+  return allLotes().filter((l) => l.subId === subId && (l.origem !== "proprio" || l.integrado))
+    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
+    .filter((x) => x.saldo > 0)
+    .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
+}
+// Lotes de CUSTÓDIA do próprio paciente para uma substância (com saldo)
+function lotesCustodiaDoPaciente(subId, pacienteId) {
+  return allLotes().filter((l) => l.subId === subId && l.origem === "proprio" && !l.integrado && l.restritoPaciente === pacienteId)
     .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
     .filter((x) => x.saldo > 0)
     .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
@@ -198,6 +219,24 @@ function lotesDisponiveis(subId) {
 function loteFEFO(subId) { const d = lotesDisponiveis(subId); return d[0] ? d[0].lote : ""; }
 // Quantidade a partir do texto da dose ("1 comp." -> 1, "2 comp" -> 2; padrão 1).
 function qtdDaDose(dose) { const m = (dose || "").match(/\d+/); return m ? parseInt(m[0], 10) : 1; }
+
+/* ---- custódia: eventos de destino e status derivado ---- */
+function destinosDoItem(itemId) { return custodiaDestinos.filter((d) => d.itemId === itemId); }
+function itemIntegrado(itemId) { return destinosDoItem(itemId).some((d) => d.tipo === "integracao_estoque"); }
+// saldo saído do lote por devolução à família / descarte (reduz o saldo)
+function _saidaDestinos(itemId) {
+  return destinosDoItem(itemId).filter((d) => d.tipo !== "integracao_estoque").reduce((a, d) => a + d.qtd, 0);
+}
+// status derivado de um item de custódia
+function statusCustodia(pm, it) {
+  if (itemIntegrado(it.id)) return "integrado";
+  const saldoAtual = saldoLote(it.lote);
+  const devolvido = destinosDoItem(it.id).some((d) => d.tipo === "devolucao_familia");
+  if (devolvido && saldoAtual <= 0) return "devolvido";
+  const p = patById(pm.paciente);
+  if (p && p.ativo === false) return "aguardando";
+  return "custodia";
+}
 const fmtDate = (d) => { if (!d) return "—"; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; };
 const fmtBRL = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const diffDias = (d1, d2) => Math.round((new Date(d2) - new Date(d1)) / 86400000);
@@ -216,10 +255,16 @@ function allLotes() {
     subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: 0, valorEstimado: it.valorEstimado,
     origem: "doacao", fonte: `Doação — ${d.doador}`, data: d.data,
   })));
-  patientMeds.forEach((pm) => pm.itens.forEach((it) => list.push({
-    subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: 0,
-    origem: "proprio", restritoPaciente: pm.paciente, fonte: `Medicação própria — ${patById(pm.paciente).nome}`, data: pm.data,
-  })));
+  patientMeds.forEach((pm) => pm.itens.forEach((it) => {
+    const integrado = itemIntegrado(it.id);
+    list.push({
+      subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: 0,
+      origem: "proprio", integrado, itemCustodiaId: it.id,
+      restritoPaciente: integrado ? null : pm.paciente,
+      fonte: integrado ? `Custódia integrada ao estoque — ${patById(pm.paciente).nome}` : `Medicação própria — ${patById(pm.paciente).nome}`,
+      data: pm.data,
+    });
+  }));
   return list;
 }
 
@@ -229,11 +274,12 @@ function saldoLote(lote) {
   const consumido = dispensations.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
   const devolvido = returns.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
   const ajustado = ajustes.filter((x) => x.lote === lote).reduce((a, x) => a + x.delta, 0);
-  return l.qtd - consumido + devolvido + ajustado;
+  const destinado = l.itemCustodiaId ? _saidaDestinos(l.itemCustodiaId) : 0; // devolução à família / descarte
+  return l.qtd - consumido + devolvido + ajustado - destinado;
 }
 
 function saldo(subId) {
-  return allLotes().filter((l) => l.subId === subId && l.origem !== "proprio").reduce((a, l) => a + saldoLote(l.lote), 0);
+  return allLotes().filter((l) => l.subId === subId && (l.origem !== "proprio" || l.integrado)).reduce((a, l) => a + saldoLote(l.lote), 0);
 }
 
 function custoMedio(subId) {
@@ -280,6 +326,16 @@ function buildMovements() {
       paciente: r.paciente, lote: r.lote, custoUnit: lote ? lote.custoUnit : custoMedio(r.subId),
     });
   });
+  custodiaDestinos.forEach((d) => {
+    // localizar o lote do item
+    let loteInfo = null;
+    patientMeds.some((pm) => pm.itens.some((it) => { if (it.id === d.itemId) { loteInfo = { lote: it.lote, subId: it.subId, pac: pm.paciente }; return true; } return false; }));
+    if (!loteInfo) return;
+    if (d.tipo === "integracao_estoque") return; // integração não movimenta saldo — muda a natureza do lote
+    const rot = d.tipo === "devolucao_familia" ? "Devolução de custódia à família" : "Descarte de custódia";
+    list.push({ data: d.data, tipo: "saida", subId: loteInfo.subId, qtd: d.qtd, ref: `${rot}${d.obs ? " — " + d.obs : ""}`,
+      paciente: loteInfo.pac, lote: loteInfo.lote, custoUnit: 0, origem: "proprio" });
+  });
   ajustes.forEach((a) => {
     list.push({
       data: a.data, tipo: a.delta >= 0 ? "ajuste_entrada" : "ajuste_saida", subId: a.subId,
@@ -292,7 +348,7 @@ function buildMovements() {
   return list;
 }
 
-function diasInternado(p) { return diffDias(p.admissao, HOJE) + 1; }
+function diasInternado(p) { return diffDias(p.admissao, p.dataAlta && p.dataAlta < HOJE ? p.dataAlta : HOJE) + 1; }
 function custoMedicamentosPaciente(patId) {
   return movements.filter((m) => m.tipo === "saida" && m.paciente === patId).reduce((a, m) => a + m.qtd * (m.custoUnit || 0), 0);
 }

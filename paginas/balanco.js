@@ -24,8 +24,9 @@ function _nomeMes(mes) {
 }
 
 // Lotes de custódia (medicação própria) não integram o BMPO do estabelecimento.
+// Exceção: custódia INTEGRADA ao estoque (alta com medicação deixada) passa a contar.
 function _lotesProprios() {
-  return new Set(allLotes().filter((l) => l.origem === "proprio").map((l) => l.lote));
+  return new Set(allLotes().filter((l) => l.origem === "proprio" && !l.integrado).map((l) => l.lote));
 }
 
 function _bmpoLinha(s, mes) {

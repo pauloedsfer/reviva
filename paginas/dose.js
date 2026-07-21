@@ -18,6 +18,13 @@ function _slots() {
   return arr;
 }
 
+// Paciente internado NA data: admitido até lá e sem alta anterior à data.
+function _pacienteInternadoNaData(p, d) {
+  if (p.admissao && p.admissao > d) return false;
+  if (p.dataAlta && p.dataAlta < d) return false;
+  return true;
+}
+
 // Prescrições ativas NA data de referência (início <= data). Sem início = sempre.
 function _prescricoesNaData(d) {
   return prescriptions.filter((pr) => !pr.dataInicio || pr.dataInicio <= d);
@@ -27,7 +34,7 @@ function _prescricoesNaData(d) {
 function _dosesEsperadas() {
   const d = dataRef();
   const list = [];
-  patients.forEach((p) => {
+  patients.filter((p) => _pacienteInternadoNaData(p, d)).forEach((p) => {
     _prescricoesNaData(d).filter((pr) => pr.paciente === p.id).forEach((pr) => {
       pr.horarios.forEach((h) => {
         list.push({ pac: p.id, nomePac: p.nome, leito: p.leito || "", subId: pr.subId,
@@ -46,7 +53,7 @@ function _dispensadoNaData(pac, subId, horario) {
 function _gerarEtiquetas() {
   const slots = _slots(); const labels = [];
   const d = dataRef();
-  patients.forEach((p) => {
+  patients.filter((p) => _pacienteInternadoNaData(p, d)).forEach((p) => {
     const pres = _prescricoesNaData(d).filter((pr) => pr.paciente === p.id);
     slots.forEach((slot) => {
       const items = pres.filter((pr) => pr.horarios.includes(slot));
@@ -88,10 +95,15 @@ window.printLabels = function () {
 };
 
 /* -------- dispensação -------- */
-function _selLote(subId) {
-  const disp = lotesDisponiveis(subId);
-  if (!disp.length) return `<select class="disp-lote" disabled><option value="">sem saldo</option></select>`;
-  return `<select class="disp-lote">${disp.map((l, i) => `<option value="${l.lote}"${i === 0 ? " selected" : ""}>${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}</option>`).join("")}</select>`;
+function _selLote(subId, pacienteId) {
+  const cust = lotesCustodiaDoPaciente(subId, pacienteId);   // custódia DELE — preferência
+  const geral = lotesDisponiveis(subId);                     // estoque geral — escolha manual
+  if (!cust.length && !geral.length) return `<select class="disp-lote" disabled><option value="">sem saldo</option></select>`;
+  const opts = [
+    ...cust.map((l, i) => `<option value="${l.lote}"${i === 0 ? " selected" : ""}>★ custódia do paciente · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}</option>`),
+    ...geral.map((l, i) => `<option value="${l.lote}"${!cust.length && i === 0 ? " selected" : ""}>estoque · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}</option>`),
+  ];
+  return `<select class="disp-lote">${opts.join("")}</select>`;
 }
 
 async function confirmarDispensacao() {
@@ -151,7 +163,7 @@ function renderPage() {
       <thead><tr><th style="width:34px"><input type="checkbox" onclick="marcarTodas(this.checked)"></th><th>Paciente</th><th>Horário</th><th>Substância</th><th>Qtd.</th><th>Lote (saída)</th></tr></thead>
       <tbody>
         ${pendentes.map((x) => {
-          const semSaldo = lotesDisponiveis(x.subId).length === 0;
+          const semSaldo = lotesDisponiveis(x.subId).length === 0 && lotesCustodiaDoPaciente(x.subId, x.pac).length === 0;
           return `<tr>
             <td><input type="checkbox" class="disp-check" ${semSaldo ? "disabled" : ""}
                  data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
@@ -159,7 +171,7 @@ function renderPage() {
             <td><span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${x.horario}</span></td>
             <td>${subById(x.subId).nome}</td>
             <td class="num mono">${x.qtd}</td>
-            <td>${_selLote(x.subId)}</td>
+            <td>${_selLote(x.subId, x.pac)}</td>
           </tr>`;
         }).join("")}
       </tbody>

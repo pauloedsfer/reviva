@@ -14,7 +14,14 @@ Para marcar prescritores como **interno/externo** (prescrições que o paciente 
 
 ## ⚠ Cotação de compras: rodar a migração (uma vez)
 
-Para o módulo de **Cotação** (menu Suprimentos), rode **`migration_cotacao.sql`** uma vez no SQL Editor. Aditivo e seguro. Você cria uma cotação, adiciona itens (de substâncias cadastradas ou digitados livres, com quantidade da padronização) e **imprime a solicitação** no formato para o fornecedor preencher (unid./caixa, preço, validade). A entrada dos preços e a comparação entre fornecedores (Fase B) virão depois.
+Para o módulo de **Cotação** (menu Suprimentos), rode **`migration_cotacao.sql`** uma vez no SQL Editor. Aditivo e seguro. Você cria uma cotação, adiciona itens (de substâncias cadastradas ou digitados livres) e **imprime a solicitação** no formato para o fornecedor preencher. Quando os preços voltarem, use a aba **Lançar preços** (por fornecedor: unid./caixa, preço/caixa, validade, indisponível) e a aba **Comparativo & Pedidos**: o sistema compara por **preço unitário**, destaca o vencedor de cada item e gera **pedidos por fornecedor** imprimíveis (caixas arredondadas para cima, totais por pedido).
+
+
+## ⚠ Alta de paciente: rodar a migração (uma vez)
+
+Para o fluxo de **alta** (custódia aguardando retirada, devolução à família com Termo, integração ao estoque, arquivo e Extrato de Alta), rode **`migration_alta.sql`** uma vez no SQL Editor. Aditivo e seguro.
+
+Como funciona: na tela **Pacientes**, o botão **Dar alta** encerra as prescrições, grava a data, libera o leito e move o paciente para a aba **Arquivo (altas)** — nada é apagado. A custódia com saldo fica **aguardando retirada**; depois, na tela **Medicação do Paciente**, você decide item a item: **Devolver à família** (imprime o Termo de Devolução) ou **Integrar ao estoque** (passa a contar no estoque geral e no BMPO). Na dispensação, o lote padrão é o de **custódia do próprio paciente** (★); custódia de outros pacientes nunca aparece; estoque geral é escolha manual. O **Extrato de Alta** sai em duas versões: com valores (diretoria) ou sem valores (família), reimprimível a qualquer momento no Arquivo.
 
 ## 1. Conectar ao seu banco
 
