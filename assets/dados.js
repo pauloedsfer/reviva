@@ -85,6 +85,7 @@ async function carregarDados() {
   prescriptions = presc.map((x) => ({
     id: x.id, paciente: x.paciente_id, subId: x.substancia_id, dose: x.dose, via: x.via,
     horarios: Array.isArray(x.horarios) ? x.horarios : (x.horarios || []),
+    qtdPorHorario: x.qtd_por_horario != null ? Number(x.qtd_por_horario) : 1,
     prescritorId: x.prescritor_id, dataInicio: x.data_inicio, ativo: x.ativo,
   }));
 
@@ -219,6 +220,8 @@ function lotesCustodiaDoPaciente(subId, pacienteId) {
 function loteFEFO(subId) { const d = lotesDisponiveis(subId); return d[0] ? d[0].lote : ""; }
 // Quantidade a partir do texto da dose ("1 comp." -> 1, "2 comp" -> 2; padrão 1).
 function qtdDaDose(dose) { const m = (dose || "").match(/\d+/); return m ? parseInt(m[0], 10) : 1; }
+// Quantidade a dispensar por horário: usa o campo explícito da prescrição (padrão 1).
+function qtdPorHorario(pr) { return pr && pr.qtdPorHorario != null && pr.qtdPorHorario > 0 ? pr.qtdPorHorario : 1; }
 
 /* ---- custódia: eventos de destino e status derivado ---- */
 function destinosDoItem(itemId) { return custodiaDestinos.filter((d) => d.itemId === itemId); }

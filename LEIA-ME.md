@@ -23,11 +23,6 @@ Para o fluxo de **alta** (custódia aguardando retirada, devolução à família
 
 Como funciona: na tela **Pacientes**, o botão **Dar alta** encerra as prescrições, grava a data, libera o leito e move o paciente para a aba **Arquivo (altas)** — nada é apagado. A custódia com saldo fica **aguardando retirada**; depois, na tela **Medicação do Paciente**, você decide item a item: **Devolver à família** (imprime o Termo de Devolução) ou **Integrar ao estoque** (passa a contar no estoque geral e no BMPO). Na dispensação, o lote padrão é o de **custódia do próprio paciente** (★); custódia de outros pacientes nunca aparece; estoque geral é escolha manual. O **Extrato de Alta** sai em duas versões: com valores (diretoria) ou sem valores (família), reimprimível a qualquer momento no Arquivo.
 
-
-## ⚠ Quantidade por horário na prescrição: rodar a migração (uma vez)
-
-Para dispensar **mais de um comprimido do mesmo medicamento por horário**, rode **`migration_qtd_dose.sql`** uma vez no SQL Editor (aditivo, seguro). A prescrição passa a ter o campo **Qtd. por horário** (padrão 1) — a dispensação usa esse número diretamente (não depende mais de deduzir pelo texto da dose). Aparece na tabela de prescrições e no mapa (ex.: "2×/dose").
-
 ## 1. Conectar ao seu banco
 
 Abra `assets/config.js` e cole os dois valores do seu projeto Supabase:
@@ -93,3 +88,13 @@ Quem registrou cada lançamento fica gravado (coluna de usuário) — é a mesma
 - **Login multiperfil** (farmácia/enfermagem/administração) e acesso simultâneo em rede. A estrutura já está pronta (coluna de usuário nas tabelas + RLS ligada); ativar é configuração de política, não retrabalho.
 - **Prescrição eletrônica** (Fase 4 do roadmap).
 - Edição/estorno de NF, doação e dispensação já lançadas (hoje o razão é derivado; correções entram como novos lançamentos).
+
+
+## Folha de contagem / inventário
+
+Na aba **Ajuste de Estoque / Inventário**, o botão **🖶 Folha de contagem** gera um impresso A4 para o inventário físico: uma linha por lote (Substância · Lote · Validade · Saldo no sistema) e colunas em branco para **Contagem física** e **Diferença**. Filtros: **substância** (todas ou uma), **faixa de vencimento** (todas / vencidas / a vencer em 30·60·90 dias / intervalo de datas) e **ocultar lotes zerados** (padrão). Vencidos e a vencer saem destacados. Depois é só lançar **+ Novo ajuste** onde a contagem divergir — o saldo reconcilia pela movimentação. Só front, sem migração.
+
+
+## Prescrições agrupadas por paciente
+
+A tela **Prescrições** agora lista **um cartão por paciente**. Abra o paciente para ver e editar a **prescrição completa dele** num só lugar (editar item, suspender item, adicionar medicação) — não fica mais espalhado. Há um **filtro por paciente** no topo. O campo **Qtd. por horário** (padrão 1) permite prescrever mais de um comprimido por dose; requer a migração **migration_qtd_dose.sql** (uma vez no SQL Editor).

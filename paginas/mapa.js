@@ -60,7 +60,7 @@ function _tabelaPaciente(p, periodos, blankRows) {
       if (!per) { sos = true; return; }
       if (cells[per]) cells[per].push(hor);
     });
-    const nome = subById(pr.subId).nome + (pr.dose ? " — " + pr.dose : "") + (sos ? " (SOS)" : "");
+    const nq = qtdPorHorario(pr); const nome = subById(pr.subId).nome + (pr.dose ? " — " + pr.dose : "") + (nq > 1 ? ` (${nq}×/dose)` : "") + (sos ? " (SOS)" : "");
     const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
     return `<tr><td class="med">${nome}</td>${tds}</tr>`;
   }).join("");

@@ -38,7 +38,7 @@ function _dosesEsperadas() {
     _prescricoesNaData(d).filter((pr) => pr.paciente === p.id).forEach((pr) => {
       pr.horarios.forEach((h) => {
         list.push({ pac: p.id, nomePac: p.nome, leito: p.leito || "", subId: pr.subId,
-                    dose: pr.dose || "", horario: h, qtd: qtdDaDose(pr.dose) });
+                    dose: pr.dose || "", horario: h, qtd: qtdPorHorario(pr) });
       });
     });
   });
