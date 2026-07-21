@@ -98,3 +98,8 @@ Na aba **Ajuste de Estoque / Inventário**, o botão **🖶 Folha de contagem** 
 ## Prescrições agrupadas por paciente
 
 A tela **Prescrições** agora lista **um cartão por paciente**. Abra o paciente para ver e editar a **prescrição completa dele** num só lugar (editar item, suspender item, adicionar medicação) — não fica mais espalhado. Há um **filtro por paciente** no topo. O campo **Qtd. por horário** (padrão 1) permite prescrever mais de um comprimido por dose; requer a migração **migration_qtd_dose.sql** (uma vez no SQL Editor).
+
+
+## Filtros no Livro de Registro
+
+A tela **Livro de Registro** agora tem filtros: **paciente**, **período (de/até)**, **tipo de movimento** (entradas, saídas, devoluções, **ajustes de inventário**), **substância** e **lista/classe** (controlados). Os filtros valem para a tela e para a impressão — o subtítulo do impresso descreve o recorte aplicado. Importante: o **Saldo após** continua sendo o saldo **real** acumulado sobre todos os lançamentos; os filtros só escolhem quais linhas aparecem, nunca recalculam o saldo dentro do recorte. Só front, sem migração.
