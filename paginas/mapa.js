@@ -154,10 +154,114 @@ function imprimirMapa() {
   win.document.open(); win.document.write(html); win.document.close();
 }
 
+/* ---- formato POR PACIENTE (prontuário): 1 folha/paciente, dias em colunas ---- */
+function _diasSpan(dataIni, nDias) {
+  const dias = [];
+  for (let i = 0; i < nDias; i++) {
+    const d = new Date(dataIni + "T00:00:00");
+    d.setDate(d.getDate() + i);
+    dias.push(d);
+  }
+  return dias;
+}
+const _DOW = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+function imprimirMapaPaciente() {
+  const dataIni = document.getElementById("mapaData").value || new Date().toISOString().slice(0, 10);
+  const nDias = Math.max(1, Math.min(7, parseInt(document.getElementById("mapaDias").value, 10) || 5));
+  const blankRows = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaLinhas").value, 10)));
+  const est = window.ESTAB || {};
+  const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
+  const dias = _diasSpan(dataIni, nDias);
+  const dataFimISO = dias[dias.length - 1].toISOString().slice(0, 10);
+
+  // pacientes internados em algum dia do período
+  const pacs = patients
+    .filter((p) => dias.some((d) => _internadoEm(p, d.toISOString().slice(0, 10))))
+    .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || a.nome.localeCompare(b.nome));
+  if (!pacs.length) { alert("Nenhum paciente internado no período selecionado."); return; }
+
+  const headDias = dias.map((d) => `<th class="dia">${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}<br><span class="dow">${_DOW[d.getDay()]}</span></th>`).join("");
+
+  const paginas = pacs.map((p) => {
+    // uma linha por medicação × horário (SOS ganha linha própria)
+    const linhas = [];
+    prescriptions.filter((pr) => pr.paciente === p.id).forEach((pr) => {
+      const nomeMed = subById(pr.subId).nome + (pr.dose ? " — " + pr.dose : "") + (pr.via ? " · " + pr.via : "");
+      (pr.horarios || []).forEach((hor) => {
+        linhas.push({ med: nomeMed, hor });
+      });
+    });
+    linhas.sort((a, b) => (a.hor === "SOS" ? 1 : b.hor === "SOS" ? -1 : a.hor.localeCompare(b.hor)) || a.med.localeCompare(b.med));
+
+    const linhasHtml = linhas.map((l) => {
+      const cels = dias.map((d) => {
+        const iso = d.toISOString().slice(0, 10);
+        return _internadoEm(p, iso) ? '<td class="cel"></td>' : '<td class="cel fora">—</td>';
+      }).join("");
+      return `<tr><td class="med">${l.med}</td><td class="hor">${l.hor}</td>${cels}</tr>`;
+    }).join("");
+
+    let vazias = "";
+    for (let i = 0; i < blankRows; i++) {
+      vazias += `<tr><td class="med">&nbsp;</td><td class="hor"></td>${dias.map(() => '<td class="cel"></td>').join("")}</tr>`;
+    }
+
+    return `
+      <section class="folha">
+        <div class="cab">
+          <div class="cab-h">${hosp}</div>
+          <div class="cab-t">Mapa de Medicação — Controle de Administração</div>
+          <div class="cab-d">${fmtDate(dataIni)} a ${fmtDate(dataFimISO)}</div>
+        </div>
+        <div class="pac-id">
+          <span><b>Paciente:</b> ${p.nome}</span>
+          <span><b>Idade:</b> ${_idade(p.dataNascimento) || "____"}</span>
+          <span><b>Leito:</b> ${p.leito || "____"}</span>
+          <span><b>Prontuário:</b> ${p.prontuario || "____"}</span>
+        </div>
+        <table>
+          <thead><tr><th class="med">Medicação</th><th class="hor">Hor.</th>${headDias}</tr></thead>
+          <tbody>${linhasHtml || `<tr><td class="med" colspan="${2 + nDias}" style="color:#6a736e">Sem prescrições ativas — usar linhas abaixo</td></tr>`}${vazias}</tbody>
+        </table>
+        <div class="leg">Rubricar a célula do dia após administrar. <b>SOS</b>: anotar horário administrado. Célula "—" = paciente fora de internação no dia. Novas prescrições: usar linhas em branco e comunicar a farmácia.</div>
+        <div class="rodape">Enfermagem responsável: ____________________________ &nbsp;·&nbsp; Arquivar no prontuário do paciente</div>
+      </section>`;
+  }).join("");
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Mapa por Paciente</title>
+  <style>
+    @page{ size:A4 portrait; margin:12mm 10mm; }
+    *{ box-sizing:border-box; } body{ font-family:"Public Sans",Arial,sans-serif; color:#1E2A28; margin:0; font-size:12px; }
+    .folha{ page-break-after:always; } .folha:last-child{ page-break-after:auto; }
+    .cab{ border-bottom:2px solid #2C5F5A; padding-bottom:6px; margin-bottom:8px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+    .cab-h{ font-weight:700; font-size:14px; } .cab-t{ font-size:12.5px; } .cab-d{ margin-left:auto; font-size:12px; color:#4a544f; }
+    .pac-id{ display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; margin-bottom:8px; }
+    table{ width:100%; border-collapse:collapse; }
+    th,td{ border:1px solid #b9c2b9; padding:4px 6px; font-size:11px; }
+    th{ background:#EEF2EC; text-transform:uppercase; font-size:9.5px; letter-spacing:.02em; }
+    th.med,td.med{ text-align:left; width:38%; } th.hor,td.hor{ text-align:center; width:44px; font-family:"IBM Plex Mono",monospace; }
+    th.dia{ text-align:center; } .dow{ font-weight:400; text-transform:none; color:#6a736e; }
+    td.cel{ height:26px; text-align:center; } td.fora{ background:#F3F3F0; color:#9aa39d; }
+    .leg{ margin-top:8px; font-size:10px; color:#4a544f; }
+    .rodape{ margin-top:10px; font-size:11px; color:#4a544f; }
+    .toolbar{ position:fixed; top:12px; right:12px; }
+    .toolbar button{ background:#2C5F5A; color:#fff; border:none; padding:9px 15px; border-radius:8px; cursor:pointer; font:inherit; }
+    @media print{ .toolbar{ display:none; } }
+  </style></head><body>
+    <div class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
+    ${paginas}
+  </body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir o mapa."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
+}
+
 function renderPage() {
   const hoje = new Date().toISOString().slice(0, 10);
   return `
-    <div class="note-box">Gera o <b>Mapa Diário de Medicação</b> para a enfermagem, um por dia (uma página por dia). Deixe os próximos dias prontos e imprima em lote. As <b>linhas em branco</b> e as <b>fichas de paciente em branco</b> servem para anotarem, à mão, novas medicações ou pacientes durante o plantão — depois você dá baixa no sistema.</div>
+    <div class="note-box">Gera o Mapa de Medicação da enfermagem em dois formatos: <b>por paciente</b> (uma folha por paciente com os dias em colunas — para rubricar a administração e arquivar no prontuário) ou <b>por dia</b> (uma folha por dia com todos os pacientes). As <b>linhas em branco</b> servem para anotarem à mão novas medicações — depois você dá baixa no sistema.</div>
 
     <style>
       .mapa-cfg{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px 18px; }
@@ -178,13 +282,17 @@ function renderPage() {
           <div><label>Data inicial</label><input id="mapaData" type="date" value="${hoje}"></div>
           <div><label>Quantos dias</label>
             <select id="mapaDias">
-              <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option>
+              <option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option>
             </select>
           </div>
           <div><label>Linhas em branco por paciente</label><input id="mapaLinhas" type="number" min="0" max="10" value="3"></div>
           <div><label>Fichas de paciente em branco (no fim)</label><input id="mapaFichas" type="number" min="0" max="10" value="2"></div>
         </div>
-        <div style="margin-top:18px"><button class="btn" onclick="imprimirMapa()">🖶 Gerar mapa para impressão</button></div>
+        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" onclick="imprimirMapaPaciente()">🖶 Mapa por paciente (prontuário)</button>
+          <button class="btn ghost" onclick="imprimirMapa()">🖶 Mapa por dia (geral)</button>
+        </div>
+        <div style="margin-top:10px;font-size:12.5px;color:var(--muted)"><b>Por paciente:</b> uma folha por paciente com os dias em colunas, para a enfermagem rubricar cada administração e arquivar no prontuário. <b>Por dia:</b> uma folha por dia com todos os pacientes (visão geral do posto).</div>
       </div>
     </div>
 
