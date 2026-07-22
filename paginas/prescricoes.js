@@ -260,11 +260,11 @@ function imprimirReceituario(pacId, tipo) {
   // corpo da prescrição: pré-preenchido (com paciente) OU pautado em branco (sem paciente)
   let blocoPresc;
   if (emBranco) {
-    const linhas = Array.from({ length: controlado ? 9 : 12 }, () => `<div class="pauta"></div>`).join("");
+    const linhas = Array.from({ length: controlado ? 6 : 12 }, () => `<div class="pauta"></div>`).join("");
     blocoPresc = `<div class="bloco presc"><div class="bl-tit">Prescrição</div><div class="pautas">${linhas}</div></div>`;
   } else {
     const linhasMed = itens.map((pr) => { const d = _medDescricao(pr); return `<tr><td class="mono">${_esc(d.medicamento)}</td><td>${_esc(d.posologia)}</td><td class="qt"></td></tr>`; }).join("");
-    const linhasVazias = Array.from({ length: Math.max(controlado ? 3 : 5, 8 - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
+    const linhasVazias = Array.from({ length: Math.max(controlado ? 2 : 5, (controlado ? 6 : 8) - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
     blocoPresc = `<div class="bloco presc"><div class="bl-tit">Prescrição</div>
       <table class="med"><thead><tr><th>Medicamento</th><th>Posologia / orientação</th><th class="qt">Qtd.</th></tr></thead>
       <tbody>${linhasMed}${linhasVazias}</tbody></table></div>`;
@@ -328,13 +328,13 @@ function imprimirReceituario(pacId, tipo) {
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo}</title>
   <style>@page{size:A4 portrait;margin:12mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
   .via{border:1.5px solid #1E2A28;border-radius:4px;padding:10px 12px;margin-bottom:8px}
-  ${controlado ? ".via{min-height:138mm}" : ".via{min-height:150mm}"}
+  ${controlado ? ".via{min-height:122mm}" : ".via{min-height:150mm}"}
   .via-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#2C5F5A;text-align:right;margin-bottom:2px}
   .cab{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #1E2A28;padding-bottom:5px;margin-bottom:8px}
   .cab .tit{font-size:14px;font-weight:700;letter-spacing:.02em}.cab .num{font-size:11px;font-family:"IBM Plex Mono",monospace}
   .bloco{margin-bottom:8px}.bl-tit{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;color:#6a736e;border-bottom:1px solid #cfd6cf;margin-bottom:3px;padding-bottom:1px}
   .linhas div{margin:3px 0;font-size:11px}
-  .pautas{margin-top:8px}.pauta{border-bottom:1px solid #b9c1ba;height:24px}
+  .pautas{margin-top:6px}.pauta{border-bottom:1px solid #b9c1ba;height:22px}
   table.med{width:100%;border-collapse:collapse;margin-top:2px}table.med th,table.med td{border:1px solid #cfd6cf;padding:5px 6px;font-size:11px;text-align:left;vertical-align:top}
   table.med th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}table.med td{height:22px}.qt{width:60px;text-align:center}.mono{font-weight:600}
   .presc{margin-bottom:10px}
