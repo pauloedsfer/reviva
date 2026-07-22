@@ -72,7 +72,10 @@ async function carregarDados() {
   substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
     principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma }));
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
-  fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo }));
+  fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo,
+    situacao: f.situacao || "ativo",
+    docAfe: !!f.doc_afe, docLicenca: !!f.doc_licenca, docCertidoes: !!f.doc_certidoes, docTabela: !!f.doc_tabela, docValidade: f.doc_validade,
+    avalPrazo: f.aval_prazo, avalResposta: f.aval_resposta, avalAtendimento: f.aval_atendimento, avalData: f.aval_data, avalObs: f.aval_obs }));
 
   patients = pacs.map((p) => {
     const pr = p.prescritores;
@@ -198,6 +201,33 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
 const patById = (id) => patients.find((p) => p.id === id) || { nome: "—", leito: "—" };
 const prescById = (id) => prescritores.find((p) => p.id === id) || null;
+
+/* ---- qualificação de fornecedores ---- */
+function fornById(id) { return fornecedores.find((f) => f.id === id) || null; }
+// habilitação: documentos essenciais (AFE + Licença) recebidos e não vencidos
+function fornHabilitado(f) {
+  if (!f) return false;
+  const essenciais = f.docAfe && f.docLicenca;
+  const vencido = f.docValidade && f.docValidade < HOJE;
+  return essenciais && !vencido;
+}
+function fornDocsPendentes(f) {
+  const p = [];
+  if (!f.docAfe) p.push("AFE");
+  if (!f.docLicenca) p.push("Licença");
+  if (!f.docCertidoes) p.push("Certidões");
+  if (!f.docTabela) p.push("Tabela");
+  if (f.docValidade && f.docValidade < HOJE) p.push("Licença vencida");
+  return p;
+}
+// desempenho consolidado: pior nota entre os critérios avaliados
+function fornDesempenho(f) {
+  const notas = [f.avalPrazo, f.avalResposta, f.avalAtendimento].filter(Boolean);
+  if (!notas.length) return null;
+  if (notas.includes("ruim")) return "ruim";
+  if (notas.includes("regular")) return "regular";
+  return "bom";
+}
 const prescNome = (id) => { const p = prescById(id); return p ? `${p.nome} — ${p.conselho}-${p.uf} ${p.numero}` : "—"; };
 // Lotes existentes de uma substância com saldo > 0 (para devolução escolher a origem).
 function lotesComSaldo(subId) {

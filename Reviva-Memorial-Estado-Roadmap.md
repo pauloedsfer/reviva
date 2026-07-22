@@ -21,6 +21,10 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Qualificação de fornecedores.** Cada fornecedor ganhou uma **qualificação leve**: habilitação documental (checks de AFE, Licença, Certidões, Tabela + vencimento) e **avaliação de desempenho** em Bom/Regular/Ruim (prazo de entrega, tempo de resposta, atendimento), além de situação (ativo/em qualificação/inativo). Tags aparecem ao lado do fornecedor na cotação (🟢/🟡/🔴 e ⚠ não habilitado); ao lançar preços de um fornecedor com documentação incompleta/vencida, o sistema **alerta sem bloquear**. *(Requer `migration_fornecedor_qualif.sql`.)*
+
+- **POPs — fluxo completo redigido (13/13).** Redigidos os POPs restantes, no mesmo padrão (atribuição + base legal; regime presencial periódico): **Admissão e Cadastro** (FAR-006), **Conferência e Registro da Administração** (ENF-002, no lugar de "dupla checagem", que a estrutura atual não comporta), **Devolução e Reintegração** (FAR-008), **Carrinho/Maleta de Emergência e Lacre** (FAR-010), **Cotação e Aquisição** (FAR-012) e **Backup e Continuidade** (FAR-013). Agora **os 13 POPs do fluxo têm documento**. *(Rodar `pops_conteudo_v3.sql`.)*
+
 - **POPs — conteúdo v2 (enquadramento legal + mais POPs).** Os POPs foram reescritos para descrever o processo **por atribuição e com base legal**, não pela ausência de recursos: o preparo é **atribuição da enfermagem** (Lei 7.498/1986; Decreto 94.406/1987), com assistência farmacêutica em **regime presencial periódico** e retaguarda à distância — sem citar "falta de auxiliar" nem dias fixos, o que protege a instituição em fiscalização. Além dos 3 iniciais, foram redigidos: **Conferência de NF** (FAR-002), **Doações** (FAR-003), **Destino da Custódia na Alta** (FAR-005) e **Escrituração e Balanço** (FAR-011). Total: **7 POPs com documento**. *(Rodar `pops_conteudo_v2.sql`.)*
 
 - **POPs — Camada 2 (gerador de documento).** Cada POP passou a ter **corpo estruturado** (objetivo, campo de aplicação, responsabilidades, materiais, procedimento passo a passo, registros, referências), editável na tela, e **impressão do documento de POP formatado** com cabeçalho de controle e bloco de assinaturas (elaborado/revisado/aprovado). Três POPs prioritários já vêm redigidos **dentro da realidade atual da clínica** (enfermagem prepara e administra no horário; RT confere custódia e estoque quando presencial, com suporte remoto por WhatsApp): **Preparo e Administração pela Enfermagem** (POP-ENF-001), **Custódia** (POP-FAR-004) e **Conferência Presencial do Estoque** (POP-FAR-009). *(Requer `migration_pops_corpo.sql`; conteúdo inicial em `pops_conteudo_inicial.sql`.)*
@@ -91,7 +95,12 @@ union all
 select 'migration_pops_corpo (pops.corpo)',
        case when exists (select 1 from information_schema.columns
                          where table_name='pops' and column_name='corpo')
-            then 'OK' else 'FALTA — migration_pops_corpo.sql' end;
+            then 'OK' else 'FALTA — migration_pops_corpo.sql' end
+union all
+select 'migration_fornecedor_qualif (fornecedores.aval_prazo)',
+       case when exists (select 1 from information_schema.columns
+                         where table_name='fornecedores' and column_name='aval_prazo')
+            then 'OK' else 'FALTA — migration_fornecedor_qualif.sql' end;
 ```
 
 Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nunca** rodar `schema.sql`, `seed_teste.sql` ou `reset_para_comecar.sql` com dados reais. Ordem numa instalação limpa: schema → ajustes → prescritor_externo → cotacao → alta → qtd_dose → pops → pops_corpo (+ pops_conteudo_inicial).
@@ -103,7 +112,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Mapa**: botões "por paciente" e "por dia"; toggle sem-prescrição; fichas em branco.
 - [ ] **Medicação do Paciente**: situação (custódia / aguardando / devolvido / integrado); devolver à família / integrar ao estoque.
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
-- [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos.
+- [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real.
 - [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", **editor de conteúdo** e **impressão do POP formatado**. 3 POPs já redigidos (ENF-001, FAR-004, FAR-009).
 
@@ -115,10 +124,10 @@ Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip
 
 Priorizado por valor regulatório e esforço. **P1 = próximo**, **P2 = médio prazo**, **P3 = quando fizer sentido**.
 
-### Fase POPs (P1) — Camada 1 concluída · Camada 2 em andamento (21/07/2026)
+### Fase POPs (P1) — Camadas 1 e 2 concluídas (21/07/2026)
 Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tópicos cadastrados como dado de teste, botão sem ação).
 - ✅ **Camada 1 (concluída):** registro/checklist funcional — CRUD, status clicável, campos de controle, tópicos permanentes e impressão do registro mestre.
-- ⏳ **Camada 2 (em andamento):** corpo estruturado + impressão do documento formatado. Redigidos (7): Preparo/Administração pela Enfermagem, Custódia, Conferência de Estoque, Conferência de NF, Doações, Destino da Custódia na Alta, Escrituração e Balanço. **A redigir:** admissão/cadastro, devolução/reintegração de SOS, carrinho de emergência, cotação/aquisição, backup/continuidade.
+- ✅ **Camada 2 (concluída):** corpo estruturado + impressão do documento formatado. Todos os **13 POPs do fluxo** redigidos com corpo estruturado e impressão formatada. Próximo: revisar em conjunto e coletar assinaturas; incrementar versões conforme a estrutura evoluir.
 - **Camada 2 (esforço médio):** gerador de documento — corpo estruturado (objetivo, campo de aplicação, responsabilidades, materiais, procedimento passo a passo, registros, referências, histórico de revisões, assinaturas) e **impressão do POP formatado**. Redação dos POPs do fluxo pode ser rascunhada a partir do funcionamento real do sistema.
 - POPs do fluxo a contemplar: admissão/cadastro; conferência de NF; doações; **custódia + destino na alta**; preparo/etiquetagem da dose unitária; **dupla checagem/administração**; devolução/reintegração de SOS; carrinho de emergência/lacre; **escrituração e balanço**; **ajuste/contagem de inventário**; **cotação/compras**; backup/continuidade.
 
@@ -130,7 +139,7 @@ Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tó
 
 ### Compras e fornecedores (P2)
 - **Previsão de compra por consumo** (quando houver histórico de dispensação): uso/dia, dias de cobertura, sugestão de compra — reaproveitando a lógica da planilha de 2019.
-- **Cadastro bilateral de fornecedores** e disparo de e-mail de cotação.
+- ✅ **Qualificação de fornecedores** (habilitação documental + desempenho Bom/Regular/Ruim) — concluída. Pendente: disparo de e-mail de cotação direto do sistema.
 
 ### Inventário (P2)
 - Folha de contagem **por local de armazenamento** (prateleira/geladeira) para contagem em pontos diferentes da farmácia.

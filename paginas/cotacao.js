@@ -117,6 +117,62 @@ function imprimirCotacao(id) {
 /* ============================ FASE B ============================ */
 function _precoUnit(p) { return (p && p.disponivel && p.precoCaixa != null && p.unidPorCaixa) ? p.precoCaixa / p.unidPorCaixa : null; }
 function _fornNome(id) { const f = fornecedores.find((x) => x.id === id); return f ? f.nome : "—"; }
+
+// tag visual de habilitação + desempenho ao lado do nome do fornecedor
+function _fornTag(f) {
+  if (!f) return "";
+  let t = "";
+  if (!fornHabilitado(f)) t += ' <span class="tag" style="background:#F7E3E1;color:#B04A3F" title="Documentação incompleta ou vencida">⚠ não habilitado</span>';
+  const d = fornDesempenho(f);
+  if (d === "bom") t += ' <span class="tag" style="background:#E7F0E3;color:#2C5F5A">🟢 bom</span>';
+  else if (d === "regular") t += ' <span class="tag" style="background:#FBF3E3;color:#B07A2F">🟡 regular</span>';
+  else if (d === "ruim") t += ' <span class="tag" style="background:#F7E3E1;color:#B04A3F">🔴 atenção</span>';
+  return t;
+}
+
+function abrirQualificacaoForn(id) {
+  const f = fornById(id); if (!f) return;
+  const chk = (cid, lab, on) => `<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:4px 0"><input type="checkbox" id="${cid}"${on ? " checked" : ""}> ${lab}</label>`;
+  const optAval = (cid, val) => `<select id="${cid}" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+    <option value=""${!val ? " selected" : ""}>— não avaliado —</option>
+    <option value="bom"${val === "bom" ? " selected" : ""}>Bom</option>
+    <option value="regular"${val === "regular" ? " selected" : ""}>Regular</option>
+    <option value="ruim"${val === "ruim" ? " selected" : ""}>Ruim</option></select>`;
+  const optSit = (v) => `<option value="${v}"${f.situacao === v ? " selected" : ""}>`;
+  const corpo = `
+    <div class="item-head">Situação</div>
+    <div class="ff"><label>Situação cadastral</label>
+      <select id="qSit">${optSit("ativo")}Ativo</option>${optSit("em_qualificacao")}Em qualificação</option>${optSit("inativo")}Inativo</option></select></div>
+
+    <div class="item-head">Habilitação — documentos recebidos e vigentes</div>
+    ${chk("qAfe", "Autorização de Funcionamento (AFE/ANVISA)", f.docAfe)}
+    ${chk("qLic", "Licença / Alvará Sanitário", f.docLicenca)}
+    ${chk("qCert", "Certidões de regularidade", f.docCertidoes)}
+    ${chk("qTab", "Tabela de preços / condições comerciais", f.docTabela)}
+    <div class="ff" style="margin-top:8px"><label>Vencimento do documento mais crítico (ex.: licença)</label><input id="qVal" type="date" value="${f.docValidade || ""}"></div>
+
+    <div class="item-head">Desempenho</div>
+    <div class="ff row2"><div><label>Cumprimento do prazo de entrega</label>${optAval("qPrazo", f.avalPrazo)}</div>
+      <div><label>Tempo de resposta (cotação/e-mail)</label>${optAval("qResp", f.avalResposta)}</div></div>
+    <div class="ff"><label>Atendimento / qualidade</label>${optAval("qAtend", f.avalAtendimento)}</div>
+    <div class="ff"><label>Observação</label><input id="qObs" value="${(f.avalObs || "").replace(/"/g, "&quot;")}" placeholder="Ex.: atrasou última entrega; ótimo preço em injetáveis"></div>
+  `;
+  abrirModal(`Qualificação — ${f.nome}`, corpo, async () => {
+    const dados = {
+      situacao: fv("qSit"),
+      doc_afe: document.getElementById("qAfe").checked,
+      doc_licenca: document.getElementById("qLic").checked,
+      doc_certidoes: document.getElementById("qCert").checked,
+      doc_tabela: document.getElementById("qTab").checked,
+      doc_validade: fvOrNull("qVal"),
+      aval_prazo: fvOrNull("qPrazo"), aval_resposta: fvOrNull("qResp"), aval_atendimento: fvOrNull("qAtend"),
+      aval_obs: fvOrNull("qObs"),
+      aval_data: (fv("qPrazo") || fv("qResp") || fv("qAtend")) ? new Date().toISOString().slice(0, 10) : null,
+    };
+    const { error } = await window.SB.from("fornecedores").update(dados).eq("id", id);
+    if (error) throw error;
+  }, "Salvar qualificação");
+}
 function _melhor(item) {
   let best = null;
   (item.precos || []).forEach((p) => { const u = _precoUnit(p); if (u != null && (best == null || u < best.unit)) best = { fornecedorId: p.fornecedorId, unit: u, p }; });
@@ -243,7 +299,8 @@ function _viewItens(cot) {
 }
 
 function _viewPrecos(cot) {
-  const optForn = `<option value="">— selecione o fornecedor —</option>` + fornecedores.map((f)=>`<option value="${f.id}"${f.id===_fornSel?' selected':''}>${f.nome}</option>`).join('');
+  const optForn = `<option value="">— selecione o fornecedor —</option>` + fornecedores.map((f)=>`<option value="${f.id}"${f.id===_fornSel?' selected':''}>${f.nome}${fornHabilitado(f)?'':' (não habilitado)'}</option>`).join('');
+  const fSel = _fornSel ? fornById(_fornSel) : null;
   const sel = _fornSel;
   const precosDoForn = {};
   if (sel) cot.itens.forEach((it)=>{ const p=(it.precos||[]).find((x)=>x.fornecedorId===sel); if(p) precosDoForn[it.id]=p; });
@@ -253,10 +310,12 @@ function _viewPrecos(cot) {
         <div><div class="panel-title">Lançar preços</div><div class="panel-title-sub">Escolha o fornecedor e registre a resposta da cotação dele</div></div>
         <div class="toolbar">
           <select onchange="selecionarForn(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optForn}</select>
+          ${_fornSel ? `<button class="btn ghost sm" onclick="abrirQualificacaoForn('${_fornSel}')">Qualificação</button>` : ''}
           <button class="btn ghost sm" onclick="abrirNovoFornecedor()">+ Novo fornecedor</button>
         </div>
       </div>
       <div class="panel-body">
+        ${fSel && !fornHabilitado(fSel) ? `<div class="note-box" style="background:#F7E3E1;border-color:#e6b8b1;margin-top:0">⚠ <b>${fSel.nome}</b> está com documentação incompleta ou vencida (${fornDocsPendentes(fSel).join(", ")}). Você pode cotar normalmente; regularize antes de fechar a compra. Ajuste em <b>Qualificação</b>.</div>` : ''}
         ${!fornecedores.length ? `<div class="note-box">Nenhum fornecedor cadastrado. Clique em <b>+ Novo fornecedor</b> para começar.</div>` :
           !sel ? `<div style="color:var(--muted);font-size:13px;padding:8px 0">Selecione um fornecedor acima para lançar os preços dele.</div>` : `
           <table>
@@ -282,7 +341,7 @@ function _viewComp(cot) {
   const forns = _fornDaCotacao(cot);
   const brl = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   if (!forns.length) return `<div class="note-box">Nenhum preço lançado ainda. Vá em <b>Lançar preços</b> e registre a resposta de pelo menos um fornecedor.</div>`;
-  const head = `<th>Descrição</th>` + forns.map((f)=>`<th style="text-align:center">${f.nome}</th>`).join('');
+  const head = `<th>Descrição</th>` + forns.map((f)=>`<th style="text-align:center">${f.nome}${_fornTag(f)}</th>`).join('');
   const body = cot.itens.map((it)=>{
     const best=_melhor(it);
     const cells = forns.map((f)=>{
@@ -298,7 +357,9 @@ function _viewComp(cot) {
   const map=_pedidos(cot);
   const resumo = Object.keys(map).map((fid)=>{
     const total=map[fid].reduce((a,r)=>a+r.subtotal,0);
-    return `<tr><td><b>${_fornNome(fid)}</b></td><td class="num mono">${map[fid].length}</td><td class="num mono">${brl(total)}</td></tr>`;
+    const f = fornById(fid);
+    const alerta = f && !fornHabilitado(f) ? ' <span class="tag" style="background:#F7E3E1;color:#B04A3F">⚠ regularizar</span>' : '';
+    return `<tr><td><b>${_fornNome(fid)}</b>${_fornTag(f)}${alerta}</td><td class="num mono">${map[fid].length}</td><td class="num mono">${brl(total)}</td></tr>`;
   }).join('');
   const totalGeral = Object.values(map).flat().reduce((a,r)=>a+r.subtotal,0);
   return `
