@@ -123,8 +123,8 @@ async function suspenderItem(id) {
 }
 
 /* -------- render: lista por paciente OU detalhe de um paciente -------- */
-function _itensDoPaciente(pacId) {
-  return prescriptions.filter((pr) => pr.paciente === pacId)
+function _itensDoPaciente(pacId, incluirSuspensas) {
+  return prescriptions.filter((pr) => pr.paciente === pacId && (incluirSuspensas || pr.ativo !== false))
     .sort((a, b) => subById(a.subId).nome.localeCompare(subById(b.subId).nome));
 }
 function _prescResumo(pacId) {
@@ -134,7 +134,7 @@ function _prescResumo(pacId) {
 
 function _cardsPorPaciente() {
   // pacientes com ao menos uma prescrição, ordenados por leito
-  const ids = [...new Set(prescriptions.map((p) => p.paciente))];
+  const ids = [...new Set(prescriptions.filter((p) => p.ativo !== false).map((p) => p.paciente))];
   const pacs = ids.map((id) => patById(id))
     .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || (a.nome || "").localeCompare(b.nome || ""));
   if (!pacs.length) return `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma prescrição cadastrada. Use <b>+ Nova prescrição</b>.</div>`;
@@ -211,6 +211,8 @@ function renderPage() {
         <div><div class="panel-title">Prescrições por paciente</div><div class="panel-title-sub">Abra um paciente para ver e editar a prescrição completa dele</div></div>
         <div class="toolbar">
           <select onchange="filtrarPrescPaciente(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optPacs}</select>
+          <button class="btn ghost sm" onclick="imprimirReceituario(null,'C')">🖶 Receituário C em branco</button>
+          <button class="btn ghost sm" onclick="imprimirReceituario(null,'comum')">🖶 Comum em branco</button>
           <button class="btn sm" onclick="abrirFormPrescricao()">+ Nova prescrição</button>
         </div>
       </div>
@@ -245,20 +247,35 @@ function _medDescricao(pr) {
 }
 
 function imprimirReceituario(pacId, tipo) {
-  const p = patById(pacId); if (!p) return;
+  const p = pacId ? patById(pacId) : null;
   const est = window.ESTAB || {};
-  const its = _itensDoPaciente(pacId);
+  const emBranco = !p;
+  const its = p ? _itensDoPaciente(pacId) : [];
   const itens = its.filter((pr) => tipo === "C" ? _medControlada(pr) : !_medControladaQualquer(pr));
-  // prescritor: pega o vinculado ao paciente (se houver)
-  const presc = p.prescritorId ? prescById(p.prescritorId) : null;
+  const presc = p && p.prescritorId ? prescById(p.prescritorId) : null;
   const prescTxt = presc ? `${presc.nome} — ${presc.conselho}-${presc.uf} ${presc.numero}` : "";
   const controlado = tipo === "C";
-  const idade = (function (d) { if (!d) return ""; const t = new Date(), n = new Date(d); let a = t.getFullYear() - n.getFullYear(); const m = t.getMonth() - n.getMonth(); if (m < 0 || (m === 0 && t.getDate() < n.getDate())) a--; return a; })(p.dataNascimento);
+  const idade = (function (d) { if (!d) return ""; const t = new Date(), n = new Date(d); let a = t.getFullYear() - n.getFullYear(); const m = t.getMonth() - n.getMonth(); if (m < 0 || (m === 0 && t.getDate() < n.getDate())) a--; return a; })(p && p.dataNascimento);
 
-  const linhasMed = itens.map((pr) => { const d = _medDescricao(pr); return `<tr><td class="mono">${_esc(d.medicamento)}</td><td>${_esc(d.posologia)}</td><td class="qt"></td></tr>`; }).join("");
-  const linhasVazias = Array.from({ length: Math.max(controlado ? 3 : 5, 8 - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
+  // corpo da prescrição: pré-preenchido (com paciente) OU pautado em branco (sem paciente)
+  let blocoPresc;
+  if (emBranco) {
+    const linhas = Array.from({ length: controlado ? 9 : 12 }, () => `<div class="pauta"></div>`).join("");
+    blocoPresc = `<div class="bloco presc"><div class="bl-tit">Prescrição</div><div class="pautas">${linhas}</div></div>`;
+  } else {
+    const linhasMed = itens.map((pr) => { const d = _medDescricao(pr); return `<tr><td class="mono">${_esc(d.medicamento)}</td><td>${_esc(d.posologia)}</td><td class="qt"></td></tr>`; }).join("");
+    const linhasVazias = Array.from({ length: Math.max(controlado ? 3 : 5, 8 - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
+    blocoPresc = `<div class="bloco presc"><div class="bl-tit">Prescrição</div>
+      <table class="med"><thead><tr><th>Medicamento</th><th>Posologia / orientação</th><th class="qt">Qtd.</th></tr></thead>
+      <tbody>${linhasMed}${linhasVazias}</tbody></table></div>`;
+  }
 
-  // uma "folha" (via). No controlado, imprime 2 (1ª farmácia, 2ª paciente).
+  const linhaPaciente = emBranco
+    ? `<div>Paciente: ______________________________________________________</div>
+       <div>Endereço: ______________________________________________________</div>`
+    : `<div>Nome: <b>${_esc(p.nome)}</b>${idade !== "" ? " · Idade: " + idade : ""}${p.leito ? " · Leito: " + _esc(p.leito) : ""}</div>
+       <div>Endereço: ${_esc(p.endereco || "____________________________________________")}</div>`;
+
   const folha = (viaLabel) => `
     <section class="via">
       ${viaLabel ? `<div class="via-tag">${viaLabel}</div>` : ""}
@@ -276,16 +293,9 @@ function imprimirReceituario(pacId, tipo) {
       </div>
       <div class="bloco">
         <div class="bl-tit">Paciente</div>
-        <div class="linhas">
-          <div>Nome: <b>${_esc(p.nome)}</b>${idade !== "" ? " · Idade: " + idade : ""}${p.leito ? " · Leito: " + _esc(p.leito) : ""}</div>
-          <div>Endereço: ${_esc(p.endereco || "____________________________________________")}</div>
-        </div>
+        <div class="linhas">${linhaPaciente}</div>
       </div>
-      <div class="bloco presc">
-        <div class="bl-tit">Prescrição</div>
-        <table class="med"><thead><tr><th>Medicamento</th><th>Posologia / orientação</th><th class="qt">Qtd.</th></tr></thead>
-        <tbody>${linhasMed}${linhasVazias}</tbody></table>
-      </div>
+      ${blocoPresc}
       <div class="assin">
         <div>Data: ____ / ____ / ______</div>
         <div class="sig">____________________________<br><span>Assinatura e carimbo do prescritor</span></div>
@@ -295,15 +305,17 @@ function imprimirReceituario(pacId, tipo) {
         <div class="col">
           <div class="bl-tit">Identificação do Comprador</div>
           <div class="mini">Nome: __________________________________</div>
-          <div class="mini">RG: ________________ Órgão emissor: ________</div>
+          <div class="mini">Ident.: ______________ Órgão Em.: ________</div>
           <div class="mini">Endereço: ______________________________</div>
+          <div class="mini">Cidade: __________________ UF: ______</div>
           <div class="mini">Telefone: ______________________________</div>
         </div>
         <div class="col">
           <div class="bl-tit">Identificação do Fornecedor (dispensação)</div>
           <div class="mini">Farmacêutico: __________________________</div>
-          <div class="mini">CRF: ____________ Data: ____ / ____ / ______</div>
-          <div class="mini">Assinatura: ____________________________</div>
+          <div class="mini">CRF: ____________</div>
+          <div class="mini">Assinatura do funcionário: ______________</div>
+          <div class="mini">Data: ____ / ____ / ______</div>
         </div>
       </div>` : ""}
     </section>`;
@@ -312,7 +324,8 @@ function imprimirReceituario(pacId, tipo) {
     ? folha("1ª via — Retenção da Farmácia") + folha("2ª via — Orientação ao Paciente")
     : folha("");
 
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${controlado ? "Receituário de Controle Especial" : "Receituário"} — ${_esc(p.nome)}</title>
+  const titulo = (controlado ? "Receituário de Controle Especial" : "Receituário") + (emBranco ? " (em branco)" : " — " + _esc(p.nome));
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo}</title>
   <style>@page{size:A4 portrait;margin:12mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
   .via{border:1.5px solid #1E2A28;border-radius:4px;padding:10px 12px;margin-bottom:8px}
   ${controlado ? ".via{min-height:138mm}" : ".via{min-height:150mm}"}
@@ -320,7 +333,8 @@ function imprimirReceituario(pacId, tipo) {
   .cab{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #1E2A28;padding-bottom:5px;margin-bottom:8px}
   .cab .tit{font-size:14px;font-weight:700;letter-spacing:.02em}.cab .num{font-size:11px;font-family:"IBM Plex Mono",monospace}
   .bloco{margin-bottom:8px}.bl-tit{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;color:#6a736e;border-bottom:1px solid #cfd6cf;margin-bottom:3px;padding-bottom:1px}
-  .linhas div{margin:2px 0;font-size:11px}
+  .linhas div{margin:3px 0;font-size:11px}
+  .pautas{margin-top:8px}.pauta{border-bottom:1px solid #b9c1ba;height:24px}
   table.med{width:100%;border-collapse:collapse;margin-top:2px}table.med th,table.med td{border:1px solid #cfd6cf;padding:5px 6px;font-size:11px;text-align:left;vertical-align:top}
   table.med th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}table.med td{height:22px}.qt{width:60px;text-align:center}.mono{font-weight:600}
   .presc{margin-bottom:10px}

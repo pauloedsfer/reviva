@@ -21,6 +21,9 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Correção — prescrição suspensa saindo do mapa.** Medicação suspensa deixou de aparecer no **mapa de medicação**, na **dispensação** e nos **cartões de prescrição** (o histórico é preservado e pode ser consultado). O filtro por `ativo` foi aplicado em mapa.js, dose.js e prescricoes.js.
+- **Receituários em branco (sem paciente).** Além do pré-preenchido, agora há botões na **tela geral de Prescrições** para imprimir **Receituário C e comum em branco** (com pautas para o médico preencher à mão), seguindo o layout do modelo usado em clínica (Paciente/Endereço/Prescrição em linhas). Emitente do estabelecimento no cabeçalho.
+
 - **Receituários imprimíveis (na Prescrição do paciente).** Dois botões na prescrição do paciente: **Receituário de Controle Especial (C)** — branca, **2 vias** (1ª Farmácia / 2ª Paciente), com campo de numeração, blocos de retenção (comprador/fornecedor) e itens **lista C1** pré-preenchidos — e **Receituário comum** (via única, itens **não controlados**). Ambos pré-preenchem estabelecimento, prescritor e paciente. Itens **B1/B2 (benzos)** e **A (opioides)** são excluídos dos dois, pois exigem Notificação B/A com numeração da VISA. *(Front-only, sem migração.)*
 
 - **Qualificação de fornecedores.** Cada fornecedor ganhou uma **qualificação leve**: habilitação documental (checks de AFE, Licença, Certidões, Tabela + vencimento) e **avaliação de desempenho** em Bom/Regular/Ruim (prazo de entrega, tempo de resposta, atendimento), além de situação (ativo/em qualificação/inativo). Tags aparecem ao lado do fornecedor na cotação (🟢/🟡/🔴 e ⚠ não habilitado); ao lançar preços de um fornecedor com documentação incompleta/vencida, o sistema **alerta sem bloquear**. *(Requer `migration_fornecedor_qualif.sql`.)*
@@ -109,7 +112,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 
 ### 3.2 Telas (Vercel) — o sinal visível de cada recurso
 - [ ] **Pacientes**: abas Internados / Arquivo; "Dar alta"; Extrato de Alta com/sem valores.
-- [ ] **Prescrições**: lista por paciente (cartões); filtro por paciente; editar/suspender/adicionar; campo Qtd/horário; **impressão de Receituário C (2 vias) e comum**.
+- [ ] **Prescrições**: lista por paciente (cartões); filtro por paciente; editar/suspender/adicionar; campo Qtd/horário; **impressão de Receituário C (2 vias) e comum**, pré-preenchido ou **em branco**.
 - [ ] **Dispensação**: seletor de data; "★ custódia do paciente" no lote; Qtd/horário aplicada.
 - [ ] **Mapa**: botões "por paciente" e "por dia"; toggle sem-prescrição; fichas em branco.
 - [ ] **Medicação do Paciente**: situação (custódia / aguardando / devolvido / integrado); devolver à família / integrar ao estoque.

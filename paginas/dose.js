@@ -27,7 +27,7 @@ function _pacienteInternadoNaData(p, d) {
 
 // Prescrições ativas NA data de referência (início <= data). Sem início = sempre.
 function _prescricoesNaData(d) {
-  return prescriptions.filter((pr) => !pr.dataInicio || pr.dataInicio <= d);
+  return prescriptions.filter((pr) => pr.ativo !== false && (!pr.dataInicio || pr.dataInicio <= d));
 }
 
 // Doses esperadas para a data de referência.

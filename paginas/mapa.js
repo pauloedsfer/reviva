@@ -50,7 +50,7 @@ function _linhasVazias(n, cols) {
 
 function _tabelaPaciente(p, periodos, blankRows) {
   const cols = periodos.length;
-  const pres = prescriptions.filter((pr) => pr.paciente === p.id);
+  const pres = prescriptions.filter((pr) => pr.paciente === p.id && pr.ativo !== false);
   const linhas = pres.map((pr) => {
     const cells = {};
     periodos.forEach((per) => (cells[per.key] = []));
@@ -167,7 +167,7 @@ function _diasSpan(dataIni, nDias) {
   return dias;
 }
 const _DOW = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
-function _temPrescricao(p) { return prescriptions.some((pr) => pr.paciente === p.id && (pr.horarios || []).length); }
+function _temPrescricao(p) { return prescriptions.some((pr) => pr.paciente === p.id && pr.ativo !== false && (pr.horarios || []).length); }
 
 function imprimirMapaPaciente() {
   const nPer = document.getElementById("mapaPeriodos").value === "2" ? 2 : 3;
