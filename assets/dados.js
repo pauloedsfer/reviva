@@ -131,7 +131,7 @@ async function carregarDados() {
 
   pops = popsR.map((p) => ({ id: p.id, area: p.area, titulo: p.titulo, status: p.status,
     codigo: p.codigo, versao: p.versao, dataVigencia: p.data_vigencia, proximaRevisao: p.proxima_revisao,
-    responsavel: p.responsavel, observacao: p.observacao, ordem: p.ordem || 0 }))
+    responsavel: p.responsavel, observacao: p.observacao, ordem: p.ordem || 0, corpo: p.corpo || null }))
     .sort((a, b) => (a.ordem - b.ordem) || (a.titulo || "").localeCompare(b.titulo || ""));
 
   const c = cart[0];

@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **POPs — Camada 2 (gerador de documento).** Cada POP passou a ter **corpo estruturado** (objetivo, campo de aplicação, responsabilidades, materiais, procedimento passo a passo, registros, referências), editável na tela, e **impressão do documento de POP formatado** com cabeçalho de controle e bloco de assinaturas (elaborado/revisado/aprovado). Três POPs prioritários já vêm redigidos **dentro da realidade atual da clínica** (enfermagem prepara e administra no horário; RT confere custódia e estoque quando presencial, com suporte remoto por WhatsApp): **Preparo e Administração pela Enfermagem** (POP-ENF-001), **Custódia** (POP-FAR-004) e **Conferência Presencial do Estoque** (POP-FAR-009). *(Requer `migration_pops_corpo.sql`; conteúdo inicial em `pops_conteudo_inicial.sql`.)*
+
 - **POPs — Camada 1 (registro funcional).** A área de POPs deixou de ser um checklist estático: agora é um registro com **CRUD**, **status clicável** (Pendente → Em elaboração → Vigente), campos de controle (**código, versão, data de vigência, próxima revisão, responsável, observação**), sinalização de **revisão vencida/próxima** e **impressão do Registro Mestre de POPs**. Os **13 tópicos do fluxo** passaram a ser **permanentes** (não mais dado de teste) e incluem os módulos novos (destino da custódia na alta, ajuste/contagem de inventário, cotação). *(Requer `migration_pops.sql`.)*
 
 - **Livro de Registro — lote e validade.** Cada lançamento passou a exibir o **lote** e a **validade** (na tela e no impresso), e há **filtro por lote** (restrito à substância escolhida quando houver uma).
@@ -82,10 +84,15 @@ union all
 select 'migration_pops (pops.codigo / campos de controle)',
        case when exists (select 1 from information_schema.columns
                          where table_name='pops' and column_name='codigo')
-            then 'OK' else 'FALTA — migration_pops.sql' end;
+            then 'OK' else 'FALTA — migration_pops.sql' end
+union all
+select 'migration_pops_corpo (pops.corpo)',
+       case when exists (select 1 from information_schema.columns
+                         where table_name='pops' and column_name='corpo')
+            then 'OK' else 'FALTA — migration_pops_corpo.sql' end;
 ```
 
-Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nunca** rodar `schema.sql`, `seed_teste.sql` ou `reset_para_comecar.sql` com dados reais. Ordem numa instalação limpa: schema → ajustes → prescritor_externo → cotacao → alta → qtd_dose → pops.
+Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nunca** rodar `schema.sql`, `seed_teste.sql` ou `reset_para_comecar.sql` com dados reais. Ordem numa instalação limpa: schema → ajustes → prescritor_externo → cotacao → alta → qtd_dose → pops → pops_corpo (+ pops_conteudo_inicial).
 
 ### 3.2 Telas (Vercel) — o sinal visível de cada recurso
 - [ ] **Pacientes**: abas Internados / Arquivo; "Dar alta"; Extrato de Alta com/sem valores.
@@ -96,7 +103,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
 - [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real.
-- [ ] **POPs do Fluxo**: registro com CRUD, status clicável, colunas de controle (código/versão/vigência/próx. revisão) e botão "Registro mestre". 13 tópicos permanentes.
+- [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", **editor de conteúdo** e **impressão do POP formatado**. 3 POPs já redigidos (ENF-001, FAR-004, FAR-009).
 
 Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip` mais recente; Ctrl+F5; F12 → Console em caso de erro.
 
@@ -106,9 +113,10 @@ Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip
 
 Priorizado por valor regulatório e esforço. **P1 = próximo**, **P2 = médio prazo**, **P3 = quando fizer sentido**.
 
-### Fase POPs (P1) — Camada 1 CONCLUÍDA em 21/07/2026
+### Fase POPs (P1) — Camada 1 concluída · Camada 2 em andamento (21/07/2026)
 Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tópicos cadastrados como dado de teste, botão sem ação).
 - ✅ **Camada 1 (concluída):** registro/checklist funcional — CRUD, status clicável, campos de controle, tópicos permanentes e impressão do registro mestre.
+- ⏳ **Camada 2 (em andamento):** corpo estruturado + impressão do documento formatado. Redigidos: Preparo/Administração pela Enfermagem, Custódia, Conferência de Estoque. **A redigir:** conferência de NF, doações, dupla checagem/administração, devolução/SOS, carrinho de emergência, escrituração/balanço, cotação, backup.
 - **Camada 2 (esforço médio):** gerador de documento — corpo estruturado (objetivo, campo de aplicação, responsabilidades, materiais, procedimento passo a passo, registros, referências, histórico de revisões, assinaturas) e **impressão do POP formatado**. Redação dos POPs do fluxo pode ser rascunhada a partir do funcionamento real do sistema.
 - POPs do fluxo a contemplar: admissão/cadastro; conferência de NF; doações; **custódia + destino na alta**; preparo/etiquetagem da dose unitária; **dupla checagem/administração**; devolução/reintegração de SOS; carrinho de emergência/lacre; **escrituração e balanço**; **ajuste/contagem de inventário**; **cotação/compras**; backup/continuidade.
 
