@@ -183,7 +183,11 @@ function _detalhePaciente(pacId) {
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">${p.nome}</div><div class="panel-title-sub">Leito ${p.leito || "—"} · ${its.length} medicação(ões) na prescrição</div></div>
-        <button class="btn sm" onclick="abrirFormPrescricao('${pacId}')">+ Adicionar medicação</button>
+        <div class="toolbar">
+          <button class="btn ghost sm" onclick="imprimirReceituario('${pacId}','C')">🖶 Receituário C</button>
+          <button class="btn ghost sm" onclick="imprimirReceituario('${pacId}','comum')">🖶 Receituário comum</button>
+          <button class="btn sm" onclick="abrirFormPrescricao('${pacId}')">+ Adicionar medicação</button>
+        </div>
       </div>
       <div class="panel-body">
         ${its.length ? `<table>
@@ -213,4 +217,120 @@ function renderPage() {
       <div class="panel-body">${_cardsPorPaciente()}</div>
     </div>
   `;
+}
+
+/* ============================================================
+   Receituários imprimíveis (a partir da prescrição do paciente)
+   - tipo "C": Receita de Controle Especial, branca, 2 vias
+     (lista C1 e adendos — pré-preenche itens com lista iniciada em "C").
+   - tipo "comum": Receituário comum (itens não controlados / sem lista).
+   Pré-preenche emitente (estabelecimento), prescritor e paciente; o médico
+   confere, ajusta quantidades e assina.
+   ============================================================ */
+function _medControlada(pr) { const s = subById(pr.subId); return s && (s.lista || "").toUpperCase().startsWith("C"); }
+// qualquer controle especial (B/A/C) — itens assim NÃO entram no receituário comum
+function _medControladaQualquer(pr) { const s = subById(pr.subId); const l = (s && s.lista ? s.lista : "").trim(); return l !== "" && l !== "—"; }
+function _medDescricao(pr) {
+  const s = subById(pr.subId) || {};
+  const partes = [s.nome];
+  if (s.concentracao) partes.push(s.concentracao);
+  if (s.forma) partes.push(s.forma);
+  let linha = partes.filter(Boolean).join(" ");
+  const pos = [];
+  if (pr.dose) pos.push(pr.dose);
+  if ((pr.qtdPorHorario || 1) > 1) pos.push(`${pr.qtdPorHorario}× por horário`);
+  if (pr.via) pos.push(pr.via);
+  if ((pr.horarios || []).length) pos.push((pr.horarios || []).join(", "));
+  return { medicamento: linha, posologia: pos.join(" · ") };
+}
+
+function imprimirReceituario(pacId, tipo) {
+  const p = patById(pacId); if (!p) return;
+  const est = window.ESTAB || {};
+  const its = _itensDoPaciente(pacId);
+  const itens = its.filter((pr) => tipo === "C" ? _medControlada(pr) : !_medControladaQualquer(pr));
+  // prescritor: pega o vinculado ao paciente (se houver)
+  const presc = p.prescritorId ? prescById(p.prescritorId) : null;
+  const prescTxt = presc ? `${presc.nome} — ${presc.conselho}-${presc.uf} ${presc.numero}` : "";
+  const controlado = tipo === "C";
+  const idade = (function (d) { if (!d) return ""; const t = new Date(), n = new Date(d); let a = t.getFullYear() - n.getFullYear(); const m = t.getMonth() - n.getMonth(); if (m < 0 || (m === 0 && t.getDate() < n.getDate())) a--; return a; })(p.dataNascimento);
+
+  const linhasMed = itens.map((pr) => { const d = _medDescricao(pr); return `<tr><td class="mono">${_esc(d.medicamento)}</td><td>${_esc(d.posologia)}</td><td class="qt"></td></tr>`; }).join("");
+  const linhasVazias = Array.from({ length: Math.max(controlado ? 3 : 5, 8 - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
+
+  // uma "folha" (via). No controlado, imprime 2 (1ª farmácia, 2ª paciente).
+  const folha = (viaLabel) => `
+    <section class="via">
+      ${viaLabel ? `<div class="via-tag">${viaLabel}</div>` : ""}
+      <div class="cab">
+        <div class="tit">${controlado ? "RECEITUÁRIO DE CONTROLE ESPECIAL" : "RECEITUÁRIO"}</div>
+        ${controlado ? '<div class="num">Nº ____________</div>' : ""}
+      </div>
+      <div class="bloco">
+        <div class="bl-tit">Identificação do Emitente</div>
+        <div class="linhas">
+          <div><b>${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</b>${est.cnpj ? " · CNPJ: " + _esc(est.cnpj) : ""}</div>
+          <div>${_esc(est.endereco || "")}${est.municipio_uf ? " — " + _esc(est.municipio_uf) : ""}${est.telefone ? " · Tel.: " + _esc(est.telefone) : ""}</div>
+          <div>Prescritor: ${prescTxt ? _esc(prescTxt) : "____________________________  CRM ____________"}</div>
+        </div>
+      </div>
+      <div class="bloco">
+        <div class="bl-tit">Paciente</div>
+        <div class="linhas">
+          <div>Nome: <b>${_esc(p.nome)}</b>${idade !== "" ? " · Idade: " + idade : ""}${p.leito ? " · Leito: " + _esc(p.leito) : ""}</div>
+          <div>Endereço: ${_esc(p.endereco || "____________________________________________")}</div>
+        </div>
+      </div>
+      <div class="bloco presc">
+        <div class="bl-tit">Prescrição</div>
+        <table class="med"><thead><tr><th>Medicamento</th><th>Posologia / orientação</th><th class="qt">Qtd.</th></tr></thead>
+        <tbody>${linhasMed}${linhasVazias}</tbody></table>
+      </div>
+      <div class="assin">
+        <div>Data: ____ / ____ / ______</div>
+        <div class="sig">____________________________<br><span>Assinatura e carimbo do prescritor</span></div>
+      </div>
+      ${controlado ? `
+      <div class="reten">
+        <div class="col">
+          <div class="bl-tit">Identificação do Comprador</div>
+          <div class="mini">Nome: __________________________________</div>
+          <div class="mini">RG: ________________ Órgão emissor: ________</div>
+          <div class="mini">Endereço: ______________________________</div>
+          <div class="mini">Telefone: ______________________________</div>
+        </div>
+        <div class="col">
+          <div class="bl-tit">Identificação do Fornecedor (dispensação)</div>
+          <div class="mini">Farmacêutico: __________________________</div>
+          <div class="mini">CRF: ____________ Data: ____ / ____ / ______</div>
+          <div class="mini">Assinatura: ____________________________</div>
+        </div>
+      </div>` : ""}
+    </section>`;
+
+  const corpo = controlado
+    ? folha("1ª via — Retenção da Farmácia") + folha("2ª via — Orientação ao Paciente")
+    : folha("");
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${controlado ? "Receituário de Controle Especial" : "Receituário"} — ${_esc(p.nome)}</title>
+  <style>@page{size:A4 portrait;margin:12mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
+  .via{border:1.5px solid #1E2A28;border-radius:4px;padding:10px 12px;margin-bottom:8px}
+  ${controlado ? ".via{min-height:138mm}" : ".via{min-height:150mm}"}
+  .via-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#2C5F5A;text-align:right;margin-bottom:2px}
+  .cab{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #1E2A28;padding-bottom:5px;margin-bottom:8px}
+  .cab .tit{font-size:14px;font-weight:700;letter-spacing:.02em}.cab .num{font-size:11px;font-family:"IBM Plex Mono",monospace}
+  .bloco{margin-bottom:8px}.bl-tit{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;color:#6a736e;border-bottom:1px solid #cfd6cf;margin-bottom:3px;padding-bottom:1px}
+  .linhas div{margin:2px 0;font-size:11px}
+  table.med{width:100%;border-collapse:collapse;margin-top:2px}table.med th,table.med td{border:1px solid #cfd6cf;padding:5px 6px;font-size:11px;text-align:left;vertical-align:top}
+  table.med th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}table.med td{height:22px}.qt{width:60px;text-align:center}.mono{font-weight:600}
+  .presc{margin-bottom:10px}
+  .assin{display:flex;justify-content:space-between;align-items:flex-end;margin-top:10px}.assin .sig{text-align:center;font-size:9px}.assin .sig span{color:#6a736e}
+  .reten{display:flex;gap:14px;border-top:1px dashed #9aa39d;margin-top:10px;padding-top:8px}.reten .col{flex:1}.reten .mini{font-size:10px;margin:3px 0}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}@media print{.btn{display:none}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  ${corpo}
+  </body></html>`;
+  const win = window.open("", "_blank"); if (!win) { alert("Permita pop-ups para imprimir o receituário."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }

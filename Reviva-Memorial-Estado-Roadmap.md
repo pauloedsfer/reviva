@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Receituários imprimíveis (na Prescrição do paciente).** Dois botões na prescrição do paciente: **Receituário de Controle Especial (C)** — branca, **2 vias** (1ª Farmácia / 2ª Paciente), com campo de numeração, blocos de retenção (comprador/fornecedor) e itens **lista C1** pré-preenchidos — e **Receituário comum** (via única, itens **não controlados**). Ambos pré-preenchem estabelecimento, prescritor e paciente. Itens **B1/B2 (benzos)** e **A (opioides)** são excluídos dos dois, pois exigem Notificação B/A com numeração da VISA. *(Front-only, sem migração.)*
+
 - **Qualificação de fornecedores.** Cada fornecedor ganhou uma **qualificação leve**: habilitação documental (checks de AFE, Licença, Certidões, Tabela + vencimento) e **avaliação de desempenho** em Bom/Regular/Ruim (prazo de entrega, tempo de resposta, atendimento), além de situação (ativo/em qualificação/inativo). Tags aparecem ao lado do fornecedor na cotação (🟢/🟡/🔴 e ⚠ não habilitado); ao lançar preços de um fornecedor com documentação incompleta/vencida, o sistema **alerta sem bloquear**. *(Requer `migration_fornecedor_qualif.sql`.)*
 
 - **POPs — fluxo completo redigido (13/13).** Redigidos os POPs restantes, no mesmo padrão (atribuição + base legal; regime presencial periódico): **Admissão e Cadastro** (FAR-006), **Conferência e Registro da Administração** (ENF-002, no lugar de "dupla checagem", que a estrutura atual não comporta), **Devolução e Reintegração** (FAR-008), **Carrinho/Maleta de Emergência e Lacre** (FAR-010), **Cotação e Aquisição** (FAR-012) e **Backup e Continuidade** (FAR-013). Agora **os 13 POPs do fluxo têm documento**. *(Rodar `pops_conteudo_v3.sql`.)*
@@ -107,7 +109,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 
 ### 3.2 Telas (Vercel) — o sinal visível de cada recurso
 - [ ] **Pacientes**: abas Internados / Arquivo; "Dar alta"; Extrato de Alta com/sem valores.
-- [ ] **Prescrições**: lista por paciente (cartões); filtro por paciente; editar/suspender/adicionar; campo Qtd/horário.
+- [ ] **Prescrições**: lista por paciente (cartões); filtro por paciente; editar/suspender/adicionar; campo Qtd/horário; **impressão de Receituário C (2 vias) e comum**.
 - [ ] **Dispensação**: seletor de data; "★ custódia do paciente" no lote; Qtd/horário aplicada.
 - [ ] **Mapa**: botões "por paciente" e "por dia"; toggle sem-prescrição; fichas em branco.
 - [ ] **Medicação do Paciente**: situação (custódia / aguardando / devolvido / integrado); devolver à família / integrar ao estoque.
@@ -123,6 +125,10 @@ Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip
 ## 4. Evoluções futuras / possibilidades de expansão
 
 Priorizado por valor regulatório e esforço. **P1 = próximo**, **P2 = médio prazo**, **P3 = quando fizer sentido**.
+
+### Receituários e Notificações (P2)
+- ✅ Receituário de Controle Especial (C, 2 vias) e Receituário comum imprimíveis pelo sistema.
+- Notificação B (azul) e A (amarela): dependem de numeração da VISA e de modelo Versão 2 da Anvisa; avaliar impressão pelo sistema quando a numeração estiver disponível. Confirmar rito com a VISA-GO.
 
 ### Fase POPs (P1) — Camadas 1 e 2 concluídas (21/07/2026)
 Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tópicos cadastrados como dado de teste, botão sem ação).
