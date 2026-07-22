@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **POPs — Camada 1 (registro funcional).** A área de POPs deixou de ser um checklist estático: agora é um registro com **CRUD**, **status clicável** (Pendente → Em elaboração → Vigente), campos de controle (**código, versão, data de vigência, próxima revisão, responsável, observação**), sinalização de **revisão vencida/próxima** e **impressão do Registro Mestre de POPs**. Os **13 tópicos do fluxo** passaram a ser **permanentes** (não mais dado de teste) e incluem os módulos novos (destino da custódia na alta, ajuste/contagem de inventário, cotação). *(Requer `migration_pops.sql`.)*
+
 - **Livro de Registro — lote e validade.** Cada lançamento passou a exibir o **lote** e a **validade** (na tela e no impresso), e há **filtro por lote** (restrito à substância escolhida quando houver uma).
 - **Livro de Registro — filtros.** Filtro por **paciente**, **período (de/até)**, **tipo de movimento** (entradas, saídas, devoluções, ajustes de inventário), **substância** e **lista/classe** (controlados). Os filtros valem para tela e impressão; o subtítulo do impresso descreve o recorte. O **Saldo após permanece o saldo real acumulado** — os filtros só escolhem quais linhas aparecem, nunca recalculam o saldo dentro do recorte.
 - **Prescrições agrupadas por paciente.** A tela deixou de ser uma lista plana: agora há **um cartão por paciente**; abre-se a prescrição completa dele e edita-se item a item (editar, suspender, adicionar). **Filtro por paciente** no topo.
@@ -75,10 +77,15 @@ union all
 select 'migration_qtd_dose (prescricoes.qtd_por_horario)',
        case when exists (select 1 from information_schema.columns
                          where table_name='prescricoes' and column_name='qtd_por_horario')
-            then 'OK' else 'FALTA — migration_qtd_dose.sql' end;
+            then 'OK' else 'FALTA — migration_qtd_dose.sql' end
+union all
+select 'migration_pops (pops.codigo / campos de controle)',
+       case when exists (select 1 from information_schema.columns
+                         where table_name='pops' and column_name='codigo')
+            then 'OK' else 'FALTA — migration_pops.sql' end;
 ```
 
-Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nunca** rodar `schema.sql`, `seed_teste.sql` ou `reset_para_comecar.sql` com dados reais. Ordem numa instalação limpa: schema → ajustes → prescritor_externo → cotacao → alta → qtd_dose.
+Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nunca** rodar `schema.sql`, `seed_teste.sql` ou `reset_para_comecar.sql` com dados reais. Ordem numa instalação limpa: schema → ajustes → prescritor_externo → cotacao → alta → qtd_dose → pops.
 
 ### 3.2 Telas (Vercel) — o sinal visível de cada recurso
 - [ ] **Pacientes**: abas Internados / Arquivo; "Dar alta"; Extrato de Alta com/sem valores.
@@ -89,7 +96,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
 - [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real.
-- [ ] **POPs do Fluxo**: *(ver seção 4 — em reestruturação)*.
+- [ ] **POPs do Fluxo**: registro com CRUD, status clicável, colunas de controle (código/versão/vigência/próx. revisão) e botão "Registro mestre". 13 tópicos permanentes.
 
 Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip` mais recente; Ctrl+F5; F12 → Console em caso de erro.
 
@@ -99,9 +106,9 @@ Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip
 
 Priorizado por valor regulatório e esforço. **P1 = próximo**, **P2 = médio prazo**, **P3 = quando fizer sentido**.
 
-### Fase POPs — em decisão (P1)
+### Fase POPs (P1) — Camada 1 CONCLUÍDA em 21/07/2026
 Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tópicos cadastrados como dado de teste, botão sem ação).
-- **Camada 1 (esforço baixo):** registro/checklist funcional — adicionar/editar/remover, status (pendente → em elaboração → vigente), campos de controle (código, versão, vigência, próxima revisão, responsável), tópicos **permanentes** (não mais dado de teste) e **impressão do registro mestre**.
+- ✅ **Camada 1 (concluída):** registro/checklist funcional — CRUD, status clicável, campos de controle, tópicos permanentes e impressão do registro mestre.
 - **Camada 2 (esforço médio):** gerador de documento — corpo estruturado (objetivo, campo de aplicação, responsabilidades, materiais, procedimento passo a passo, registros, referências, histórico de revisões, assinaturas) e **impressão do POP formatado**. Redação dos POPs do fluxo pode ser rascunhada a partir do funcionamento real do sistema.
 - POPs do fluxo a contemplar: admissão/cadastro; conferência de NF; doações; **custódia + destino na alta**; preparo/etiquetagem da dose unitária; **dupla checagem/administração**; devolução/reintegração de SOS; carrinho de emergência/lacre; **escrituração e balanço**; **ajuste/contagem de inventário**; **cotação/compras**; backup/continuidade.
 
