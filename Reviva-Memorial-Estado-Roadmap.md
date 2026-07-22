@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Folha de Prescrição Médica (prontuário).** Documento interno da consulta, para arquivo no prontuário (sem vias nem retenção). Traz cabeçalho do estabelecimento, identificação do paciente (nome, prontuário, leito, idade, data de internação), **campo de alergias em destaque**, tabela de medicações (nº, medicamento, dose, via, frequência/observações), bloco de **cuidados/orientações** e assinatura/CRM do médico. Pré-preenchida com **todas as medicações ativas** do paciente (controladas e não) ou **em branco** para preencher à mão. Botões na prescrição do paciente e na tela geral de Prescrições. *(Front-only.)*
+
 - **Correção — prescrição suspensa saindo do mapa.** Medicação suspensa deixou de aparecer no **mapa de medicação**, na **dispensação** e nos **cartões de prescrição** (o histórico é preservado e pode ser consultado). O filtro por `ativo` foi aplicado em mapa.js, dose.js e prescricoes.js.
 - **Receituários em branco (sem paciente).** Além do pré-preenchido, agora há botões na **tela geral de Prescrições** para imprimir **Receituário C e comum em branco** (com pautas para o médico preencher à mão), seguindo o layout do modelo usado em clínica (Paciente/Endereço/Prescrição em linhas). Emitente do estabelecimento no cabeçalho.
 
@@ -112,7 +114,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 
 ### 3.2 Telas (Vercel) — o sinal visível de cada recurso
 - [ ] **Pacientes**: abas Internados / Arquivo; "Dar alta"; Extrato de Alta com/sem valores.
-- [ ] **Prescrições**: lista por paciente (cartões); filtro por paciente; editar/suspender/adicionar; campo Qtd/horário; **impressão de Receituário C (2 vias) e comum**, pré-preenchido ou **em branco**.
+- [ ] **Prescrições**: lista por paciente (cartões); filtro por paciente; editar/suspender/adicionar; campo Qtd/horário; **impressão de Folha de Prescrição Médica (prontuário), Receituário C (2 vias) e comum**, pré-preenchidos ou **em branco**.
 - [ ] **Dispensação**: seletor de data; "★ custódia do paciente" no lote; Qtd/horário aplicada.
 - [ ] **Mapa**: botões "por paciente" e "por dia"; toggle sem-prescrição; fichas em branco.
 - [ ] **Medicação do Paciente**: situação (custódia / aguardando / devolvido / integrado); devolver à família / integrar ao estoque.

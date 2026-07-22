@@ -184,6 +184,7 @@ function _detalhePaciente(pacId) {
       <div class="panel-head">
         <div><div class="panel-title">${p.nome}</div><div class="panel-title-sub">Leito ${p.leito || "—"} · ${its.length} medicação(ões) na prescrição</div></div>
         <div class="toolbar">
+          <button class="btn ghost sm" onclick="imprimirPrescricaoMedica('${pacId}')">🖶 Folha de prescrição</button>
           <button class="btn ghost sm" onclick="imprimirReceituario('${pacId}','C')">🖶 Receituário C</button>
           <button class="btn ghost sm" onclick="imprimirReceituario('${pacId}','comum')">🖶 Receituário comum</button>
           <button class="btn sm" onclick="abrirFormPrescricao('${pacId}')">+ Adicionar medicação</button>
@@ -211,6 +212,7 @@ function renderPage() {
         <div><div class="panel-title">Prescrições por paciente</div><div class="panel-title-sub">Abra um paciente para ver e editar a prescrição completa dele</div></div>
         <div class="toolbar">
           <select onchange="filtrarPrescPaciente(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optPacs}</select>
+          <button class="btn ghost sm" onclick="imprimirPrescricaoMedica(null)">🖶 Folha de prescrição em branco</button>
           <button class="btn ghost sm" onclick="imprimirReceituario(null,'C')">🖶 Receituário C em branco</button>
           <button class="btn ghost sm" onclick="imprimirReceituario(null,'comum')">🖶 Comum em branco</button>
           <button class="btn sm" onclick="abrirFormPrescricao()">+ Nova prescrição</button>
@@ -260,11 +262,11 @@ function imprimirReceituario(pacId, tipo) {
   // corpo da prescrição: pré-preenchido (com paciente) OU pautado em branco (sem paciente)
   let blocoPresc;
   if (emBranco) {
-    const linhas = Array.from({ length: controlado ? 6 : 12 }, () => `<div class="pauta"></div>`).join("");
+    const linhas = Array.from({ length: controlado ? 4 : 12 }, () => `<div class="pauta"></div>`).join("");
     blocoPresc = `<div class="bloco presc"><div class="bl-tit">Prescrição</div><div class="pautas">${linhas}</div></div>`;
   } else {
     const linhasMed = itens.map((pr) => { const d = _medDescricao(pr); return `<tr><td class="mono">${_esc(d.medicamento)}</td><td>${_esc(d.posologia)}</td><td class="qt"></td></tr>`; }).join("");
-    const linhasVazias = Array.from({ length: Math.max(controlado ? 2 : 5, (controlado ? 6 : 8) - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
+    const linhasVazias = Array.from({ length: Math.max(controlado ? 2 : 5, (controlado ? 4 : 8) - itens.length) }, () => `<tr><td>&nbsp;</td><td></td><td class="qt"></td></tr>`).join("");
     blocoPresc = `<div class="bloco presc"><div class="bl-tit">Prescrição</div>
       <table class="med"><thead><tr><th>Medicamento</th><th>Posologia / orientação</th><th class="qt">Qtd.</th></tr></thead>
       <tbody>${linhasMed}${linhasVazias}</tbody></table></div>`;
@@ -328,23 +330,101 @@ function imprimirReceituario(pacId, tipo) {
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo}</title>
   <style>@page{size:A4 portrait;margin:12mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
   .via{border:1.5px solid #1E2A28;border-radius:4px;padding:10px 12px;margin-bottom:8px}
-  ${controlado ? ".via{min-height:122mm}" : ".via{min-height:150mm}"}
+  ${controlado ? ".via{min-height:118mm}" : ".via{min-height:150mm}"}
   .via-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#2C5F5A;text-align:right;margin-bottom:2px}
   .cab{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1.5px solid #1E2A28;padding-bottom:5px;margin-bottom:8px}
   .cab .tit{font-size:14px;font-weight:700;letter-spacing:.02em}.cab .num{font-size:11px;font-family:"IBM Plex Mono",monospace}
   .bloco{margin-bottom:8px}.bl-tit{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;color:#6a736e;border-bottom:1px solid #cfd6cf;margin-bottom:3px;padding-bottom:1px}
   .linhas div{margin:3px 0;font-size:11px}
-  .pautas{margin-top:6px}.pauta{border-bottom:1px solid #b9c1ba;height:22px}
+  .pautas{margin-top:6px}.pauta{border-bottom:1px solid #b9c1ba;height:20px}
   table.med{width:100%;border-collapse:collapse;margin-top:2px}table.med th,table.med td{border:1px solid #cfd6cf;padding:5px 6px;font-size:11px;text-align:left;vertical-align:top}
   table.med th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}table.med td{height:22px}.qt{width:60px;text-align:center}.mono{font-weight:600}
   .presc{margin-bottom:10px}
   .assin{display:flex;justify-content:space-between;align-items:flex-end;margin-top:10px}.assin .sig{text-align:center;font-size:9px}.assin .sig span{color:#6a736e}
-  .reten{display:flex;gap:14px;border-top:1px dashed #9aa39d;margin-top:10px;padding-top:8px}.reten .col{flex:1}.reten .mini{font-size:10px;margin:3px 0}
+  .reten{display:flex;gap:14px;border-top:1px dashed #9aa39d;margin-top:8px;padding-top:6px}.reten .col{flex:1}.reten .mini{font-size:10px;margin:2px 0}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}@media print{.btn{display:none}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   ${corpo}
   </body></html>`;
   const win = window.open("", "_blank"); if (!win) { alert("Permita pop-ups para imprimir o receituário."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
+}
+
+/* ============================================================
+   Folha de Prescrição Médica (uso na consulta, arquivo no prontuário)
+   Documento INTERNO — não vai à farmácia; sem vias/retenção.
+   Traz TODAS as medicações ativas (controladas e não), pois é a
+   ordem médica completa. pacId nulo = folha em branco para preencher à mão.
+   ============================================================ */
+function imprimirPrescricaoMedica(pacId) {
+  const p = pacId ? patById(pacId) : null;
+  const est = window.ESTAB || {};
+  const emBranco = !p;
+  const its = p ? _itensDoPaciente(pacId) : [];
+  const presc = p && p.prescritorId ? prescById(p.prescritorId) : null;
+  const prescTxt = presc ? `${presc.nome} — ${presc.conselho}-${presc.uf} ${presc.numero}` : "";
+  const idade = (function (d) { if (!d) return ""; const t = new Date(), n = new Date(d); let a = t.getFullYear() - n.getFullYear(); const m = t.getMonth() - n.getMonth(); if (m < 0 || (m === 0 && t.getDate() < n.getDate())) a--; return a; })(p && p.dataNascimento);
+
+  // linhas de medicação: numeradas
+  let linhasMed;
+  if (emBranco) {
+    linhasMed = Array.from({ length: 14 }, (_, i) => `<tr><td class="n">${i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
+  } else {
+    const preench = its.map((pr, i) => {
+      const d = _medDescricao(pr);
+      const s = subById(pr.subId) || {};
+      const freq = (pr.horarios || []).join(", ");
+      const obs = (pr.qtdPorHorario || 1) > 1 ? `${pr.qtdPorHorario}× por horário` : "";
+      return `<tr><td class="n">${i + 1}</td><td class="mono">${_esc(s.nome || d.medicamento)}</td><td>${_esc(pr.dose || "")}</td><td>${_esc(pr.via || "")}</td><td>${_esc(freq)}${obs ? " · " + _esc(obs) : ""}</td></tr>`;
+    }).join("");
+    const restantes = Array.from({ length: Math.max(3, 12 - its.length) }, (_, i) => `<tr><td class="n">${its.length + i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
+    linhasMed = preench + restantes;
+  }
+
+  const pacBloco = emBranco
+    ? `<div>Paciente: ____________________________________________  Prontuário: ____________</div>
+       <div>Leito: __________  Idade: ______  Data de internação: ____ / ____ / ______</div>`
+    : `<div>Paciente: <b>${_esc(p.nome)}</b>  ${p.prontuario ? "Prontuário: " + _esc(p.prontuario) : "Prontuário: ____________"}</div>
+       <div>${p.leito ? "Leito: " + _esc(p.leito) + "  " : ""}${idade !== "" ? "Idade: " + idade + "  " : ""}${p.admissao ? "Data de internação: " + fmtDate(p.admissao) : ""}</div>`;
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Prescrição Médica${emBranco ? " (em branco)" : " — " + _esc(p.nome)}</title>
+  <style>@page{size:A4 portrait;margin:14mm 13mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11.5px;margin:0}
+  .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:6px}.estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
+  .tit{text-align:center;font-size:15px;font-weight:700;letter-spacing:.03em;margin:6px 0}
+  .datahora{text-align:right;font-size:11px;margin-bottom:6px}
+  .pac{border:1px solid #cfd6cf;border-radius:6px;padding:7px 9px;margin-bottom:7px}.pac div{margin:3px 0}
+  .alerg{border:1.5px solid #B04A3F;border-radius:6px;padding:6px 9px;margin-bottom:9px;font-size:11.5px}.alerg b{color:#B04A3F;text-transform:uppercase;font-size:10px;letter-spacing:.03em}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd6cf;padding:5px 6px;font-size:11px;text-align:left;vertical-align:top}
+  th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}td{height:24px}td.n{width:26px;text-align:center;color:#6a736e}.mono{font-weight:600}
+  th.med{width:34%}th.dose{width:13%}th.via{width:10%}
+  .cuid{margin-top:9px}.cuid .bl{font-size:8.5px;text-transform:uppercase;color:#6a736e;letter-spacing:.03em;margin-bottom:3px}
+  .cuid .linha{border-bottom:1px solid #b9c1ba;height:20px}
+  .assin{margin-top:26px;display:flex;justify-content:space-between;align-items:flex-end}
+  .assin .sig{text-align:center;font-size:9px;color:#6a736e}.assin .sig .l{border-top:1px solid #1E2A28;padding-top:4px;color:#1E2A28;font-size:11px}
+  .rod{margin-top:10px;font-size:9px;color:#8a938d;text-align:center;border-top:1px solid #e2e7e1;padding-top:5px}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}@media print{.btn{display:none}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <div class="estab"><div class="n">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</div><div class="s">${est.cnpj ? "CNPJ: " + _esc(est.cnpj) + " · " : ""}${_esc(est.endereco || "")}${est.municipio_uf ? " — " + _esc(est.municipio_uf) : ""}</div></div>
+  <div class="tit">PRESCRIÇÃO MÉDICA</div>
+  <div class="datahora">Data: ____ / ____ / ______   Hora: ______</div>
+  <div class="pac">${pacBloco}</div>
+  <div class="alerg"><b>Alergias:</b> ${emBranco ? "___________________________________________________" : "___________________________________________  ( ) Nega alergias"}</div>
+  <table>
+    <thead><tr><th class="n">#</th><th class="med">Medicamento</th><th class="dose">Dose</th><th class="via">Via</th><th>Frequência / horários · observações</th></tr></thead>
+    <tbody>${linhasMed}</tbody>
+  </table>
+  <div class="cuid">
+    <div class="bl">Cuidados / orientações</div>
+    ${Array.from({ length: emBranco ? 4 : 3 }, () => `<div class="linha"></div>`).join("")}
+  </div>
+  <div class="assin">
+    <div>Carimbo:</div>
+    <div class="sig" style="min-width:260px"><div class="l">${prescTxt ? _esc(prescTxt) : "____________________________"}</div>Assinatura e CRM do médico</div>
+  </div>
+  <div class="rod">Documento integrante do prontuário do paciente — arquivar após a consulta.</div>
+  </body></html>`;
+  const win = window.open("", "_blank"); if (!win) { alert("Permita pop-ups para imprimir a prescrição."); return; }
   win.document.open(); win.document.write(html); win.document.close();
 }
