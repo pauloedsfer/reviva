@@ -135,7 +135,7 @@ async function carregarDados() {
   pops = popsR.map((p) => ({ id: p.id, area: p.area, titulo: p.titulo, status: p.status,
     codigo: p.codigo, versao: p.versao, dataVigencia: p.data_vigencia, proximaRevisao: p.proxima_revisao,
     responsavel: p.responsavel, observacao: p.observacao, ordem: p.ordem || 0, corpo: p.corpo || null }))
-    .sort((a, b) => (a.ordem - b.ordem) || (a.titulo || "").localeCompare(b.titulo || ""));
+    .sort(_popCmp);
 
   const c = cart[0];
   if (c) {
@@ -201,6 +201,26 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
 const patById = (id) => patients.find((p) => p.id === id) || { nome: "—", leito: "—" };
 const prescById = (id) => prescritores.find((p) => p.id === id) || null;
+
+/* ---- ordenação dos POPs: por código, FAR antes de ENF, número crescente ----
+   POPs sem código vão para o fim (ordenados por 'ordem' e depois pelo título). */
+const _POP_AREA_ORDEM = { FAR: 0, ENF: 1 };
+function _popCmp(a, b) {
+  const par = (p) => {
+    const m = /^POP-([A-Za-z]+)-(\d+)/.exec((p.codigo || "").trim());
+    if (!m) return null;
+    const sigla = m[1].toUpperCase();
+    const pri = _POP_AREA_ORDEM[sigla] !== undefined ? _POP_AREA_ORDEM[sigla] : 90;
+    return { pri, sigla, num: parseInt(m[2], 10) };
+  };
+  const A = par(a), B = par(b);
+  if (A && !B) return -1;             // com código vem antes de sem código
+  if (!A && B) return 1;
+  if (!A && !B) return (a.ordem - b.ordem) || (a.titulo || "").localeCompare(b.titulo || "");
+  return (A.pri - B.pri)                       // FAR (0) antes de ENF (1)
+      || A.sigla.localeCompare(B.sigla)        // desempate entre siglas de mesma prioridade
+      || (A.num - B.num);                      // número crescente
+}
 
 /* ---- qualificação de fornecedores ---- */
 function fornById(id) { return fornecedores.find((f) => f.id === id) || null; }

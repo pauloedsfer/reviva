@@ -21,6 +21,10 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **POP-FAR-001 — Sistema de Gestão da Qualidade da Farmácia.** POP mestre que rege todos os demais: define elaboração, aprovação, treinamento, disponibilidade, revisão programada e **revisão extraordinária** (mudança de legislação, orientação da Vigilância, mudança de estrutura, não conformidade, sugestão da equipe), controle de versões, tratamento de **não conformidades e ações corretivas**, acompanhamento normativo, **resposta a fiscalizações com plano de ação** e autoavaliação periódica — formalizando a **melhoria contínua**. Total: **14 POPs**. *(Rodar `pops_conteudo_v4.sql`.)*
+- **POPs em ordem de código.** A relação passou a ser ordenada por código — todos os **FAR** primeiro, depois os **ENF**, em numeração crescente — na tela e no Registro Mestre.
+- **Correção — botão "Sair" invisível.** Na barra lateral escura, o botão usava a fonte na mesma cor do fundo (#1D4744), só aparecendo no hover. Passou a usar texto claro com borda sutil (contraste de 1,0:1 para 8,6:1).
+
 - **Folha de Prescrição Médica (prontuário).** Documento interno da consulta, para arquivo no prontuário (sem vias nem retenção). Traz cabeçalho do estabelecimento, identificação do paciente (nome, prontuário, leito, idade, data de internação), **campo de alergias em destaque**, tabela de medicações (nº, medicamento, dose, via, frequência/observações), bloco de **cuidados/orientações** e assinatura/CRM do médico. Pré-preenchida com **todas as medicações ativas** do paciente (controladas e não) ou **em branco** para preencher à mão. Botões na prescrição do paciente e na tela geral de Prescrições. *(Front-only.)*
 
 - **Correção — prescrição suspensa saindo do mapa.** Medicação suspensa deixou de aparecer no **mapa de medicação**, na **dispensação** e nos **cartões de prescrição** (o histórico é preservado e pode ser consultado). O filtro por `ativo` foi aplicado em mapa.js, dose.js e prescricoes.js.
@@ -121,7 +125,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
 - [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real.
-- [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", **editor de conteúdo** e **impressão do POP formatado**. 3 POPs já redigidos (ENF-001, FAR-004, FAR-009).
+- [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", editor de conteúdo e impressão do POP formatado. **14 POPs redigidos**, ordenados por código (FAR antes de ENF).
 
 Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip` mais recente; Ctrl+F5; F12 → Console em caso de erro.
 

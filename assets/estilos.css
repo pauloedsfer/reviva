@@ -148,6 +148,18 @@
   .btn:hover{background:var(--primary-dark);}
   .btn.ghost{background:transparent;color:var(--primary-dark);border:1px solid var(--line);}
   .btn.ghost:hover{background:var(--primary-tint);}
+  /* Botão fantasma sobre a barra lateral escura: precisa de texto claro,
+     senão a fonte fica da mesma cor do fundo e o botão some. */
+  .sidebar .btn.ghost, #btnLogout{
+    color:#EFEAE0;
+    border-color:rgba(255,255,255,.35);
+    background:rgba(255,255,255,.06);
+  }
+  .sidebar .btn.ghost:hover, #btnLogout:hover{
+    background:rgba(255,255,255,.16);
+    border-color:rgba(255,255,255,.55);
+    color:#fff;
+  }
   .btn.sm{padding:6px 11px;font-size:12px;}
 
   .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
