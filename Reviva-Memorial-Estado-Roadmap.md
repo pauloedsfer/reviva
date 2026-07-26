@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Backup Exportar/Importar (Configurações → Backup e Segurança).** Botão **Exportar backup** baixa um JSON com **todas as 26 tabelas** (com data, assinatura e total de registros) para guardar fora do Supabase (Drive/pen drive). Botão **Restaurar de um arquivo** reconstrói os dados — em projeto vazio apenas insere; em projeto com dados, exige digitar RESTAURAR e substitui tudo. Ordem de tabelas respeita as chaves estrangeiras (limpeza reversa, inserção direta). Restaura **dados**; o schema vem das migrações. Validado em ciclo completo (export → restaurar por cima → restaurar em vazio) com contagens idênticas. *(Front-only, assets/backup.js.)*
+
 - **POP-FAR-001 — Sistema de Gestão da Qualidade da Farmácia.** POP mestre que rege todos os demais: define elaboração, aprovação, treinamento, disponibilidade, revisão programada e **revisão extraordinária** (mudança de legislação, orientação da Vigilância, mudança de estrutura, não conformidade, sugestão da equipe), controle de versões, tratamento de **não conformidades e ações corretivas**, acompanhamento normativo, **resposta a fiscalizações com plano de ação** e autoavaliação periódica — formalizando a **melhoria contínua**. Total: **14 POPs**. *(Rodar `pops_conteudo_v4.sql`.)*
 - **POPs em ordem de código.** A relação passou a ser ordenada por código — todos os **FAR** primeiro, depois os **ENF**, em numeração crescente — na tela e no Registro Mestre.
 - **Correção — botão "Sair" invisível.** Na barra lateral escura, o botão usava a fonte na mesma cor do fundo (#1D4744), só aparecendo no hover. Passou a usar texto claro com borda sutil (contraste de 1,0:1 para 8,6:1).
@@ -161,7 +163,7 @@ Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tó
 
 ### Plataforma (P3)
 - **Multiusuário com perfis** (farmácia, enfermagem, direção) sobre a base de `usuarios` já existente.
-- **Backup e continuidade** documentados (export periódico, restauração).
+- ✅ **Backup Exportar/Importar** no sistema (export periódico + restauração) — concluído. Próximo: PWA com cache de leitura (abrir/imprimir offline) e retaguarda fria (2º projeto Postgres).
 - **Relatórios gerenciais** (consumo por período, curva ABC, perdas por ajuste).
 
 ---

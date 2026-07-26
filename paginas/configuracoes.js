@@ -111,5 +111,18 @@ function renderPage() {
         </div>
       </div>
     </div>
+
+    <div class="panel">
+      <div class="panel-head"><div><div class="panel-title">Backup e Segurança</div><div class="panel-title-sub">Cópia de segurança de todos os dados, guardada fora do Supabase</div></div></div>
+      <div class="panel-body">
+        <div class="note-box" style="margin-top:0">Exporte um backup com frequência (ex.: toda semana) e guarde o arquivo no Google Drive ou num pen drive. Se o Supabase ficar indisponível ou o projeto for perdido, você recria a estrutura com as migrações SQL e restaura os dados por este arquivo. Lembre-se: o registro <b>oficial</b> da escrituração continua sendo o Livro e os mapas <b>impressos e assinados</b>.</div>
+        <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:6px">
+          <button class="btn" id="bkExportBtn" onclick="exportarBackup()">⬇ Exportar backup (.json)</button>
+          <button class="btn ghost" onclick="abrirImportarBackup()">⬆ Restaurar de um arquivo…</button>
+          <input type="file" id="bkFile" accept="application/json,.json" style="display:none" onchange="_bkArquivoSelecionado(this)">
+        </div>
+        <div class="note-box" id="bkAviso" style="display:none; margin-top:14px"></div>
+      </div>
+    </div>
   `;
 }
