@@ -132,6 +132,9 @@ function wireChrome() {
 }
 
 async function initLayout() {
+  // padroniza a entrada de texto em MAIÚSCULAS (exceto POPs, e-mail, senha, números, datas e seletores)
+  ativarMaiusculas();
+
   // 1) trava de login (redireciona se não houver sessão)
   const logado = await exigirLogin();
   if (!logado) return;
@@ -166,3 +169,33 @@ async function initLayout() {
 }
 
 document.addEventListener("DOMContentLoaded", initLayout);
+
+/* ============================================================
+   Padronização de entrada em MAIÚSCULAS
+   - Não atua na página de POPs (documentos em texto livre).
+   - Só afeta <input type=text> e <textarea>; seletores (que guardam
+     IDs/UUID dos registros) e campos de e-mail, senha, número, data,
+     telefone, etc. ficam intactos.
+   - Um campo pode ser individualmente preservado com a classe "no-upper".
+   - Normaliza na digitação (o valor gravado já sai em maiúsculo) e
+     preserva a posição do cursor.
+   ============================================================ */
+const _UP_TIPOS_EXCLUIDOS = new Set([
+  "email", "password", "number", "date", "tel", "url", "time",
+  "datetime-local", "month", "week", "color", "range", "file",
+  "checkbox", "radio", "hidden", "search",
+]);
+function ativarMaiusculas() {
+  if ((document.body.dataset.page || "") === "pops") return; // exceção: POPs
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) return;
+    if (el.tagName === "INPUT" && _UP_TIPOS_EXCLUIDOS.has((el.type || "text").toLowerCase())) return;
+    if (el.classList.contains("no-upper") || (el.closest && el.closest(".no-upper"))) return;
+    const alto = el.value.toUpperCase();
+    if (alto === el.value) return;                 // nada a mudar (evita mexer no cursor à toa)
+    const ini = el.selectionStart, fim = el.selectionEnd;
+    el.value = alto;                               // maiúsculo tem o mesmo tamanho: cursor é preservável
+    try { el.setSelectionRange(ini, fim); } catch (_) {}
+  }, true);
+}
