@@ -421,6 +421,10 @@ const CATEGORIA_ROTULO = {
 };
 function catRotulo(c) { return CATEGORIA_ROTULO[c] || c || "Não classificado"; }
 function catOrdem(c) { const i = CATEGORIAS_ORDEM.indexOf(c); return i === -1 ? 998 : i; }
+// categorias em ORDEM ALFABÉTICA pelo rótulo exibido (usada nos documentos impressos)
+function categoriasAlfabeticas() {
+  return [...CATEGORIAS_ORDEM].sort((a, b) => catRotulo(a).localeCompare(catRotulo(b), "pt-BR"));
+}
 // substâncias da padronização (o que a clínica compra) x medicação de paciente
 function subsPadronizadas() { return substances.filter((s) => s.padronizado); }
 function subsDePaciente() { return substances.filter((s) => !s.padronizado); }

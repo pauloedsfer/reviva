@@ -96,12 +96,30 @@ function imprimirCotacao(id) {
   const cot = cotacoes.find((c) => c.id === id); if (!cot) return;
   const est = window.ESTAB || {}, rt = window.RT || {};
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "";
-  const linhas = cot.itens.map((it, i) => `<tr><td class="num">${i+1}</td><td>${(it.descricao||"").replace(/</g,"&lt;")}</td><td class="c">${it.unidade||""}</td><td class="c mono">${it.quantidade||""}</td><td></td><td></td><td></td></tr>`).join("");
+  // agrupa os itens por categoria (categorias e itens em ordem alfabética)
+  const porCat = {};
+  cot.itens.forEach((it) => {
+    const sub = it.substanciaId ? subById(it.substanciaId) : null;
+    const cat = sub ? sub.categoria : "NAO CLASSIFICADO";
+    (porCat[cat] = porCat[cat] || []).push({ it, sub });
+  });
+  let n = 0;
+  const linhas = categoriasAlfabeticas().filter((c) => porCat[c] && porCat[c].length).map((c) => {
+    const rs = porCat[c].sort((a, b) => (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR"));
+    const ctrl = rs.some((r) => r.sub && r.sub.lista && r.sub.lista !== "—");
+    return `<tr class="cat"><td colspan="7">${catRotulo(c)} <span class="qt">(${rs.length} ${rs.length === 1 ? "item" : "itens"})</span>${ctrl ? ' <span class="ctrl">contém itens sob controle especial — Portaria 344/98</span>' : ""}</td></tr>` +
+      rs.map((r) => {
+        n++;
+        const tag = r.sub && r.sub.lista && r.sub.lista !== "—" ? ` <span class="lista">${r.sub.lista}</span>` : "";
+        return `<tr><td class="num">${n}</td><td>${(r.it.descricao||"").replace(/</g,"&lt;")}${tag}</td><td class="c">${r.it.unidade||""}</td><td class="c mono">${r.it.quantidade||""}</td><td></td><td></td><td></td></tr>`;
+      }).join("");
+  }).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Cotação ${cot.identificador||""}</title>
   <style>@page{size:A4 portrait;margin:14mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
   .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:8px}.estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
   tr.cat td{background:#1E2A28;color:#fff;font-size:9px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;padding:3px 6px}
   tr.cat .ctrl{font-weight:400;text-transform:none;letter-spacing:0;color:#F0C674;font-size:8.5px;margin-left:8px}
+  tr.cat .qt{font-weight:400;text-transform:none;letter-spacing:0;color:#9FB5B0;font-size:8.5px}
   tr.sub td{background:#F4F6F3;font-weight:700;font-size:10px}
   .lista{background:#E7F0E3;color:#2C5F5A;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;margin-left:4px}
   h1{font-size:14px;margin:8px 0 2px}.sub{font-size:10.5px;color:#6a736e;margin-bottom:8px}
@@ -126,7 +144,7 @@ function _precoUnit(p) { return (p && p.disponivel && p.precoCaixa != null && p.
 function _optSubsPadronizadas(sel) {
   const cats = {};
   subsPadronizadas().forEach((s) => { (cats[s.categoria] = cats[s.categoria] || []).push(s); });
-  return CATEGORIAS_ORDEM.filter((c) => cats[c] && cats[c].length).map((c) =>
+  return categoriasAlfabeticas().filter((c) => cats[c] && cats[c].length).map((c) =>
     `<optgroup label="${catRotulo(c)}">` +
     cats[c].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((s) => `<option value="${s.id}"${s.id === sel ? " selected" : ""}>${s.nome}${s.lista && s.lista !== "—" ? " [" + s.lista + "]" : ""}</option>`).join("") +
@@ -271,7 +289,7 @@ function imprimirPedidos(id) {
       (porCat[cat] = porCat[cat] || []).push(r);
     });
     let n = 0;
-    const linhas = CATEGORIAS_ORDEM.filter((c) => porCat[c] && porCat[c].length).map((c) => {
+    const linhas = categoriasAlfabeticas().filter((c) => porCat[c] && porCat[c].length).map((c) => {
       const rs = porCat[c].sort((a, b) => (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR"));
       const sub = rs.reduce((a, r) => a + r.subtotal, 0);
       const ctrl = rs.some((r) => { const x = r.it.substanciaId ? subById(r.it.substanciaId) : null; return x && x.lista && x.lista !== "—"; });
@@ -326,11 +344,24 @@ function _viewItens(cot) {
         </div>
       </div>
       <div class="panel-body">
-        ${cot.itens.length ? `<table><thead><tr><th>#</th><th>Descrição</th><th>Unid.</th><th>Qtde.</th><th>Origem</th><th></th></tr></thead><tbody>
-          ${cot.itens.map((it,i)=>`<tr><td class="num mono">${i+1}</td><td><b>${it.descricao}</b></td><td class="mono">${it.unidade||"—"}</td><td class="num mono">${it.quantidade||"—"}</td>
-          <td>${it.substanciaId?'<span class="tag">cadastrada</span>':'<span class="tag" style="background:var(--accent-tint);color:var(--accent)">livre</span>'}</td>
-          <td style="text-align:right"><button class="btn ghost sm" onclick="removerItemCotacao('${it.id}')">Remover</button></td></tr>`).join('')}
-        </tbody></table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Cotação sem itens. Use <b>+ Item</b>.</div>`}
+        ${cot.itens.length ? (() => {
+          // agrupa por categoria (categorias e itens em ordem alfabética), como no impresso
+          const porCat = {};
+          cot.itens.forEach((it) => {
+            const sub = it.substanciaId ? subById(it.substanciaId) : null;
+            (porCat[sub ? sub.categoria : "NAO CLASSIFICADO"] ||= []).push({ it, sub });
+          });
+          let n = 0;
+          const corpo = categoriasAlfabeticas().filter((c) => porCat[c] && porCat[c].length).map((c) => {
+            const rs = porCat[c].sort((a, b) => (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR"));
+            return `<tr><td colspan="6" style="background:var(--primary-tint);color:var(--primary-dark);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 8px">${catRotulo(c)} <span style="font-weight:400;opacity:.7">(${rs.length})</span></td></tr>` +
+              rs.map((r) => { n++; const lt = r.sub && r.sub.lista && r.sub.lista !== "—" ? ` <span class="tag ${listaTagClass(r.sub.lista)}">${r.sub.lista}</span>` : "";
+                return `<tr><td class="num mono">${n}</td><td><b>${r.it.descricao}</b>${lt}</td><td class="mono">${r.it.unidade||"—"}</td><td class="num mono">${r.it.quantidade||"—"}</td>
+                <td>${r.it.substanciaId?'<span class="tag">cadastrada</span>':'<span class="tag" style="background:var(--accent-tint);color:var(--accent)">livre</span>'}</td>
+                <td style="text-align:right"><button class="btn ghost sm" onclick="removerItemCotacao('${r.it.id}')">Remover</button></td></tr>`; }).join("");
+          }).join("");
+          return `<table><thead><tr><th>#</th><th>Descrição</th><th>Unid.</th><th>Qtde.</th><th>Origem</th><th></th></tr></thead><tbody>${corpo}</tbody></table>`;
+        })() : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Cotação sem itens. Use <b>+ Item</b>.</div>`}
       </div>
     </div>`;
 }
