@@ -19,6 +19,15 @@ function _formSubstancia(s) {
       <div><label>Lista (Portaria 344/98) *</label><select id="sLista">${opts}</select></div>
       <div><label>Unidade *</label><input id="sUnid" value="${s.unidade || "comp."}"></div>
     </div>
+    <div class="ff row2">
+      <div><label>Categoria</label>
+        <select id="sCat">${CATEGORIAS_ORDEM.map((c) => `<option value="${c}"${(s.categoria || "NAO CLASSIFICADO") === c ? " selected" : ""}>${catRotulo(c)}</option>`).join("")}</select></div>
+      <div><label>Origem do cadastro</label>
+        <select id="sPadr">
+          <option value="1"${s.padronizado !== false ? " selected" : ""}>Padronização (a clínica compra)</option>
+          <option value="0"${s.padronizado === false ? " selected" : ""}>Medicação de paciente (não entra em cotação)</option>
+        </select></div>
+    </div>
   `;
 }
 
@@ -30,6 +39,7 @@ function abrirFormSubstancia(id) {
     const dados = {
       nome, principio_ativo: fvOrNull("sPa"), concentracao: fvOrNull("sConc"),
       forma: fvOrNull("sForma"), lista: fv("sLista") || "—", unidade: fv("sUnid") || "comp.",
+      categoria: fv("sCat") || "NAO CLASSIFICADO", padronizado: fv("sPadr") !== "0",
     };
     if (id) {
       const { error } = await window.SB.from("substancias").update(dados).eq("id", id);
@@ -58,7 +68,7 @@ function renderPage(){
               const cm = custoMedio(s.id);
               const low = bal <= 10;
               return `<tr>
-                <td><b>${s.nome}</b></td>
+                <td><b>${s.nome}</b>${s.padronizado ? "" : ' <span class="tag" style="background:#FBF3E3;color:#B07A2F" title="Cadastrada para custódia de paciente — não entra em cotação">med. de paciente</span>'}<div style="font-size:11px;color:var(--muted)">${catRotulo(s.categoria)}</div></td>
                 <td>${s.lista==='—' ? '<span style="color:var(--muted)">não controlado</span>' : `<span class="tag ${listaTagClass(s.lista)}">Lista ${s.lista}</span>`}</td>
                 <td class="num mono">${bal} ${s.unidade}</td>
                 <td class="num mono">${fmtBRL(cm)}</td>

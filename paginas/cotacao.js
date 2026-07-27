@@ -42,7 +42,7 @@ function abrirFormItemCotacao() {
         <option value="livre"${temSub ? '' : ' selected'}>Item livre (digitar)</option>
       </select></div>
     <div id="itBlocoSub" style="display:${temSub ? 'block' : 'none'}">
-      <div class="ff"><label>Substância</label><select id="itSub">${_optSubs()}</select></div></div>
+      <div class="ff"><label>Substância <span style="font-weight:400;color:var(--muted)">— itens da padronização</span></label><select id="itSub">${_optSubsPadronizadas()}</select></div></div>
     <div id="itBlocoLivre" style="display:${temSub ? 'none' : 'block'}">
       <div class="ff row2">
         <div><label>Descrição *</label><input id="itDesc" placeholder="Ex.: Sertralina 50 mg comp."></div>
@@ -72,9 +72,11 @@ function _toggleItemCot() {
 async function adicionarTodasSubstancias() {
   const cot = cotacoes.find((c) => c.id === _cotAberta);
   const jaTem = new Set(cot.itens.map((i) => i.substanciaId).filter(Boolean));
-  const novas = substances.filter((s) => !jaTem.has(s.id));
-  if (!novas.length) { alert("Todas as substâncias já estão na cotação."); return; }
-  if (!confirm(`Adicionar ${novas.length} substância(s) (quantidade 0, ajuste depois)?`)) return;
+  // só entram itens da padronização — medicação de paciente não é cotada
+  const novas = subsPadronizadas().filter((s) => !jaTem.has(s.id))
+    .sort((a, b) => (catOrdem(a.categoria) - catOrdem(b.categoria)) || a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!novas.length) { alert("Todos os itens da padronização já estão na cotação."); return; }
+  if (!confirm(`Adicionar ${novas.length} item(ns) da padronização (quantidade 0, ajuste depois)?`)) return;
   const base = cot.itens.length;
   const { error } = await window.SB.from("cotacao_itens").insert(novas.map((s, i) => ({ cotacao_id: _cotAberta, substancia_id: s.id, descricao: s.nome, unidade: s.unidade, quantidade: 0, ordem: base + i })));
   if (error) { alert("Erro: " + error.message); return; }
@@ -98,6 +100,10 @@ function imprimirCotacao(id) {
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Cotação ${cot.identificador||""}</title>
   <style>@page{size:A4 portrait;margin:14mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
   .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:8px}.estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
+  tr.cat td{background:#1E2A28;color:#fff;font-size:9px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;padding:3px 6px}
+  tr.cat .ctrl{font-weight:400;text-transform:none;letter-spacing:0;color:#F0C674;font-size:8.5px;margin-left:8px}
+  tr.sub td{background:#F4F6F3;font-weight:700;font-size:10px}
+  .lista{background:#E7F0E3;color:#2C5F5A;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;margin-left:4px}
   h1{font-size:14px;margin:8px 0 2px}.sub{font-size:10.5px;color:#6a736e;margin-bottom:8px}
   .instr{background:#EEF2EC;border:1px solid #cfd6cf;border-radius:6px;padding:7px 9px;font-size:10.5px;margin-bottom:8px}
   table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd6cf;padding:4px 6px;font-size:10.5px}
@@ -116,6 +122,17 @@ function imprimirCotacao(id) {
 
 /* ============================ FASE B ============================ */
 function _precoUnit(p) { return (p && p.disponivel && p.precoCaixa != null && p.unidPorCaixa) ? p.precoCaixa / p.unidPorCaixa : null; }
+// opções de substância para a cotação: só padronizadas, agrupadas por categoria
+function _optSubsPadronizadas(sel) {
+  const cats = {};
+  subsPadronizadas().forEach((s) => { (cats[s.categoria] = cats[s.categoria] || []).push(s); });
+  return CATEGORIAS_ORDEM.filter((c) => cats[c] && cats[c].length).map((c) =>
+    `<optgroup label="${catRotulo(c)}">` +
+    cats[c].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+      .map((s) => `<option value="${s.id}"${s.id === sel ? " selected" : ""}>${s.nome}${s.lista && s.lista !== "—" ? " [" + s.lista + "]" : ""}</option>`).join("") +
+    `</optgroup>`).join("");
+}
+
 function _fornNome(id) { const f = fornecedores.find((x) => x.id === id); return f ? f.nome : "—"; }
 
 // tag visual de habilitação + desempenho ao lado do nome do fornecedor
@@ -246,7 +263,27 @@ function imprimirPedidos(id) {
   const fids = Object.keys(map);
   if (!fids.length) { alert("Ainda não há preços lançados para gerar pedidos."); return; }
   const paginas = fids.map((fid) => {
-    const linhas = map[fid].map((r, i) => `<tr><td class="num">${i+1}</td><td>${(r.it.descricao||"").replace(/</g,"&lt;")}</td><td class="c">${r.it.unidade||""}</td><td class="c mono">${r.it.quantidade||0}</td><td class="c mono">${r.p.unidPorCaixa||"—"}</td><td class="c mono">${r.caixas}</td><td class="r mono">${brl(r.p.precoCaixa||0)}</td><td class="r mono">${brl(r.subtotal)}</td></tr>`).join("");
+    // agrupa as linhas do pedido por categoria da substância
+    const porCat = {};
+    map[fid].forEach((r) => {
+      const sub = r.it.substanciaId ? subById(r.it.substanciaId) : null;
+      const cat = sub ? sub.categoria : "NAO CLASSIFICADO";
+      (porCat[cat] = porCat[cat] || []).push(r);
+    });
+    let n = 0;
+    const linhas = CATEGORIAS_ORDEM.filter((c) => porCat[c] && porCat[c].length).map((c) => {
+      const rs = porCat[c].sort((a, b) => (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR"));
+      const sub = rs.reduce((a, r) => a + r.subtotal, 0);
+      const ctrl = rs.some((r) => { const x = r.it.substanciaId ? subById(r.it.substanciaId) : null; return x && x.lista && x.lista !== "—"; });
+      return `<tr class="cat"><td colspan="8">${catRotulo(c)}${ctrl ? ' <span class="ctrl">contém itens sob controle especial — Portaria 344/98</span>' : ""}</td></tr>` +
+        rs.map((r) => {
+          n++;
+          const x = r.it.substanciaId ? subById(r.it.substanciaId) : null;
+          const tag = x && x.lista && x.lista !== "—" ? ` <span class="lista">${x.lista}</span>` : "";
+          return `<tr><td class="num">${n}</td><td>${(r.it.descricao||"").replace(/</g,"&lt;")}${tag}</td><td class="c">${r.it.unidade||""}</td><td class="c mono">${r.it.quantidade||0}</td><td class="c mono">${r.p.unidPorCaixa||"—"}</td><td class="c mono">${r.caixas}</td><td class="r mono">${brl(r.p.precoCaixa||0)}</td><td class="r mono">${brl(r.subtotal)}</td></tr>`;
+        }).join("") +
+        (rs.length > 1 ? `<tr class="sub"><td colspan="7" class="r">Subtotal — ${catRotulo(c)}</td><td class="r mono">${brl(sub)}</td></tr>` : "");
+    }).join("");
     const total = map[fid].reduce((a, r) => a + r.subtotal, 0);
     return `<section class="ped"><div class="estab"><div class="n">${est.razao_social||est.nome_fantasia||"Hospital Reviva"}</div><div class="s">${est.cnpj?"CNPJ: "+est.cnpj+" · ":""}${est.municipio_uf||""}</div></div>
       <h1>Pedido de Compra${cot.identificador?" — "+cot.identificador:""}</h1>

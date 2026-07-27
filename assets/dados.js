@@ -70,7 +70,8 @@ async function carregarDados() {
   ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
 
   substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
-    principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma }));
+    principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma,
+    categoria: s.categoria || "NAO CLASSIFICADO", padronizado: s.padronizado !== false }));
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
   fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo,
     situacao: f.situacao || "ativo",
@@ -390,6 +391,40 @@ function gruposSubstancias() {
   });
   return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
 }
+/* ---- Categorias (organização da cotação e dos pedidos) ----
+   A ordem abaixo é a usada nos documentos impressos. */
+const CATEGORIAS_ORDEM = [
+  "PSICOTROPICOS - ORAL SOLIDO",
+  "PSICOTROPICOS - ORAL LIQUIDO",
+  "PSICOTROPICOS - INJETAVEL",
+  "DEPENDENCIA QUIMICA",
+  "SINTOMATICOS CLINICOS",
+  "ANTIMICROBIANOS",
+  "VITAMINAS E SUPLEMENTOS",
+  "SOLUCOES PARENTERAIS E ELETROLITOS",
+  "RESPIRATORIOS E CORTICOIDES",
+  "URGENCIA E EMERGENCIA",
+  "NAO CLASSIFICADO",
+];
+const CATEGORIA_ROTULO = {
+  "PSICOTROPICOS - ORAL SOLIDO": "Psicotrópicos — oral sólido",
+  "PSICOTROPICOS - ORAL LIQUIDO": "Psicotrópicos — oral líquido",
+  "PSICOTROPICOS - INJETAVEL": "Psicotrópicos — injetável",
+  "DEPENDENCIA QUIMICA": "Tratamento da dependência química",
+  "SINTOMATICOS CLINICOS": "Sintomáticos clínicos",
+  "ANTIMICROBIANOS": "Antimicrobianos",
+  "VITAMINAS E SUPLEMENTOS": "Vitaminas e suplementos",
+  "SOLUCOES PARENTERAIS E ELETROLITOS": "Soluções parenterais e eletrólitos",
+  "RESPIRATORIOS E CORTICOIDES": "Respiratórios e corticoides",
+  "URGENCIA E EMERGENCIA": "Urgência e emergência",
+  "NAO CLASSIFICADO": "Não classificado",
+};
+function catRotulo(c) { return CATEGORIA_ROTULO[c] || c || "Não classificado"; }
+function catOrdem(c) { const i = CATEGORIAS_ORDEM.indexOf(c); return i === -1 ? 998 : i; }
+// substâncias da padronização (o que a clínica compra) x medicação de paciente
+function subsPadronizadas() { return substances.filter((s) => s.padronizado); }
+function subsDePaciente() { return substances.filter((s) => !s.padronizado); }
+
 // grupo controlado? (lista preenchida e diferente de "—")
 function grupoControlado(g) { const l = (g.lista || "").trim(); return l !== "" && l !== "—"; }
 

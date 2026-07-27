@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Categorias de medicamento e separação padronização x paciente (`migration_categorias.sql`).** Cada substância ganhou **categoria** (10 categorias clínicas, das psicotrópicas às de urgência) e o marcador **padronizado**. A cotação passou a trabalhar só com itens da **padronização** — medicação cadastrada por causa de custódia de paciente não entra em cotação nem no "adicionar todos". O **Pedido de Compra impresso** agora sai **agrupado por categoria**, com subtotal por categoria, tag da lista (B1/C1) em cada item e aviso de "contém itens sob controle especial" nas categorias que têm controlados. No cadastro de substância há os campos Categoria e Origem (padronização / medicação de paciente), e a lista de estoque marca com tag as medicações de paciente.
+
 - **Padronização aprovada cadastrada (`migration_padronizacao.sql`).** 77 substâncias da padronização aprovada pela diretoria, com a **classificação da Portaria 344/98 conferida item a item**: 6 em **B1** (benzodiazepínicos → Notificação B azul), 33 em **C1** (antidepressivos, anticonvulsivantes, antipsicóticos, antiparkinsonianos → Receita de Controle Especial 2 vias) e 38 não controladas. A migração também cria a **primeira cotação (COT-2026-001)** já com os 77 itens e as quantidades aprovadas (comprimidos 1 caixa, líquidos 2 frascos, injetáveis 10 ampolas). Correções apuradas na conferência: **prometazina não é controlada** (exceção expressa da 344/98) e **bromazepam é B1**. *(Idempotente.)*
 
 - **Folha de Registro Semanal (para transcrição ao livro físico).** Nova impressão na tela de Escrituração: escolhe-se a semana (segunda a domingo, com navegação ◀ ▶) e o sistema gera uma folha com um bloco por medicamento contendo **saldo anterior**, **entradas discriminadas por lote** (data, lote, validade, origem/documento), **saídas consolidadas do período** (total + nome de um paciente seguido de "e outros" quando houver mais de um) e **saldo final**, além de campo "Transcrito no livro em ___ / Rubrica". Por padrão traz só os controlados, com opção de incluir os demais.
@@ -132,7 +134,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Mapa**: botões "por paciente" e "por dia"; toggle sem-prescrição; fichas em branco.
 - [ ] **Medicação do Paciente**: situação (custódia / aguardando / devolvido / integrado); devolver à família / integrar ao estoque.
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
-- [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta.
+- [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta; itens **por categoria**, só da padronização; pedido impresso agrupado.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real. **Folha de Registro Semanal** (por princípio ativo + dosagem) no topo da tela.
 - [ ] **Balanço/BMPO**: uma linha por princípio ativo + dosagem, com nomes comerciais como referência.
 - [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", editor de conteúdo e impressão do POP formatado. **14 POPs redigidos**, ordenados por código (FAR antes de ENF).
