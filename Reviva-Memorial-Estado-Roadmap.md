@@ -12,7 +12,7 @@ A cada nova versão entregue, este documento é atualizado junto. Ele substitui 
 
 ## 1. Arquitetura em uma frase
 
-Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/Postgres. Login único (Supabase Auth). O **razão é derivado** — saldos e Livro são calculados a partir dos eventos atômicos, nunca digitados à mão. RT e estabelecimento são **dados editáveis** (Configurações), nunca fixos no código. Migrações são **aditivas** e ficam na pasta `db/`.
+Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/Postgres. **No Livro de Registro e no BMPO, a identidade do medicamento é princípio ativo + dosagem** — o nome comercial é conveniência clínica e é consolidado na escrituração. Login único (Supabase Auth). O **razão é derivado** — saldos e Livro são calculados a partir dos eventos atômicos, nunca digitados à mão. RT e estabelecimento são **dados editáveis** (Configurações), nunca fixos no código. Migrações são **aditivas** e ficam na pasta `db/`.
 
 ---
 
@@ -20,6 +20,9 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
+
+- **Folha de Registro Semanal (para transcrição ao livro físico).** Nova impressão na tela de Escrituração: escolhe-se a semana (segunda a domingo, com navegação ◀ ▶) e o sistema gera uma folha com um bloco por medicamento contendo **saldo anterior**, **entradas discriminadas por lote** (data, lote, validade, origem/documento), **saídas consolidadas do período** (total + nome de um paciente seguido de "e outros" quando houver mais de um) e **saldo final**, além de campo "Transcrito no livro em ___ / Rubrica". Por padrão traz só os controlados, com opção de incluir os demais.
+- **Identidade do medicamento no Livro e no BMPO: PRINCÍPIO ATIVO + DOSAGEM.** Nomes comerciais distintos com mesmo princípio e dosagem passam a ser **um único item** na escrituração — o nome comercial serve à administração pela enfermagem e à prescrição médica. Novo agrupamento (`gruposSubstancias`) aplicado à Folha Semanal e ao **BMPO**, que antes emitia uma linha por nome comercial e agora emite **uma linha por princípio+dosagem**, listando os nomes comerciais como referência.
 
 - **Padronização de entrada em MAIÚSCULAS.** A digitação de texto passa a ser normalizada para maiúsculo automaticamente em todos os cadastros, **exceto POPs** (texto livre) e **exceto** e-mail, senha, números, datas e seletores (que guardam os IDs). Preserva a posição do cursor e permite exceção pontual via classe `no-upper`. Para os dados já cadastrados, há o script opcional **`migration_maiusculas.sql`** (idempotente, não toca e-mails/IDs/POPs nem campos de valor controlado como o canal da NF). *(Front em layout.js + SQL opcional.)*
 
@@ -128,7 +131,8 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Medicação do Paciente**: situação (custódia / aguardando / devolvido / integrado); devolver à família / integrar ao estoque.
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
 - [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta.
-- [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real.
+- [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real. **Folha de Registro Semanal** (por princípio ativo + dosagem) no topo da tela.
+- [ ] **Balanço/BMPO**: uma linha por princípio ativo + dosagem, com nomes comerciais como referência.
 - [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", editor de conteúdo e impressão do POP formatado. **14 POPs redigidos**, ordenados por código (FAR antes de ENF).
 
 Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip` mais recente; Ctrl+F5; F12 → Console em caso de erro.

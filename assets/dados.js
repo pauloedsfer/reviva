@@ -360,6 +360,39 @@ function movTipoTag(tipo) {
 }
 function movSign(tipo) { return (tipo === "saida" || tipo === "ajuste_saida") ? "−" : "+"; }
 
+/* ---- Agrupamento por PRINCÍPIO ATIVO + DOSAGEM ----
+   Para o Livro de Registro e o BMPO, a identidade do medicamento é o
+   princípio ativo somado à dosagem. O nome comercial existe para facilitar
+   a administração pela enfermagem e a prescrição médica, mas vários nomes
+   comerciais de mesmo princípio e dosagem são UM único item na escrituração. */
+function grupoSubKey(s) {
+  if (!s) return "";
+  const pa = (s.principio_ativo || s.nome || "").trim().toUpperCase();
+  const dose = (s.concentracao || "").trim().toUpperCase();
+  return pa + "|" + dose;
+}
+function grupoSubLabel(s) {
+  const pa = (s.principio_ativo || s.nome || "").trim();
+  const dose = (s.concentracao || "").trim();
+  return (pa + (dose ? " " + dose : "")).trim();
+}
+// Lista de grupos (princípio+dosagem), cada um com os subIds e nomes comerciais que o compõem.
+function gruposSubstancias() {
+  const map = new Map();
+  substances.forEach((s) => {
+    const k = grupoSubKey(s);
+    if (!map.has(k)) map.set(k, { key: k, label: grupoSubLabel(s), forma: s.forma || "", lista: s.lista || "", unidade: s.unidade || "", subIds: [], nomes: [] });
+    const g = map.get(k);
+    g.subIds.push(s.id);
+    if (s.nome && g.nomes.indexOf(s.nome) === -1) g.nomes.push(s.nome);
+    if (!g.lista && s.lista) g.lista = s.lista;
+    if (!g.forma && s.forma) g.forma = s.forma;
+  });
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+}
+// grupo controlado? (lista preenchida e diferente de "—")
+function grupoControlado(g) { const l = (g.lista || "").trim(); return l !== "" && l !== "—"; }
+
 /* Movimentações — derivadas de inventário, NF, doações, custódia, dispensações e devoluções. */
 function buildMovements() {
   const list = [];

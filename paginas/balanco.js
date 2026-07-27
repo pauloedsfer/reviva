@@ -29,12 +29,14 @@ function _lotesProprios() {
   return new Set(allLotes().filter((l) => l.origem === "proprio" && !l.integrado).map((l) => l.lote));
 }
 
-function _bmpoLinha(s, mes) {
+// Recebe um GRUPO (princípio ativo + dosagem) — a identidade do BMPO.
+// Vários nomes comerciais de mesmo princípio e dosagem formam uma única linha.
+function _bmpoLinha(g, mes) {
   const proprios = _lotesProprios();
   const inicioMes = mes + "-01";
   let inicial = 0, entradas = 0, saidas = 0;
   movements.forEach((m) => {
-    if (m.subId !== s.id) return;
+    if (g.subIds.indexOf(m.subId) === -1) return;
     if (proprios.has(m.lote)) return; // custódia fora do BMPO
     const neg = (m.tipo === "saida" || m.tipo === "ajuste_saida");
     const sinal = neg ? -m.qtd : m.qtd;
@@ -47,16 +49,18 @@ function _bmpoLinha(s, mes) {
 }
 
 function _bmpoRows(mes, paraImpressao) {
-  return substances.filter((s) => s.lista !== "—").map((s) => {
-    const b = _bmpoLinha(s, mes);
+  return gruposSubstancias().filter(grupoControlado).map((g) => {
+    const b = _bmpoLinha(g, mes);
+    const comerciais = g.nomes.length > 1 ? g.nomes.join(" · ") : "";
     if (paraImpressao) {
       return `<tr>
-        <td>${s.nome}</td><td>Lista ${s.lista}</td>
+        <td>${g.label}${g.forma ? " — " + g.forma : ""}${comerciais ? `<div style="font-size:8.5px;color:#6a736e">${comerciais}</div>` : ""}</td><td>Lista ${g.lista}</td>
         <td class="num mono">${b.inicial}</td><td class="num mono">+${b.entradas}</td>
         <td class="num mono">-${b.saidas}</td><td class="num mono">${b.final}</td></tr>`;
     }
     return `<tr>
-      <td><b>${s.nome}</b></td><td><span class="tag ${listaTagClass(s.lista)}">Lista ${s.lista}</span></td>
+      <td><b>${g.label}</b>${g.forma ? ` <span style="color:var(--muted);font-size:12px">${g.forma}</span>` : ""}${comerciais ? `<div style="font-size:11px;color:var(--muted)">${comerciais}</div>` : ""}</td>
+      <td><span class="tag ${listaTagClass(g.lista)}">Lista ${g.lista}</span></td>
       <td class="num mono">${b.inicial}</td><td class="num mono">+${b.entradas}</td>
       <td class="num mono">−${b.saidas}</td><td class="num mono"><b>${b.final}</b></td></tr>`;
   }).join("");
