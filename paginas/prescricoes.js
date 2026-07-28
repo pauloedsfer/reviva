@@ -19,18 +19,57 @@ function addMedRow() {
   row.innerHTML = `
     <div><select class="m-sub">${_optSubs()}</select></div>
     <div><input type="text" class="m-dose" value="1 comp." placeholder="Dose"></div>
-    <div><input type="number" class="m-qtd" min="1" step="1" value="1" title="Qtd. por horário"></div>
+    <div><input type="number" class="m-qtd" min="0.25" step="0.25" value="1" title="Qtd. por horário (aceita fração: 0,5 = meio comprimido)"></div>
     <div><input type="text" class="m-via" value="VO" placeholder="Via"></div>
-    <div><input type="text" class="m-hor" placeholder="08h, 22h"></div>
+    <div><input type="text" class="m-hor" placeholder="09:00, 21:00">${_chipsHorario(".m-hor")}</div>
     <button type="button" class="item-del" onclick="this.parentElement.remove()">✕</button>`;
   cont.appendChild(row);
 }
+/* ---- horários padronizados clicáveis ----
+   Alterna o valor no campo de texto ao qual os chips pertencem. */
+function _chipsHorario(alvoSel) {
+  return `<div class="hor-chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">` +
+    HORARIOS_PADRAO.map((h) => {
+      const esp = h === "JEJUM" || h === "SOS";
+      return `<button type="button" class="hchip" data-h="${h}" data-alvo="${alvoSel}"
+        onclick="_toggleHorario(this)"
+        style="font:inherit;font-size:11px;padding:2px 7px;border-radius:11px;cursor:pointer;border:1px solid var(--line);background:${esp ? "#FBF3E3" : "#fff"};color:${esp ? "#B07A2F" : "var(--primary-dark)"}">${h}</button>`;
+    }).join("") + `</div>`;
+}
+function _toggleHorario(btn) {
+  const sel = btn.dataset.alvo, h = btn.dataset.h;
+  const campo = sel.startsWith("#") ? document.getElementById(sel.slice(1))
+                                    : btn.closest(".item-row").querySelector(sel);
+  if (!campo) return;
+  const atuais = campo.value.split(",").map((x) => x.trim()).filter(Boolean);
+  const i = atuais.findIndex((x) => x.toUpperCase() === h.toUpperCase());
+  if (i >= 0) atuais.splice(i, 1); else atuais.push(h);
+  // ordena: JEJUM primeiro, horários por hora, SOS por último
+  atuais.sort((a, b) => {
+    const val = (x) => /JEJUM/i.test(x) ? -1 : (/SOS/i.test(x) ? 9999 : (parseInt((x.match(/\d{1,2}/) || ["0"])[0], 10)));
+    return val(a) - val(b);
+  });
+  campo.value = atuais.join(", ");
+  _marcarChips(campo);
+}
+function _marcarChips(campo) {
+  const wrap = campo.parentElement.querySelector(".hor-chips") || campo.closest("div").querySelector(".hor-chips");
+  if (!wrap) return;
+  const atuais = campo.value.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+  wrap.querySelectorAll(".hchip").forEach((b) => {
+    const on = atuais.includes(b.dataset.h.toUpperCase());
+    b.style.background = on ? "var(--primary-dark)" : (b.dataset.h === "JEJUM" || b.dataset.h === "SOS" ? "#FBF3E3" : "#fff");
+    b.style.color = on ? "#fff" : (b.dataset.h === "JEJUM" || b.dataset.h === "SOS" ? "#B07A2F" : "var(--primary-dark)");
+    b.style.borderColor = on ? "var(--primary-dark)" : "var(--line)";
+  });
+}
+
 function coletarMeds() {
   const rows = Array.from(document.querySelectorAll("#prMeds .item-row"));
   const meds = rows.map((r) => ({
     sub: r.querySelector(".m-sub").value,
     dose: r.querySelector(".m-dose").value.trim(),
-    qtd: Math.max(1, parseInt(r.querySelector(".m-qtd").value, 10) || 1),
+    qtd: Math.max(0.25, parseFloat((r.querySelector(".m-qtd").value || "1").replace(",", ".")) || 1),
     via: r.querySelector(".m-via").value.trim(),
     horarios: r.querySelector(".m-hor").value.split(",").map((h) => h.trim()).filter(Boolean),
   })).filter((m) => m.sub && m.horarios.length);
@@ -55,7 +94,7 @@ function abrirFormPrescricao(pacientePre) {
     </div>
     <div id="prMeds"></div>
     <button type="button" class="btn ghost sm add-item" onclick="addMedRow()">+ Adicionar substância</button>
-    <div class="note-box" style="margin:8px 0 0">Horários separados por vírgula (ex.: <b>08h, 22h</b>) ou <b>SOS</b>. <b>Qtd/hor.</b> = quantos comprimidos por horário (ex.: 2).</div>
+    <div class="note-box" style="margin:8px 0 0">Clique nos horários padronizados ou digite separando por vírgula. <b>JEJUM</b> aparece no topo do mapa e <b>SOS</b> no final. <b>Qtd/hor.</b> = quanto por horário, aceita fração (0,5 = meio comprimido).</div>
   `;
   abrirModal("Nova prescrição", corpo, async () => {
     const pac = fv("rPac"); const data = fv("rData");
@@ -90,11 +129,12 @@ function abrirEditarPrescricao(id) {
     ${_blocoNovoPrescritor()}
     <div class="ff row2">
       <div><label>Dose (texto)</label><input id="eDose" value="${(pr.dose || "").replace(/"/g, "&quot;")}"></div>
-      <div><label>Qtd. por horário *</label><input id="eQtd" type="number" min="1" step="1" value="${pr.qtdPorHorario || 1}"></div>
+      <div><label>Qtd. por horário *</label><input id="eQtd" type="number" min="0.25" step="0.25" value="${pr.qtdPorHorario || 1}">
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">Aceita fração: 0,5 = meio comprimido. Em comprimido, o restante é descartado e o estoque baixa a unidade inteira.</div></div>
     </div>
     <div class="ff row2">
       <div><label>Via</label><input id="eVia" value="${pr.via || "VO"}"></div>
-      <div><label>Horários</label><input id="eHor" value="${(pr.horarios || []).join(", ")}"></div>
+      <div><label>Horários</label><input id="eHor" value="${(pr.horarios || []).join(", ")}">${_chipsHorario("#eHor")}</div>
     </div>
   `;
   abrirModal("Editar prescrição", corpo, async () => {
@@ -106,7 +146,7 @@ function abrirEditarPrescricao(id) {
       paciente_id: pac, substancia_id: sub, prescritor_id: prescritorId || null,
       dose: fvOrNull("eDose"), via: fvOrNull("eVia"),
       horarios: fv("eHor").split(",").map((h) => h.trim()).filter(Boolean),
-      qtd_por_horario: Math.max(1, fvNum("eQtd") || 1),
+      qtd_por_horario: Math.max(0.25, fvNum("eQtd") || 1),
       data_inicio: data,
     };
     const { error } = await window.SB.from("prescricoes").update(dados).eq("id", id);
@@ -160,12 +200,12 @@ function _detalhePaciente(pacId) {
   const p = patById(pacId);
   const its = _itensDoPaciente(pacId);
   const linhas = its.map((pr) => {
-    const nq = pr.qtdPorHorario || 1;
+    const nq = qtdPorHorario(pr);
     const ext = pr.prescritorId && (prescById(pr.prescritorId) || {}).externo
       ? ' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">EXTERNO</span>' : "";
     return `<tr>
       <td><b>${subById(pr.subId).nome}</b></td>
-      <td>${pr.dose || "—"}${nq > 1 ? ` <span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${nq}×/horário</span>` : ""}</td>
+      <td>${pr.dose || "—"}${nq !== 1 ? ` <span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${fmtDose(nq)}/horário</span>` : ""}${temDescarte(pr) ? ` <span class="tag" style="background:#FBF3E3;color:#B07A2F" title="Parte o comprimido: administra a fração e descarta o restante; o estoque baixa ${fmtDose(qtdConsumida(pr))}">baixa ${fmtDose(qtdConsumida(pr))}</span>` : ""}</td>
       <td class="mono">${pr.via || "—"}</td>
       <td>${(pr.horarios || []).map((h) => `<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${h}</span>`).join(" ")}</td>
       <td style="color:var(--muted)">${pr.prescritorId ? prescNome(pr.prescritorId) + ext : "—"}</td>
@@ -242,7 +282,7 @@ function _medDescricao(pr) {
   let linha = partes.filter(Boolean).join(" ");
   const pos = [];
   if (pr.dose) pos.push(pr.dose);
-  if ((pr.qtdPorHorario || 1) > 1) pos.push(`${pr.qtdPorHorario}× por horário`);
+  if (qtdPorHorario(pr) !== 1) pos.push(`${fmtDose(qtdPorHorario(pr))} por horário`);
   if (pr.via) pos.push(pr.via);
   if ((pr.horarios || []).length) pos.push((pr.horarios || []).join(", "));
   return { medicamento: linha, posologia: pos.join(" · ") };
@@ -375,7 +415,7 @@ function imprimirPrescricaoMedica(pacId) {
       const d = _medDescricao(pr);
       const s = subById(pr.subId) || {};
       const freq = (pr.horarios || []).join(", ");
-      const obs = (pr.qtdPorHorario || 1) > 1 ? `${pr.qtdPorHorario}× por horário` : "";
+      const obs = qtdPorHorario(pr) !== 1 ? `${fmtDose(qtdPorHorario(pr))} por horário` : "";
       return `<tr><td class="n">${i + 1}</td><td class="mono">${_esc(s.nome || d.medicamento)}</td><td>${_esc(pr.dose || "")}</td><td>${_esc(pr.via || "")}</td><td>${_esc(freq)}${obs ? " · " + _esc(obs) : ""}</td></tr>`;
     }).join("");
     const restantes = Array.from({ length: Math.max(3, 12 - its.length) }, (_, i) => `<tr><td class="n">${its.length + i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");

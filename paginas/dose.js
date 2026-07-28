@@ -38,7 +38,10 @@ function _dosesEsperadas() {
     _prescricoesNaData(d).filter((pr) => pr.paciente === p.id).forEach((pr) => {
       pr.horarios.forEach((h) => {
         list.push({ pac: p.id, nomePac: p.nome, leito: p.leito || "", subId: pr.subId,
-                    dose: pr.dose || "", horario: h, qtd: qtdPorHorario(pr) });
+                    dose: pr.dose || "", horario: h,
+                    qtd: qtdConsumida(pr),          // sai do estoque (unidade inteira em sólidos)
+                    qtdAdm: qtdPorHorario(pr),      // administrada ao paciente (pode ser fração)
+                    descarte: temDescarte(pr) });
       });
     });
   });
@@ -170,7 +173,7 @@ function renderPage() {
             <td><b>${x.nomePac}</b> <span style="color:var(--muted)">· ${x.leito}</span></td>
             <td><span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${x.horario}</span></td>
             <td>${subById(x.subId).nome}</td>
-            <td class="num mono">${x.qtd}</td>
+            <td class="num mono">${fmtDose(x.qtdAdm)}${x.descarte ? `<div style="font-size:10px;color:var(--muted);font-family:inherit">baixa ${fmtDose(x.qtd)} (descarta ${fmtDose(x.qtd - x.qtdAdm)})</div>` : ""}</td>
             <td>${_selLote(x.subId, x.pac)}</td>
           </tr>`;
         }).join("")}

@@ -273,8 +273,44 @@ function lotesCustodiaDoPaciente(subId, pacienteId) {
 function loteFEFO(subId) { const d = lotesDisponiveis(subId); return d[0] ? d[0].lote : ""; }
 // Quantidade a partir do texto da dose ("1 comp." -> 1, "2 comp" -> 2; padrão 1).
 function qtdDaDose(dose) { const m = (dose || "").match(/\d+/); return m ? parseInt(m[0], 10) : 1; }
-// Quantidade a dispensar por horário: usa o campo explícito da prescrição (padrão 1).
-function qtdPorHorario(pr) { return pr && pr.qtdPorHorario != null && pr.qtdPorHorario > 0 ? pr.qtdPorHorario : 1; }
+/* ---- Dose administrada x quantidade consumida do estoque ----
+   A prescrição pode ser fracionada (ex.: meio comprimido). Em forma sólida,
+   partir o comprimido descarta o restante — administra-se a fração, mas o
+   estoque perde a UNIDADE INTEIRA. Em formas líquidas não há descarte: a
+   quantidade consumida é igual à administrada. */
+function qtdPorHorario(pr) { return pr && pr.qtdPorHorario != null && Number(pr.qtdPorHorario) > 0 ? Number(pr.qtdPorHorario) : 1; }
+
+// forma sólida fracionável com descarte do restante (comprimido, cápsula, drágea)
+function formaSolida(sub) {
+  const f = ((sub && sub.forma) || "").toUpperCase();
+  const u = ((sub && sub.unidade) || "").toUpperCase();
+  if (/COMPRIMIDO|CAPSULA|CÁPSULA|DRAGEA|DRÁGEA/.test(f)) return true;
+  if (/^(COMP|CAPS|DRAG)/.test(u)) return true;
+  return false;
+}
+// quantidade que efetivamente SAI do estoque por horário
+function qtdConsumida(pr) {
+  const q = qtdPorHorario(pr);
+  return formaSolida(pr ? subById(pr.subId) : null) ? Math.ceil(q) : q;
+}
+// há descarte de fração? (administra menos do que consome)
+function temDescarte(pr) { return qtdConsumida(pr) > qtdPorHorario(pr) + 1e-9; }
+// exibição de fração: 0,5 → ½ · 1,5 → 1½ · 2 → 2
+/* Horários padronizados (clicáveis na prescrição). JEJUM e SOS são
+   marcadores especiais: JEJUM vai ao topo do mapa, SOS ao final. */
+const HORARIOS_PADRAO = ["JEJUM", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "00:00", "SOS"];
+
+function fmtDose(q) {
+  const n = Number(q) || 0;
+  const inteiro = Math.floor(n + 1e-9), frac = n - inteiro;
+  let fs = "";
+  if (Math.abs(frac - 0.5) < 0.01) fs = "½";
+  else if (Math.abs(frac - 0.25) < 0.01) fs = "¼";
+  else if (Math.abs(frac - 0.75) < 0.01) fs = "¾";
+  else if (frac > 0.01) return n.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+  if (inteiro === 0) return fs || "0";
+  return String(inteiro) + fs;
+}
 
 /* ---- custódia: eventos de destino e status derivado ---- */
 function destinosDoItem(itemId) { return custodiaDestinos.filter((d) => d.itemId === itemId); }

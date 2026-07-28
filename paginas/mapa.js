@@ -24,8 +24,14 @@ function _idade(dataNasc) {
   return a >= 0 && a < 130 ? a + " anos" : "";
 }
 
-// Período de um horário ("08h" -> manha). SOS/sem número -> null.
+// marcadores especiais de horário
+function _ehJejum(hor) { return /JEJUM/i.test(String(hor)); }
+function _ehSOS(hor) { return /\bSOS\b|S\.?O\.?S\.?|SE\s+NECESS/i.test(String(hor)); }
+
+// Período de um horário ("08h" -> manha). JEJUM cai na coluna da manhã.
+// SOS / sem número -> null (não ocupa coluna de período).
 function _periodoDe(hor, nPeriodos) {
+  if (_ehJejum(hor)) return "manha";
   const m = String(hor).match(/\d{1,2}/);
   if (!m) return null;
   const h = parseInt(m[0], 10);
@@ -33,6 +39,26 @@ function _periodoDe(hor, nPeriodos) {
   if (h >= 5 && h < 12) return "manha";
   if (h >= 12 && h < 18) return "tarde";
   return "noite";
+}
+
+/* Ordem das linhas no mapa, conforme definido pelo RT:
+   JEJUM no topo · manhã · manhã/tarde · manhã/noite · manhã/tarde/noite ·
+   tarde · tarde/noite · noite · SOS por último.
+   Regra geral aplicada: primeiro período em que começa, depois o período em
+   que termina, depois a quantidade de períodos. */
+function _ordemMapa(pr, nPeriodos) {
+  const hs = pr.horarios || [];
+  if (hs.some(_ehJejum)) return [0, 0, 0, 0];                       // topo
+  const IDX = { manha: 0, tarde: 1, noite: 2 };
+  const pers = [...new Set(hs.map((h) => (_ehSOS(h) ? null : _periodoDe(h, nPeriodos))).filter(Boolean))]
+    .map((p) => IDX[p]).sort((a, b) => a - b);
+  if (!pers.length) return [9, 0, 0, 0];                            // SOS / sem horário: fim
+  return [1, pers[0], pers[pers.length - 1], pers.length];
+}
+function _cmpMapa(a, b, nPeriodos) {
+  const A = _ordemMapa(a, nPeriodos), B = _ordemMapa(b, nPeriodos);
+  for (let i = 0; i < 4; i++) if (A[i] !== B[i]) return A[i] - B[i];
+  return (subById(a.subId).nome || "").localeCompare(subById(b.subId).nome || "", "pt-BR");
 }
 
 function _fmtDiaLongo(d) {
@@ -50,17 +76,22 @@ function _linhasVazias(n, cols) {
 
 function _tabelaPaciente(p, periodos, blankRows) {
   const cols = periodos.length;
-  const pres = prescriptions.filter((pr) => pr.paciente === p.id && pr.ativo !== false);
+  const pres = prescriptions.filter((pr) => pr.paciente === p.id && pr.ativo !== false)
+    .sort((a, b) => _cmpMapa(a, b, cols));
   const linhas = pres.map((pr) => {
     const cells = {};
     periodos.forEach((per) => (cells[per.key] = []));
     let sos = false;
     (pr.horarios || []).forEach((hor) => {
+      if (_ehSOS(hor)) { sos = true; return; }
       const per = _periodoDe(hor, cols);
       if (!per) { sos = true; return; }
-      if (cells[per]) cells[per].push(hor);
+      if (cells[per]) cells[per].push(_ehJejum(hor) ? "JEJUM" : hor);
     });
-    const nq = qtdPorHorario(pr); const nome = subById(pr.subId).nome + (pr.dose ? " — " + pr.dose : "") + (nq > 1 ? ` (${nq}×/dose)` : "") + (sos ? " (SOS)" : "");
+    // o mapa mostra a DOSE ADMINISTRADA (pode ser fracionada, ex.: ½ comprimido)
+    const nq = qtdPorHorario(pr);
+    const marca = nq === 1 ? "" : ` (${fmtDose(nq)}${formaSolida(subById(pr.subId)) ? " comp." : ""}/dose)`;
+    const nome = subById(pr.subId).nome + (pr.dose ? " — " + pr.dose : "") + marca + (sos ? " (SOS)" : "");
     const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
     return `<tr><td class="med">${nome}</td>${tds}</tr>`;
   }).join("");
