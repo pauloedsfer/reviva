@@ -13,6 +13,9 @@ const NAV = [
     { id: "dose", label: "Dispensação (dose unitária)", href: "dose.html" },
     { id: "mapa", label: "Mapa de Medicação (impressão)", href: "mapa.html" },
   ]},
+  { group: "Enfermagem", items: [
+    { id: "enfermagem", label: "Documentos e Registros", href: "enfermagem.html" },
+  ]},
   { group: "Farmácia", items: [
     { id: "estoque", label: "Substâncias, Lotes & Validade", href: "estoque.html" },
     { id: "ajustes", label: "Ajuste de Estoque / Inventário", href: "ajustes.html" },
@@ -45,6 +48,7 @@ const TITLES = {
   pacientes: ["Pacientes", "Cadastro ativo — capacidade e ocupação atual"],
   dose: ["Dispensação — Dose Unitária", "Dê baixa por data — selecione o dia, inclusive retroativo, a partir dos mapas"],
   mapa: ["Mapa de Medicação", "Mapa diário para a enfermagem — imprima por dia, com espaço para anotações à mão"],
+  enfermagem: ["Documentos e Registros da Enfermagem", "Folhas para impressão e preenchimento à mão — o impresso assinado é o documento do prontuário"],
   estoque: ["Substâncias, Lotes & Validade", "Saldo por lote calculado a partir das movimentações"],
   ajustes: ["Ajuste de Estoque / Inventário", "Reconcilia a contagem física com o sistema — via lançamento, com justificativa"],
   prescricoes: ["Prescrições ativas", "Base para a montagem diária da dose unitária"],

@@ -21,6 +21,8 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Nova seção Enfermagem — Documentos e Registros (`enfermagem.html`).** Área para as folhas próprias da enfermagem, **somente impressão** (não grava dados, não criou tabelas). Primeiro documento: **Sinais Vitais**, com logotipo e cabeçalho da clínica, bloco de identificação do paciente (nome, idade, sexo, prontuário, leito, data de internação) e as colunas Data · Hora · PA · FC (bpm) · SpO₂ (%) · Temperatura (°C) · HGT · Assinatura da Enfermagem. Pode sair **com o cabeçalho do paciente preenchido** ou **em branco** para preenchimento manual, com número de linhas e de folhas configurável. A estrutura é um catálogo (`_ENF_DOCS`), pronta para receber os próximos impressos da enfermagem. *(Front-only.)*
+
 - **Mapa ordenado por período de administração.** As linhas de cada paciente passaram a sair na ordem definida pelo RT: **JEJUM no topo**, depois manhã · manhã/tarde · manhã/noite · manhã/tarde/noite · tarde · tarde/noite · noite, e **SOS por último**. A regra geral aplicada é: período em que começa → período em que termina → número de períodos, o que acomoda também as combinações não listadas (ex.: manhã/noite, que é o padrão atual da clínica às 09:00 e 21:00).
 - **Horários padronizados clicáveis.** A prescrição ganhou chips de horário (JEJUM · 06:00 · 09:00 · 12:00 · 15:00 · 18:00 · 21:00 · 00:00 · SOS) que alternam com um clique e se ordenam sozinhos; o campo de texto continua disponível para horários fora do padrão. Isso garante grafia uniforme, de que depende a ordenação do mapa. **JEJUM** ocupa a coluna da manhã e sobe ao topo; **SOS** não ocupa coluna e desce ao final.
 
@@ -144,6 +146,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta; itens **por categoria**, só da padronização; pedido impresso agrupado.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real. **Folha de Registro Semanal** (por princípio ativo + dosagem) no topo da tela.
 - [ ] **Balanço/BMPO**: uma linha por princípio ativo + dosagem, com nomes comerciais como referência.
+- [ ] **Enfermagem — Documentos e Registros**: folha de Sinais Vitais imprimível, com paciente ou em branco.
 - [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", editor de conteúdo e impressão do POP formatado. **14 POPs redigidos**, ordenados por código (FAR antes de ENF).
 
 Se algo faltar: rode só a migração indicada (3.1) e/ou suba o `reviva-app.zip` mais recente; Ctrl+F5; F12 → Console em caso de erro.
