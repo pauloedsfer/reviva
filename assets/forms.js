@@ -71,6 +71,16 @@ function abrirModal(titulo, corpoHTML, onSalvar, textoSalvar) {
       fecharModal();
       await recarregarTela();
     } catch (e) {
+      // sessão caída: aviso claro em vez da mensagem técnica de RLS/JWT.
+      // O modal permanece aberto, preservando o que foi preenchido.
+      if (typeof erroDeSessao === "function" && erroDeSessao(e)) {
+        avisarSessaoExpirada("Os dados deste formulário continuam preenchidos — depois de entrar de novo, é só salvar.");
+        const err = document.getElementById("mbErr");
+        err.textContent = "Sessão expirada — faça login novamente e salve outra vez. Nada foi gravado.";
+        err.style.display = "block";
+        btn.disabled = false; btn.textContent = textoSalvar || "Salvar";
+        return;
+      }
       const err = document.getElementById("mbErr");
       err.textContent = e.message || String(e);
       err.style.display = "block";
@@ -99,8 +109,18 @@ function fvNum(id) { const v = fv(id); return v === "" ? null : Number(v); }
 function fvOrNull(id) { const v = fv(id); return v === "" ? null : v; }
 
 /* ---------------- construtores de campo ---------------- */
+// Substâncias nos seletores: agrupadas por categoria e em ordem alfabética.
 function _optSubs(sel) {
-  return substances.map((s) => `<option value="${s.id}"${s.id === sel ? " selected" : ""}>${s.nome}</option>`).join("");
+  const cats = {};
+  substances.forEach((s) => { (cats[s.categoria || "NAO CLASSIFICADO"] = cats[s.categoria || "NAO CLASSIFICADO"] || []).push(s); });
+  const ordem = (typeof categoriasAlfabeticas === "function")
+    ? categoriasAlfabeticas().filter((c) => cats[c])
+    : Object.keys(cats).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  return ordem.map((c) =>
+    `<optgroup label="${typeof catRotulo === "function" ? catRotulo(c) : c}">` +
+    cats[c].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"))
+      .map((s) => `<option value="${s.id}"${s.id === sel ? " selected" : ""}>${s.nome}${s.lista && s.lista !== "—" ? " [" + s.lista + "]" : ""}${s.padronizado === false ? " · med. paciente" : ""}</option>`).join("") +
+    `</optgroup>`).join("");
 }
 function _optPats(sel) {
   return `<option value="">— selecione —</option>` +

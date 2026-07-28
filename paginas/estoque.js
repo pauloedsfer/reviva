@@ -63,12 +63,22 @@ function renderPage(){
         <table>
           <thead><tr><th>Substância</th><th>Lista</th><th>Saldo atual</th><th>Custo médio/un.</th><th>Valor em estoque</th><th>Situação</th><th></th></tr></thead>
           <tbody>
-            ${substances.map(s=>{
+            ${(() => {
+              // agrupa por categoria (alfabética) e ordena as substâncias por nome
+              const porCat = {};
+              substances.forEach((s) => { (porCat[s.categoria || "NAO CLASSIFICADO"] ||= []).push(s); });
+              return categoriasAlfabeticas().filter((c) => porCat[c] && porCat[c].length).map((c) => {
+                const lista = porCat[c].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
+                const nCtrl = lista.filter((x) => x.lista && x.lista !== "—").length;
+                const valor = lista.reduce((t, x) => t + saldo(x.id) * custoMedio(x.id), 0);
+                return `<tr><td colspan="7" style="background:var(--primary-tint);color:var(--primary-dark);font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:6px 8px">
+                    ${catRotulo(c)} <span style="font-weight:400;opacity:.75">· ${lista.length} ${lista.length === 1 ? "item" : "itens"}${nCtrl ? " · " + nCtrl + " controlado(s)" : ""} · ${fmtBRL(valor)}</span></td></tr>` +
+                  lista.map(s=>{
               const bal = saldo(s.id);
               const cm = custoMedio(s.id);
               const low = bal <= 10;
               return `<tr>
-                <td><b>${s.nome}</b>${s.padronizado ? "" : ' <span class="tag" style="background:#FBF3E3;color:#B07A2F" title="Cadastrada para custódia de paciente — não entra em cotação">med. de paciente</span>'}<div style="font-size:11px;color:var(--muted)">${catRotulo(s.categoria)}</div></td>
+                <td><b>${s.nome}</b>${s.padronizado ? "" : ' <span class="tag" style="background:#FBF3E3;color:#B07A2F" title="Cadastrada para custódia de paciente — não entra em cotação">med. de paciente</span>'}</td>
                 <td>${s.lista==='—' ? '<span style="color:var(--muted)">não controlado</span>' : `<span class="tag ${listaTagClass(s.lista)}">Lista ${s.lista}</span>`}</td>
                 <td class="num mono">${bal} ${s.unidade}</td>
                 <td class="num mono">${fmtBRL(cm)}</td>
@@ -76,7 +86,7 @@ function renderPage(){
                 <td>${low ? '<span class="pill low">● abaixo do mínimo</span>' : '<span class="pill">● regular</span>'}</td>
                 <td><button class="btn ghost sm" onclick="abrirFormSubstancia('${s.id}')">Editar</button></td>
               </tr>`;
-            }).join('')}
+            }).join(''); }).join(''); })()}
           </tbody>
         </table>
       </div>

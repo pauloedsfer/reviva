@@ -73,3 +73,69 @@ async function limparDadosTeste() {
   if (error) throw error;
   return data;
 }
+
+/* ============================================================
+   Sessão expirada — detecção e aviso claro
+   A queda de sessão era silenciosa: a tela continuava aberta e o
+   erro só aparecia ao gravar, com a mensagem técnica de RLS
+   ("violates row-level security policy"). Aqui a sessão é
+   verificada periodicamente e ao voltar para a aba, e qualquer
+   erro de gravação por falta de sessão vira um aviso legível.
+   ============================================================ */
+
+// o erro veio de sessão perdida? (RLS/JWT/permissão)
+function erroDeSessao(e) {
+  const m = (e && (e.message || e.msg || String(e)) || "").toLowerCase();
+  return /row-level security|row level security|jwt|not authenticated|permission denied|invalid.*token|expired/.test(m);
+}
+
+let _avisoSessaoAberto = false;
+function avisarSessaoExpirada(msgExtra) {
+  if (_avisoSessaoAberto) return;
+  _avisoSessaoAberto = true;
+  const d = document.createElement("div");
+  d.id = "sessaoExpirada";
+  d.style.cssText = "position:fixed;inset:0;background:rgba(20,28,26,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px";
+  d.innerHTML = `
+    <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:26px 28px;box-shadow:0 18px 50px rgba(0,0,0,.3);font-family:'Public Sans',Arial,sans-serif">
+      <div style="font-size:17px;font-weight:700;color:#1E2A28;margin-bottom:8px">Sua sessão expirou</div>
+      <div style="font-size:14px;color:#4a544f;line-height:1.55">
+        A conexão com o sistema caiu e o login precisa ser refeito.
+        <b>Nada foi gravado</b> — o que você preencheu continua na tela.
+        ${msgExtra ? `<div style="margin-top:8px;font-size:12.5px;color:#6a736e">${msgExtra}</div>` : ""}
+        <div style="margin-top:10px;font-size:12.5px;color:#6a736e">Dica: abra o login em outra aba, entre novamente e volte para cá — o que estiver preenchido será mantido.</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+        <button id="sxLogin" style="background:#2C5F5A;color:#fff;border:none;padding:10px 16px;border-radius:9px;cursor:pointer;font:inherit;font-weight:600">Entrar novamente</button>
+        <button id="sxNova" style="background:transparent;color:#2C5F5A;border:1px solid #cfd6cf;padding:10px 16px;border-radius:9px;cursor:pointer;font:inherit">Abrir login em outra aba</button>
+        <button id="sxFechar" style="background:transparent;color:#6a736e;border:none;padding:10px 8px;cursor:pointer;font:inherit">Continuar vendo a tela</button>
+      </div>
+    </div>`;
+  document.body.appendChild(d);
+  document.getElementById("sxLogin").onclick = () => { location.href = "login.html"; };
+  document.getElementById("sxNova").onclick = () => { window.open("login.html", "_blank"); };
+  document.getElementById("sxFechar").onclick = () => { d.remove(); _avisoSessaoAberto = false; };
+}
+
+// verifica a sessão; se caiu, avisa
+async function checarSessao(silencioso) {
+  try {
+    const s = await getSession();
+    if (!s) { avisarSessaoExpirada(silencioso ? "" : ""); return false; }
+    return true;
+  } catch (e) { return true; } // falha de rede: não incomoda o usuário
+}
+
+// monitora: a cada 2 min e ao voltar para a aba
+function iniciarMonitorSessao() {
+  if (window.__monitorSessao) return;
+  window.__monitorSessao = true;
+  setInterval(() => checarSessao(true), 120000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checarSessao(true); });
+  if (window.SB && window.SB.auth && window.SB.auth.onAuthStateChange) {
+    window.SB.auth.onAuthStateChange((evt) => {
+      if (evt === "SIGNED_OUT" || evt === "TOKEN_REFRESHED_FAILED") avisarSessaoExpirada("");
+      if (evt === "SIGNED_IN") { const d = document.getElementById("sessaoExpirada"); if (d) { d.remove(); _avisoSessaoAberto = false; } }
+    });
+  }
+}

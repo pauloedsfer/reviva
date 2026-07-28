@@ -61,9 +61,15 @@ function imprimirSinaisVitais() {
   const nLin = Math.max(5, Math.min(60, _enfCfg.linhas));
   const nFolhas = Math.max(1, Math.min(20, _enfCfg.folhas));
 
-  const colunas = ["Data", "Hora", "PA", "FC (bpm)", "SpO₂ (%)", "Temperatura (°C)", "HGT", "Assinatura da Enfermagem"];
-  const th = colunas.map((c, i) => `<th${i === colunas.length - 1 ? ' class="ass"' : ""}>${c}</th>`).join("");
-  const linhas = Array.from({ length: nLin }, () => `<tr>${colunas.map(() => "<td></td>").join("")}</tr>`).join("");
+  // larguras pensadas para o conteúdo manuscrito (PA no padrão 120 X 80)
+  const colunas = [
+    { t: "Data", cls: "c-data" }, { t: "Hora", cls: "c-hora" },
+    { t: "PA (mmHg)", cls: "c-pa" }, { t: "FC (bpm)", cls: "c-num" },
+    { t: "SpO₂ (%)", cls: "c-num" }, { t: "Temperatura (°C)", cls: "c-temp" },
+    { t: "HGT", cls: "c-num" }, { t: "Assinatura da Enfermagem", cls: "ass" },
+  ];
+  const th = colunas.map((c) => `<th class="${c.cls}">${c.t}</th>`).join("");
+  const linhas = Array.from({ length: nLin }, () => `<tr>${colunas.map((c) => `<td class="${c.cls}"></td>`).join("")}</tr>`).join("");
 
   const folha = () => `
     <section class="folha">
@@ -96,7 +102,12 @@ function imprimirSinaisVitais() {
   table{width:100%;border-collapse:collapse}
   th,td{border:1px solid #1E2A28;padding:0 4px;font-size:10px;height:21px;text-align:center}
   th{background:#EEF2EC;font-size:8.5px;text-transform:uppercase;font-weight:700;height:24px}
-  th.ass{width:22%}
+  th.ass,td.ass{width:20%}
+  th.c-data,td.c-data{width:9%}
+  th.c-hora,td.c-hora{width:7%}
+  th.c-pa,td.c-pa{width:13%}          /* PA: cabe 120 X 80 sem apertar */
+  th.c-num,td.c-num{width:8.5%}
+  th.c-temp,td.c-temp{width:11%}
   .rod{margin-top:5px;font-size:8.5px;color:#8a938d;text-align:center}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
   @media print{.btn{display:none}}

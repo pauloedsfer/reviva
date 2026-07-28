@@ -7,10 +7,17 @@
    ============================================================ */
 
 // Opções de lote existentes, com substância e saldo atual no sistema.
+// Lotes agrupados por substância (ordem alfabética), lote por validade.
 function _optLotesAjuste() {
-  const lotes = allLotes().slice().sort((a, b) => (a.validade < b.validade ? -1 : 1));
+  const porSub = {};
+  allLotes().forEach((l) => { (porSub[l.subId] ||= []).push(l); });
+  const subs = Object.keys(porSub).sort((a, b) =>
+    (subById(a).nome || "").localeCompare(subById(b).nome || "", "pt-BR"));
   return `<option value="">— selecione o lote —</option>` +
-    lotes.map((l) => `<option value="${l.lote}">${l.lote} · ${subById(l.subId).nome} (sistema: ${saldoLote(l.lote)})</option>`).join("");
+    subs.map((id) => `<optgroup label="${subById(id).nome}">` +
+      porSub[id].sort((a, b) => (a.validade < b.validade ? -1 : 1))
+        .map((l) => `<option value="${l.lote}">${l.lote} · val. ${fmtDate(l.validade)} (sistema: ${saldoLote(l.lote)})</option>`).join("") +
+      `</optgroup>`).join("");
 }
 
 function _recalcAjuste() {
@@ -56,6 +63,86 @@ function abrirFormAjuste() {
     });
     if (error) throw error;
   }, "Registrar ajuste");
+}
+
+
+/* ===================== AJUSTE MÚLTIPLO =====================
+   Vários lotes conferidos na mesma contagem, com UMA justificativa.
+   Cada linha vira um lançamento próprio no Livro (rastreável por lote),
+   mas todas compartilham data e justificativa. */
+function _ajLinha() {
+  const cont = document.getElementById("ajLinhas");
+  const row = document.createElement("div");
+  row.className = "item-row";
+  row.style.gridTemplateColumns = "2fr .8fr 1.4fr .3fr";
+  row.innerHTML = `
+    <div><select class="a-lote" onchange="_ajRecalcLinha(this)">${_optLotesAjuste()}</select></div>
+    <div><input type="number" class="a-fis" min="0" placeholder="Contagem" oninput="_ajRecalcLinha(this)"></div>
+    <div class="a-info" style="font-size:12px;color:var(--muted);padding:8px 0">—</div>
+    <button type="button" class="item-del" onclick="this.parentElement.remove(); _ajResumo()">✕</button>`;
+  cont.appendChild(row);
+}
+function _ajRecalcLinha(el) {
+  const row = el.closest(".item-row");
+  const lote = row.querySelector(".a-lote").value;
+  const info = row.querySelector(".a-info");
+  if (!lote) { info.textContent = "—"; _ajResumo(); return; }
+  const sis = saldoLote(lote);
+  const v = row.querySelector(".a-fis").value;
+  if (v === "") { info.innerHTML = `sistema: <b>${sis}</b>`; _ajResumo(); return; }
+  const d = Number(v) - sis;
+  const cor = d === 0 ? "var(--success)" : d < 0 ? "var(--warn)" : "var(--accent)";
+  info.innerHTML = `sistema <b>${sis}</b> → diferença <b style="color:${cor}">${d > 0 ? "+" : ""}${d}</b>${d === 0 ? " (confere)" : (d < 0 ? " (falta)" : " (sobra)")}`;
+  _ajResumo();
+}
+function _ajResumo() {
+  const el = document.getElementById("ajResumo"); if (!el) return;
+  const linhas = _ajColeta(true);
+  const comDif = linhas.filter((l) => l.delta !== 0);
+  el.innerHTML = linhas.length
+    ? `<b>${linhas.length}</b> lote(s) conferido(s) · <b>${comDif.length}</b> com divergência a registrar${comDif.length ? " · " + comDif.map((l) => `${l.nome} ${l.delta > 0 ? "+" : ""}${l.delta}`).join(" · ") : ""}`
+    : "Adicione os lotes conferidos.";
+}
+function _ajColeta(parcial) {
+  return Array.from(document.querySelectorAll("#ajLinhas .item-row")).map((r) => {
+    const lote = r.querySelector(".a-lote").value;
+    const v = r.querySelector(".a-fis").value;
+    if (!lote || v === "") return null;
+    const l = allLotes().find((x) => x.lote === lote);
+    if (!l) return null;
+    const sis = saldoLote(lote), fis = Number(v);
+    return { lote, subId: l.subId, nome: subById(l.subId).nome, sis, fis, delta: fis - sis };
+  }).filter(Boolean);
+}
+function abrirFormAjusteMultiplo() {
+  const corpo = `
+    <div class="ff"><label>Data da conferência *</label><input id="ajmData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="item-head">Lotes conferidos</div>
+    <div class="item-row" style="grid-template-columns:2fr .8fr 1.4fr .3fr;font-size:11px;color:var(--muted);font-weight:600">
+      <div>Lote</div><div>Contagem</div><div>Situação</div><div></div>
+    </div>
+    <div id="ajLinhas"></div>
+    <button type="button" class="btn ghost sm" onclick="_ajLinha()" style="margin-top:6px">+ Adicionar lote</button>
+    <div class="note-box" id="ajResumo" style="margin:12px 0">Adicione os lotes conferidos.</div>
+    <div class="ff"><label>Justificativa (vale para todos os lotes) *</label><textarea id="ajmJust" rows="3" placeholder="Ex.: contagem mensal de inventário — divergências apuradas e conferidas em dupla checagem"></textarea></div>
+    <div class="note-box" style="margin:0">Cada lote com divergência gera um lançamento próprio no Livro de Registro, todos com esta mesma justificativa e data. Lotes que conferem não geram lançamento.</div>
+  `;
+  abrirModal("Ajuste de vários lotes (mesma justificativa)", corpo, async () => {
+    const data = fv("ajmData"), just = fv("ajmJust");
+    if (!data) throw new Error("Informe a data da conferência.");
+    const linhas = _ajColeta();
+    if (!linhas.length) throw new Error("Adicione ao menos um lote com a contagem física.");
+    const comDif = linhas.filter((l) => l.delta !== 0);
+    if (!comDif.length) throw new Error("Todas as contagens conferem com o sistema — não há ajuste a registrar.");
+    if (!just) throw new Error("A justificativa é obrigatória.");
+    const { error } = await window.SB.from("ajustes_estoque").insert(
+      comDif.map((l) => ({
+        data, substancia_id: l.subId, numero_lote: l.lote, saldo_sistema: l.sis,
+        contagem_fisica: l.fis, quantidade: l.delta, justificativa: just, ...usuarioId(),
+      })));
+    if (error) throw error;
+  }, "Registrar ajustes");
+  setTimeout(() => { _ajLinha(); _ajLinha(); }, 0);
 }
 
 /* ===================== FOLHA DE CONTAGEM / INVENTÁRIO ===================== */
@@ -185,7 +272,8 @@ function renderPage() {
         <div><div class="panel-title">Ajustes de inventário</div><div class="panel-title-sub">${hist.length} ajuste(s) registrado(s)</div></div>
         <div class="toolbar">
           <button class="btn ghost sm" onclick="abrirFolhaContagem()">🖶 Folha de contagem</button>
-          <button class="btn sm" onclick="abrirFormAjuste()">+ Novo ajuste / conferência</button>
+          <button class="btn ghost sm" onclick="abrirFormAjuste()">+ Ajuste de um lote</button>
+          <button class="btn sm" onclick="abrirFormAjusteMultiplo()">+ Ajuste de vários lotes</button>
         </div>
       </div>
       <div class="panel-body">
