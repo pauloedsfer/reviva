@@ -57,9 +57,13 @@ function _enfBlocoPaciente(p) {
 
 /* ---- FOLHA DE SINAIS VITAIS ---- */
 function imprimirSinaisVitais() {
-  const p = _enfCfg.pac ? patById(_enfCfg.pac) : null;
   const nLin = Math.max(5, Math.min(60, _enfCfg.linhas));
   const nFolhas = Math.max(1, Math.min(20, _enfCfg.folhas));
+  // "todos" → uma folha (ou mais) para cada paciente internado
+  const alvos = _enfCfg.pac === "__todos__"
+    ? patients.filter((x) => x.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+    : [_enfCfg.pac ? patById(_enfCfg.pac) : null];
+  if (_enfCfg.pac === "__todos__" && !alvos.length) { alert("Nenhum paciente internado."); return; }
 
   // larguras pensadas para o conteúdo manuscrito (PA no padrão 120 X 80)
   const colunas = [
@@ -71,18 +75,21 @@ function imprimirSinaisVitais() {
   const th = colunas.map((c) => `<th class="${c.cls}">${c.t}</th>`).join("");
   const linhas = Array.from({ length: nLin }, () => `<tr>${colunas.map((c) => `<td class="${c.cls}"></td>`).join("")}</tr>`).join("");
 
-  const folha = () => `
+  const folha = (pac) => `
     <section class="folha">
       ${_enfCabecalho()}
       <h1>SINAIS VITAIS</h1>
-      ${_enfBlocoPaciente(p)}
+      ${_enfBlocoPaciente(pac)}
       <table><thead><tr>${th}</tr></thead><tbody>${linhas}</tbody></table>
       <div class="rod">Registro de enfermagem — documento integrante do prontuário do paciente.</div>
     </section>`;
 
-  const corpo = Array.from({ length: nFolhas }, folha).join("");
+  // para cada paciente (ou para a folha em branco), o nº de folhas configurado
+  const corpo = alvos.map((pac) => Array.from({ length: nFolhas }, () => folha(pac)).join("")).join("");
 
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Sinais Vitais${p ? " — " + _esc(p.nome) : ""}</title>
+  const titulo = _enfCfg.pac === "__todos__" ? `Sinais Vitais — ${alvos.length} paciente(s)`
+    : (alvos[0] ? "Sinais Vitais — " + _esc(alvos[0].nome) : "Sinais Vitais");
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo}</title>
   <style>
   @page{size:A4 portrait;margin:10mm 10mm}
   *{box-sizing:border-box}
@@ -129,7 +136,9 @@ const _ENF_DOCS = [
 ];
 
 function renderPage() {
+  const nInternados = patients.filter((p) => p.ativo !== false).length;
   const optPac = `<option value="">— em branco (preencher à mão) —</option>` +
+    `<option value="__todos__"${_enfCfg.pac === "__todos__" ? " selected" : ""}>★ TODOS os pacientes internados (${nInternados}) — uma folha para cada</option>` +
     patients.filter((p) => p.ativo !== false)
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((p) => `<option value="${p.id}"${p.id === _enfCfg.pac ? " selected" : ""}>${p.nome}${p.leito ? " · leito " + p.leito : ""}</option>`).join("");
@@ -159,9 +168,12 @@ function renderPage() {
           <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Quantidade de folhas</label>
             <input type="number" min="1" max="20" value="${_enfCfg.folhas}" onchange="_enfSet('folhas', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
         </div>
-        <div class="note-box" style="margin-top:12px">${_enfCfg.pac
-          ? `Sairá com o cabeçalho de <b>${_esc(patById(_enfCfg.pac).nome)}</b> preenchido (nome, idade, prontuário, leito e data de internação). O campo <b>Sexo</b> fica em branco — não consta no cadastro.`
-          : "Sairá <b>em branco</b>, com as linhas de identificação para preencher à mão."}</div>
+        <div class="note-box" style="margin-top:12px">${
+          _enfCfg.pac === "__todos__"
+            ? `Sairá <b>uma folha para cada um dos ${nInternados} pacientes internados</b>${_enfCfg.folhas > 1 ? ` (${_enfCfg.folhas} folhas por paciente — <b>${nInternados * _enfCfg.folhas}</b> no total)` : ""}, em ordem alfabética, cada uma com o cabeçalho do paciente preenchido e quebra de página entre elas.`
+            : _enfCfg.pac
+              ? `Sairá com o cabeçalho de <b>${_esc(patById(_enfCfg.pac).nome)}</b> preenchido (nome, idade, prontuário, leito e data de internação). O campo <b>Sexo</b> fica em branco — não consta no cadastro.`
+              : "Sairá <b>em branco</b>, com as linhas de identificação para preencher à mão."}</div>
       </div>
     </div>
 

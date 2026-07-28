@@ -340,6 +340,7 @@ function _viewItens(cot) {
         <div class="toolbar">
           ${substances.length ? '<button class="btn ghost sm" onclick="adicionarTodasSubstancias()">+ Todas as substâncias</button>' : ''}
           <button class="btn ghost sm" onclick="abrirFormItemCotacao()">+ Item</button>
+          <button class="btn ghost sm" onclick="exportarCotacaoExcel('${cot.id}')">⬇ Exportar Excel</button>
           <button class="btn sm" onclick="imprimirCotacao('${cot.id}')">🖶 Imprimir solicitação</button>
         </div>
       </div>
@@ -473,4 +474,100 @@ function _viewLista() {
 function renderPage() {
   const cot = _cotAberta ? cotacoes.find((c) => c.id === _cotAberta) : null;
   return cot ? _viewDetalhe(cot) : _viewLista();
+}
+
+/* ============================================================
+   EXPORTAR COTAÇÃO PARA EXCEL (.xlsx)
+   Planilha para enviar ao fornecedor preencher: itens da cotação
+   ordenados por categoria e nome, com as colunas de resposta em
+   branco (marca, embalagem, preços, validade, prazo).
+   Usa SheetJS (CDN). Sem a biblioteca, cai para CSV.
+   ============================================================ */
+function exportarCotacaoExcel(cotId) {
+  const cot = cotacoes.find((c) => c.id === cotId);
+  if (!cot) { alert("Cotação não encontrada."); return; }
+  if (!cot.itens.length) { alert("A cotação não tem itens."); return; }
+  const est = window.ESTAB || {};
+
+  // itens ordenados por categoria (alfabética) e depois por nome
+  const linhas = cot.itens.map((it) => {
+    const sub = it.substanciaId ? subById(it.substanciaId) : null;
+    return { it, sub, cat: sub ? sub.categoria : "NAO CLASSIFICADO" };
+  }).sort((a, b) => {
+    const ca = catRotulo(a.cat), cb = catRotulo(b.cat);
+    return ca.localeCompare(cb, "pt-BR") || (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR");
+  });
+
+  const cab = [
+    "#", "Categoria", "Item", "Lista 344/98", "Unidade", "Qtde. solicitada",
+    "Marca / Laboratório", "Unid. por caixa", "Preço por caixa (R$)",
+    "Preço unitário (R$)", "Validade do produto", "Prazo de entrega", "Observação",
+  ];
+  const dados = linhas.map((r, i) => [
+    i + 1,
+    catRotulo(r.cat),
+    r.it.descricao || "",
+    r.sub && r.sub.lista && r.sub.lista !== "—" ? r.sub.lista : "",
+    r.it.unidade || "",
+    Number(r.it.quantidade) || 0,
+    "", "", "", "", "", "", "",   // colunas a preencher pelo fornecedor
+  ]);
+
+  const nomeArq = `cotacao-${(cot.identificador || "reviva").replace(/[^\w-]+/g, "_")}.xlsx`;
+
+  if (typeof XLSX === "undefined") { _cotCSV(cot, cab, dados); return; }
+
+  // ---- cabeçalho institucional acima da tabela ----
+  const topo = [
+    [est.razao_social || est.nome_fantasia || "HOSPITAL REVIVA"],
+    [[est.cnpj ? "CNPJ: " + est.cnpj : "", est.endereco || "", est.municipio_uf || ""].filter(Boolean).join(" · ")],
+    [],
+    ["SOLICITAÇÃO DE COTAÇÃO"],
+    ["Identificador:", cot.identificador || "—", "", "Data:", cot.data ? fmtDate(cot.data) : "", "", "Itens:", dados.length],
+    ["Preencher as colunas em branco (marca, embalagem, preços, validade e prazo) e devolver por e-mail."],
+    ["Itens com a coluna \"Lista 344/98\" preenchida são medicamentos sob controle especial."],
+    [],
+  ];
+
+  const aoa = topo.concat([cab]).concat(dados);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const linCab = topo.length;                 // índice 0-based da linha de cabeçalho
+
+  ws["!cols"] = [
+    { wch: 5 }, { wch: 30 }, { wch: 42 }, { wch: 12 }, { wch: 10 }, { wch: 15 },
+    { wch: 24 }, { wch: 14 }, { wch: 18 }, { wch: 17 }, { wch: 18 }, { wch: 16 }, { wch: 28 },
+  ];
+  ws["!freeze"] = { xSplit: 0, ySplit: linCab + 1 };
+  ws["!autofilter"] = {
+    ref: XLSX.utils.encode_range(
+      { r: linCab, c: 0 },
+      { r: linCab + dados.length, c: cab.length - 1 }),
+  };
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 12 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 12 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 12 } },
+    { s: { r: 5, c: 0 }, e: { r: 5, c: 12 } },
+    { s: { r: 6, c: 0 }, e: { r: 6, c: 12 } },
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Cotação");
+  XLSX.writeFile(wb, nomeArq);
+}
+
+// alternativa sem a biblioteca: CSV que o Excel abre direto (BOM + ponto-e-vírgula)
+function _cotCSV(cot, cab, dados) {
+  const esc = (v) => {
+    const t = String(v == null ? "" : v);
+    return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  const txt = "\uFEFF" + [cab].concat(dados).map((l) => l.map(esc).join(";")).join("\r\n");
+  const blob = new Blob([txt], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `cotacao-${(cot.identificador || "reviva").replace(/[^\w-]+/g, "_")}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  alert("A biblioteca de Excel não carregou (sem internet?). Baixamos em CSV, que o Excel abre normalmente.");
 }
