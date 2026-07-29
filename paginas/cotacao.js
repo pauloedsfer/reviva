@@ -175,6 +175,16 @@ function abrirQualificacaoForn(id) {
     <option value="ruim"${val === "ruim" ? " selected" : ""}>Ruim</option></select>`;
   const optSit = (v) => `<option value="${v}"${f.situacao === v ? " selected" : ""}>`;
   const corpo = `
+    <div class="item-head">Contato comercial</div>
+    <div class="ff row2">
+      <div><label>Representante</label><input id="qRep" value="${(f.contato || "").replace(/"/g, "&quot;")}"></div>
+      <div><label>WhatsApp (só números, com DDI)</label><input id="qZap" value="${(f.whatsapp || "").replace(/"/g, "&quot;")}" placeholder="5562999999999"></div>
+    </div>
+    <div class="ff row2">
+      <div><label>Telefone fixo</label><input id="qTel" value="${(f.telefone || "").replace(/"/g, "&quot;")}"></div>
+      <div><label>E-mail</label><input id="qMail" class="no-upper" value="${(f.email || "").replace(/"/g, "&quot;")}"></div>
+    </div>
+
     <div class="item-head">Situação</div>
     <div class="ff"><label>Situação cadastral</label>
       <select id="qSit">${optSit("ativo")}Ativo</option>${optSit("em_qualificacao")}Em qualificação</option>${optSit("inativo")}Inativo</option></select></div>
@@ -194,6 +204,8 @@ function abrirQualificacaoForn(id) {
   `;
   abrirModal(`Qualificação — ${f.nome}`, corpo, async () => {
     const dados = {
+      contato: fvOrNull("qRep"), whatsapp: (fv("qZap") || "").replace(/\D/g, "") || null,
+      telefone: fvOrNull("qTel"), email: (fv("qMail") || "").toLowerCase() || null,
       situacao: fv("qSit"),
       doc_afe: document.getElementById("qAfe").checked,
       doc_licenca: document.getElementById("qLic").checked,
@@ -467,6 +479,45 @@ function _viewLista() {
           ${cotacoes.map(c=>`<tr><td><b>${c.identificador||"—"}</b></td><td class="mono">${fmtDate(c.data)}</td><td class="num mono">${c.itens.length}</td><td><span class="tag">${c.status}</span></td>
           <td style="text-align:right"><button class="btn ghost sm" onclick="abrirCotacao('${c.id}')">Abrir</button> <button class="btn ghost sm" onclick="imprimirCotacao('${c.id}')">Imprimir</button></td></tr>`).join('')}
         </tbody></table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma cotação. Crie a primeira com <b>+ Nova cotação</b>.</div>`}
+      </div>
+    </div>
+
+    ${_painelFornecedores()}`;
+}
+
+/* Painel de fornecedores com contato direto — WhatsApp e e-mail clicáveis,
+   para conduzir a campanha de cotação sem sair do sistema. */
+function _painelFornecedores() {
+  if (!fornecedores.length) return "";
+  const ordenados = [...fornecedores].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
+  const semContato = ordenados.filter((f) => !f.whatsapp && !f.telefone).length;
+  const linhas = ordenados.map((f) => {
+    const zap = f.whatsapp
+      ? `<a href="https://wa.me/${f.whatsapp}" target="_blank" rel="noopener" style="color:var(--primary-dark);font-weight:600;text-decoration:none">💬 WhatsApp</a>`
+      : (f.telefone ? `<span class="mono">${_esc(f.telefone)}</span>` : `<span style="color:var(--warn)">sem telefone</span>`);
+    const mail = f.email
+      ? `<a href="mailto:${_esc(f.email)}" style="color:var(--muted);text-decoration:none">${_esc(f.email)}</a>`
+      : `<span style="color:var(--warn)">sem e-mail</span>`;
+    return `<tr>
+      <td><b>${_esc(f.nome)}</b>${f.tipo === "industria" ? ' <span class="tag">indústria</span>' : ""}${_fornTag(f)}</td>
+      <td>${_esc(f.contato || "—")}</td>
+      <td>${zap}</td>
+      <td style="font-size:12px">${mail}</td>
+      <td style="text-align:right"><button class="btn ghost sm" onclick="abrirQualificacaoForn('${f.id}')">Qualificação</button></td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Fornecedores</div><div class="panel-title-sub">${fornecedores.length} cadastrado(s)${semContato ? ` · ${semContato} sem telefone` : ""}</div></div>
+        <button class="btn ghost sm" onclick="abrirNovoFornecedor()">+ Novo fornecedor</button>
+      </div>
+      <div class="panel-body">
+        <div class="note-box" style="margin-top:0">Clique em <b>WhatsApp</b> para abrir a conversa direto no aplicativo, ou no e-mail para escrever. Use <b>Qualificação</b> para registrar a documentação recebida e avaliar prazo, resposta e atendimento.</div>
+        <table>
+          <thead><tr><th>Fornecedor</th><th>Representante</th><th>WhatsApp</th><th>E-mail</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
       </div>
     </div>`;
 }

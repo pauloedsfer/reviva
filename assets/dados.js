@@ -75,6 +75,7 @@ async function carregarDados() {
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
   fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo,
     situacao: f.situacao || "ativo",
+    contato: f.contato, telefone: f.telefone, whatsapp: f.whatsapp, email: f.email,
     docAfe: !!f.doc_afe, docLicenca: !!f.doc_licenca, docCertidoes: !!f.doc_certidoes, docTabela: !!f.doc_tabela, docValidade: f.doc_validade,
     avalPrazo: f.aval_prazo, avalResposta: f.aval_resposta, avalAtendimento: f.aval_atendimento, avalData: f.aval_data, avalObs: f.aval_obs }));
 
