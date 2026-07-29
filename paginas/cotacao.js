@@ -231,18 +231,60 @@ function _fornDaCotacao(cot) {
   return fornecedores.filter((f) => ids.has(f.id));
 }
 
-function abrirNovoFornecedor() {
-  abrirModal("Novo fornecedor", `
-    <div class="ff"><label>Nome *</label><input id="nfoNome" placeholder="Razão social"></div>
+/* Cadastro e EDIÇÃO do fornecedor.
+   O nome pode ser corrigido a qualquer momento — erro de digitação não deve
+   ficar permanente, e empresa muda de razão social. Quando já existe
+   histórico, o sistema avisa o que será afetado e guarda automaticamente o
+   nome anterior nas observações, preservando a rastreabilidade. */
+function abrirFormFornecedor(id) {
+  const f = id ? fornById(id) : null;
+  const v = id ? fornVinculos(id) : { nfs: 0, precos: 0, total: 0 };
+  const optTipo = (val) => ["", "drogaria", "distribuidora", "industria"]
+    .map((t) => `<option value="${t}"${(f && f.tipo) === t || (!f && !t) ? " selected" : ""}>${t || "—"}</option>`).join("");
+  const aviso = v.total ? `
+    <div class="note-box" style="background:#FBF3E3;border-color:#e8d9b0">
+      <b>Este fornecedor já tem histórico</b>${v.nfs ? ` — ${v.nfs} nota(s) fiscal(is)` : ""}${v.nfs && v.precos ? " e" : ""}${v.precos ? ` ${v.precos} preço(s) cotado(s)` : ""}.
+      Alterar o nome muda como ele aparece <b>também nos registros antigos</b> (Livro, notas, pedidos).
+      Faça isso apenas para <b>corrigir digitação</b> ou registrar <b>mudança de razão social</b> — o nome anterior fica guardado nas observações.
+    </div>` : "";
+  abrirModal(id ? "Editar fornecedor" : "Novo fornecedor", `
+    ${aviso}
+    <div class="ff"><label>Nome / razão social *</label><input id="nfoNome" value="${((f && f.nome) || "").replace(/"/g, "&quot;")}" placeholder="Razão social"></div>
     <div class="ff row2">
-      <div><label>CNPJ</label><input id="nfoCnpj"></div>
-      <div><label>Tipo</label><select id="nfoTipo"><option value="">—</option><option value="drogaria">drogaria</option><option value="distribuidora">distribuidora</option></select></div>
+      <div><label>CNPJ</label><input id="nfoCnpj" value="${((f && f.cnpj) || "").replace(/"/g, "&quot;")}"></div>
+      <div><label>Tipo</label><select id="nfoTipo">${optTipo()}</select></div>
+    </div>
+    <div class="ff"><label>Endereço</label><input id="nfoEnd" value="${((f && f.endereco) || "").replace(/"/g, "&quot;")}"></div>
+    <div class="ff row2">
+      <div><label>Representante</label><input id="nfoRep" value="${((f && f.contato) || "").replace(/"/g, "&quot;")}"></div>
+      <div><label>WhatsApp (só números)</label><input id="nfoZap" value="${((f && f.whatsapp) || "").replace(/"/g, "&quot;")}" placeholder="5562999999999"></div>
+    </div>
+    <div class="ff row2">
+      <div><label>Telefone fixo</label><input id="nfoTel" value="${((f && f.telefone) || "").replace(/"/g, "&quot;")}"></div>
+      <div><label>E-mail</label><input id="nfoMail" class="no-upper" value="${((f && f.email) || "").replace(/"/g, "&quot;")}"></div>
     </div>`, async () => {
     const nome = fv("nfoNome"); if (!nome) throw new Error("Informe o nome.");
-    const { error } = await window.SB.from("fornecedores").insert({ nome, cnpj: fvOrNull("nfoCnpj"), tipo: fvOrNull("nfoTipo") });
-    if (error) throw error;
-  }, "Cadastrar fornecedor");
+    const dados = {
+      nome, cnpj: fvOrNull("nfoCnpj"), tipo: fvOrNull("nfoTipo"), endereco: fvOrNull("nfoEnd"),
+      contato: fvOrNull("nfoRep"), whatsapp: (fv("nfoZap") || "").replace(/\D/g, "") || null,
+      telefone: fvOrNull("nfoTel"), email: (fv("nfoMail") || "").toLowerCase() || null,
+    };
+    if (id) {
+      // registra o nome anterior quando houver histórico e o nome mudar
+      if (v.total && f.nome && f.nome !== nome) {
+        const marca = `Nome anterior: ${f.nome} (alterado em ${new Date().toLocaleDateString("pt-BR")})`;
+        dados.aval_obs = f.avalObs ? `${f.avalObs} · ${marca}` : marca;
+      }
+      const { error } = await window.SB.from("fornecedores").update(dados).eq("id", id);
+      if (error) throw error;
+    } else {
+      const { error } = await window.SB.from("fornecedores").insert(dados);
+      if (error) throw error;
+    }
+  }, id ? "Salvar alterações" : "Cadastrar fornecedor");
 }
+// mantém o nome antigo funcionando
+function abrirNovoFornecedor() { abrirFormFornecedor(); }
 
 async function salvarPrecosFornecedor() {
   const cot = cotacoes.find((c) => c.id === _cotAberta);
@@ -509,6 +551,7 @@ function _painelFornecedores() {
       <td>${zap}</td>
       <td style="font-size:12px">${mail}</td>
       <td style="text-align:right;white-space:nowrap">
+        <button class="btn ghost sm" onclick="abrirFormFornecedor('${f.id}')">Editar</button>
         <button class="btn ghost sm" onclick="abrirQualificacaoForn('${f.id}')">Qualificação</button>
         <button class="btn ghost sm" onclick="inativarFornecedor('${f.id}')">${inativo ? "Reativar" : "Inativar"}</button>
         ${v.total ? "" : `<button class="btn ghost sm" onclick="excluirFornecedor('${f.id}')" title="Sem histórico — pode ser excluído">Excluir</button>`}

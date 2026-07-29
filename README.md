@@ -1,4 +1,6 @@
-# Hospital Reviva — Memorial, Estado e Roadmap do Sistema
+# Hospital Reviva — Sistema de Gestão da Farmácia
+
+> Memorial de atualizações, estado do sistema e roadmap. Este é o documento de referência único do projeto.
 **Documento vivo · última atualização: 21/07/2026**
 
 Este é o documento de referência único do sistema. Ele cumpre três papéis:
@@ -16,10 +18,50 @@ Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/P
 
 ---
 
+## 1.1 Instalação e primeiro acesso
+
+### Passo 1 — Conectar ao seu banco
+
+Abra `assets/config.js` e cole os dois valores do seu projeto Supabase:
+
+- No painel do Supabase: **Settings → Data API** (ou **API**).
+- Copie **Project URL** → cole em `SUPABASE_URL`.
+- Copie **anon public** → cole em `SUPABASE_ANON_KEY`.
+
+A chave `anon` é segura no arquivo: os dados são protegidos pela RLS. **Nunca** use a chave `service_role` aqui.
+
+### Passo 2 — Criar o seu login (usuário único)
+
+No painel do Supabase: **Authentication → Users → Add user** (Create new user). Informe seu **e-mail** e uma **senha**, e marque para confirmar o e-mail automaticamente (Auto Confirm User), para não precisar de e-mail de verificação. Esse será o login que você usa na tela de entrada.
+
+### Passo 3 — Publicar no Vercel
+
+Como antes: arraste a **pasta** deste sistema para o Vercel (deploy estático), ou suba num novo projeto. Não há build — são só arquivos estáticos. O `login.html` e o `index.html` já ficam na raiz.
+
+> Dica: no Supabase, em **Authentication → URL Configuration**, adicione a URL do seu site do Vercel em *Site URL / Redirect URLs* para evitar avisos de origem.
+
+### Passo 4 — Primeiro acesso
+
+1. Abra o site → você cai na tela de **login**. Entre com o e-mail/senha do passo 2.
+2. Vá em **Configurações (RT & Estabelecimento)** no menu lateral e preencha seus **dados reais** (nome, CRF/UF, registro, dados do hospital). Salve. A partir daí, todo rodapé e relatório passa a mostrar seus dados — nada fica fixo no código.
+3. Navegue pelas telas: os **dados de teste** já aparecem (pacientes, estoque, movimentações). Um **banner amarelo** avisa que são dados de teste.
+4. Teste as impressões: **Livro de Registro → "Imprimir para fiscalização"** e **Balanço Mensal → "Imprimir BMPO"**. Abre uma versão limpa em A4, com cabeçalho do hospital e espaço para assinatura/identificação do RT em cada página. Use o botão **Imprimir / Salvar PDF** dessa janela.
+
+### Passo 5 — Antes de usar de verdade
+
+Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar dados de teste"** no banner (ou rode `select limpar_dados_teste();` no SQL Editor). Isso apaga toda a massa fictícia e **preserva** a sua configuração de RT/estabelecimento.
+
+> Depois da instalação, confira o estado do banco pela seção 3.1 (bloco SQL de verificação) e rode as migrações que estiverem faltando.
+
+---
+
 ## 2. Memorial de atualizações
 
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
+
+- **Edição de fornecedor.** O fornecedor cadastrado passou a ser editável (nome/razão social, CNPJ, tipo, endereço, representante, WhatsApp, telefone e e-mail) pelo botão **Editar** no painel. Quando há histórico, o formulário avisa quantas notas fiscais e preços serão afetados e explica que a alteração muda também os registros antigos; se o nome mudar, o **nome anterior é gravado automaticamente nas observações**, com a data — corrigir digitação deixa de ser impossível sem perder rastreabilidade.
+- **Documentação unificada no `README.md`.** O memorial/roadmap virou `README.md` (exibido automaticamente pelo GitHub) e incorporou as instruções de instalação e primeiro acesso que estavam no `LEIA-ME.md`, agora removido.
 
 - **Inativar, reativar e excluir fornecedor.** O painel de Fornecedores ganhou os botões **Inativar/Reativar** e, quando cabível, **Excluir**. Fornecedor inativo **some das cotações e do lançamento de preços**, mas mantém todo o histórico, e pode ser reativado a qualquer momento; por padrão a lista mostra só os ativos, com botão para exibir os inativos. A **exclusão só é oferecida a fornecedor sem nenhuma nota fiscal e sem nenhum preço cotado** — havendo histórico, o sistema explica que apagar comprometeria a rastreabilidade das compras e orienta a inativar. Cada linha mostra os vínculos existentes (nº de NFs e de preços). *(Front-only.)*
 
