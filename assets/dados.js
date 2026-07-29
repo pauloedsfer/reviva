@@ -96,7 +96,7 @@ async function carregarDados() {
 
   invoices = invs.map((nf) => ({
     id: nf.id, numero: nf.numero, data: nf.data_emissao,
-    fornecedor: nf.fornecedores ? nf.fornecedores.nome : "", canal: nf.canal,
+    fornecedor: nf.fornecedores ? nf.fornecedores.nome : "", fornecedorId: nf.fornecedor_id, canal: nf.canal,
     itens: (nf.nota_fiscal_itens || []).map((it) => ({
       subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
       validade: it.validade, custoUnit: Number(it.custo_unit),
@@ -242,6 +242,17 @@ function fornDocsPendentes(f) {
   if (f.docValidade && f.docValidade < HOJE) p.push("Licença vencida");
   return p;
 }
+// Vínculos de um fornecedor — se houver, ele NÃO pode ser excluído, apenas
+// inativado: apagar apagaria a rastreabilidade de compras já realizadas.
+function fornVinculos(id) {
+  const nfs = invoices.filter((n) => n.fornecedorId === id).length;
+  let precos = 0;
+  cotacoes.forEach((c) => (c.itens || []).forEach((it) =>
+    (it.precos || []).forEach((p) => { if (p.fornecedorId === id) precos++; })));
+  return { nfs, precos, total: nfs + precos };
+}
+function fornAtivo(f) { return f && f.situacao !== "inativo"; }
+
 // desempenho consolidado: pior nota entre os critérios avaliados
 function fornDesempenho(f) {
   const notas = [f.avalPrazo, f.avalResposta, f.avalAtendimento].filter(Boolean);

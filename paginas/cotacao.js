@@ -380,7 +380,7 @@ function _viewItens(cot) {
 }
 
 function _viewPrecos(cot) {
-  const optForn = `<option value="">— selecione o fornecedor —</option>` + fornecedores.map((f)=>`<option value="${f.id}"${f.id===_fornSel?' selected':''}>${f.nome}${fornHabilitado(f)?'':' (não habilitado)'}</option>`).join('');
+  const optForn = `<option value="">— selecione o fornecedor —</option>` + fornecedores.filter(fornAtivo).map((f)=>`<option value="${f.id}"${f.id===_fornSel?' selected':''}>${f.nome}${fornHabilitado(f)?'':' (não habilitado)'}</option>`).join('');
   const fSel = _fornSel ? fornById(_fornSel) : null;
   const sel = _fornSel;
   const precosDoForn = {};
@@ -489,7 +489,9 @@ function _viewLista() {
    para conduzir a campanha de cotação sem sair do sistema. */
 function _painelFornecedores() {
   if (!fornecedores.length) return "";
-  const ordenados = [...fornecedores].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
+  const todos = [...fornecedores].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
+  const nInativos = todos.filter((f) => !fornAtivo(f)).length;
+  const ordenados = _fornMostrarInativos ? todos : todos.filter(fornAtivo);
   const semContato = ordenados.filter((f) => !f.whatsapp && !f.telefone).length;
   const linhas = ordenados.map((f) => {
     const zap = f.whatsapp
@@ -498,22 +500,32 @@ function _painelFornecedores() {
     const mail = f.email
       ? `<a href="mailto:${_esc(f.email)}" style="color:var(--muted);text-decoration:none">${_esc(f.email)}</a>`
       : `<span style="color:var(--warn)">sem e-mail</span>`;
-    return `<tr>
-      <td><b>${_esc(f.nome)}</b>${f.tipo === "industria" ? ' <span class="tag">indústria</span>' : ""}${_fornTag(f)}</td>
+    const inativo = !fornAtivo(f);
+    const v = fornVinculos(f.id);
+    return `<tr${inativo ? ' style="opacity:.55"' : ""}>
+      <td><b>${_esc(f.nome)}</b>${f.tipo === "industria" ? ' <span class="tag">indústria</span>' : ""}${inativo ? ' <span class="tag" style="background:#EEE;color:#6a736e">inativo</span>' : _fornTag(f)}
+        ${v.total ? `<div style="font-size:11px;color:var(--muted)">${v.nfs ? v.nfs + " NF" : ""}${v.nfs && v.precos ? " · " : ""}${v.precos ? v.precos + " preço(s)" : ""}</div>` : ""}</td>
       <td>${_esc(f.contato || "—")}</td>
       <td>${zap}</td>
       <td style="font-size:12px">${mail}</td>
-      <td style="text-align:right"><button class="btn ghost sm" onclick="abrirQualificacaoForn('${f.id}')">Qualificação</button></td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn ghost sm" onclick="abrirQualificacaoForn('${f.id}')">Qualificação</button>
+        <button class="btn ghost sm" onclick="inativarFornecedor('${f.id}')">${inativo ? "Reativar" : "Inativar"}</button>
+        ${v.total ? "" : `<button class="btn ghost sm" onclick="excluirFornecedor('${f.id}')" title="Sem histórico — pode ser excluído">Excluir</button>`}
+      </td>
     </tr>`;
   }).join("");
   return `
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Fornecedores</div><div class="panel-title-sub">${fornecedores.length} cadastrado(s)${semContato ? ` · ${semContato} sem telefone` : ""}</div></div>
-        <button class="btn ghost sm" onclick="abrirNovoFornecedor()">+ Novo fornecedor</button>
+        <div><div class="panel-title">Fornecedores</div><div class="panel-title-sub">${ordenados.length} ${_fornMostrarInativos ? "no total" : "ativo(s)"}${nInativos ? ` · ${nInativos} inativo(s)` : ""}${semContato ? ` · ${semContato} sem telefone` : ""}</div></div>
+        <div class="toolbar">
+          ${nInativos ? `<button class="btn ghost sm" onclick="_fornToggleInativos()">${_fornMostrarInativos ? "Ocultar inativos" : "Mostrar inativos"}</button>` : ""}
+          <button class="btn ghost sm" onclick="abrirNovoFornecedor()">+ Novo fornecedor</button>
+        </div>
       </div>
       <div class="panel-body">
-        <div class="note-box" style="margin-top:0">Clique em <b>WhatsApp</b> para abrir a conversa direto no aplicativo, ou no e-mail para escrever. Use <b>Qualificação</b> para registrar a documentação recebida e avaliar prazo, resposta e atendimento.</div>
+        <div class="note-box" style="margin-top:0">Clique em <b>WhatsApp</b> para abrir a conversa direto no aplicativo, ou no e-mail para escrever. Use <b>Qualificação</b> para registrar a documentação recebida. Empresa encerrada ou que não atende mais: <b>Inativar</b> — some das cotações e o histórico fica preservado. <b>Excluir</b> só aparece em fornecedor sem nenhuma compra ou cotação.</div>
         <table>
           <thead><tr><th>Fornecedor</th><th>Representante</th><th>WhatsApp</th><th>E-mail</th><th></th></tr></thead>
           <tbody>${linhas}</tbody>
@@ -621,4 +633,54 @@ function _cotCSV(cot, cab, dados) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1500);
   alert("A biblioteca de Excel não carregou (sem internet?). Baixamos em CSV, que o Excel abre normalmente.");
+}
+
+/* ============================================================
+   Inativar / reativar / excluir fornecedor
+   Regra: fornecedor com histórico (nota fiscal ou preço cotado)
+   NÃO pode ser excluído — só inativado. Excluir apagaria a
+   rastreabilidade de compras já realizadas, o que a escrituração
+   de controlados não admite.
+   ============================================================ */
+let _fornMostrarInativos = false;
+function _fornToggleInativos() {
+  _fornMostrarInativos = !_fornMostrarInativos;
+  document.getElementById("viewport").innerHTML = renderPage();
+}
+
+async function inativarFornecedor(id) {
+  const f = fornById(id); if (!f) return;
+  const inativo = f.situacao === "inativo";
+  const msg = inativo
+    ? `Reativar ${f.nome}?\n\nEle volta a aparecer nas cotações.`
+    : `Inativar ${f.nome}?\n\nDeixa de aparecer nas cotações e no lançamento de preços.\nO histórico de compras é preservado e pode ser reativado a qualquer momento.`;
+  if (!confirm(msg)) return;
+  const { error } = await window.SB.from("fornecedores")
+    .update({ situacao: inativo ? "ativo" : "inativo" }).eq("id", id);
+  if (error) { alert("Erro: " + error.message); return; }
+  await recarregarTela();
+}
+
+async function excluirFornecedor(id) {
+  const f = fornById(id); if (!f) return;
+  const v = fornVinculos(id);
+  if (v.total > 0) {
+    const partes = [];
+    if (v.nfs) partes.push(`${v.nfs} nota(s) fiscal(is)`);
+    if (v.precos) partes.push(`${v.precos} preço(s) cotado(s)`);
+    alert(
+      `${f.nome} não pode ser excluído.\n\n` +
+      `Há histórico vinculado: ${partes.join(" e ")}.\n\n` +
+      `Excluir apagaria a rastreabilidade dessas compras, o que a escrituração ` +
+      `de controlados não permite. Use "Inativar" — ele sai das cotações e o ` +
+      `histórico é preservado.`);
+    return;
+  }
+  if (!confirm(
+    `Excluir definitivamente ${f.nome}?\n\n` +
+    `Ele não tem nenhuma compra ou cotação registrada, então pode ser removido ` +
+    `sem perda de histórico.\n\nEsta ação não pode ser desfeita.`)) return;
+  const { error } = await window.SB.from("fornecedores").delete().eq("id", id);
+  if (error) { alert("Erro ao excluir: " + error.message); return; }
+  await recarregarTela();
 }
