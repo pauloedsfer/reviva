@@ -60,6 +60,12 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Importação de preços por colagem (`⬆ Importar preços`).** Na cotação, escolhe-se o fornecedor e cola-se a lista no formato `ITEM;UNID_POR_CAIXA;PRECO_CAIXA`. O botão **Conferir antes de gravar** mostra a prévia — linhas reconhecidas com preço unitário calculado, linhas rejeitadas com o motivo, e quantos itens ficaram sem preço — de modo que **nada é aplicado no escuro**. Aceita ponto-e-vírgula ou tabulação como separador e números em formato pt-BR ou internacional (`60.71`, `26,83`, `1.239,53`). Reimportar substitui apenas os preços daquele fornecedor naquela cotação, sem duplicar.
+- **Prompt padrão para análise de cotações (`PROMPT-cotacoes.md`).** Roteiro reutilizável para processar cada proposta recebida com apoio de IA: anexar a proposta + a planilha exportada do sistema (que fornece os nomes oficiais dos itens), regras de correspondência por princípio ativo e concentração, casos que **não** devem ser correspondidos, e saída já no formato da importação. Inclui recomendação de modelo e esforço.
+
+- **Previsão de Cobertura e Compras (reescrita).** A tela de previsão passou a calcular pelas **prescrições ativas** — consumo conhecido — em vez do histórico de dispensação, que numa unidade nova é curto e subestima o consumo. Para cada medicamento (agrupado por **princípio ativo + dosagem**) mostra pacientes em uso, **consumo/dia**, estoque, **dias de cobertura** e **quanto comprar** para a cobertura desejada, com sinalização **🟢 adequado · 🟡 programar compra · 🔴 comprar agora · ⚪ sem consumo previsto** e ordenação do mais urgente. Quatro cartões no topo resumem a situação. Limiares configuráveis (crítico, atenção e dias de cobertura). A dose fracionada é contada pelo **consumo real** (meio comprimido baixa unidade inteira), pacientes com alta são ignorados e prescrições **SOS** ficam de fora do consumo diário, apenas sinalizadas.
+- **Custódia com cobertura separada.** Quadro próprio mostrando, por paciente, quantos dias a **medicação dele** ainda dura, com validade do lote — quando acaba, a reposição é da família, não da clínica. Pacientes com custódia da substância são automaticamente excluídos do consumo do estoque geral, evitando dupla contagem. Ambos os quadros são imprimíveis.
+
 - **Edição de fornecedor.** O fornecedor cadastrado passou a ser editável (nome/razão social, CNPJ, tipo, endereço, representante, WhatsApp, telefone e e-mail) pelo botão **Editar** no painel. Quando há histórico, o formulário avisa quantas notas fiscais e preços serão afetados e explica que a alteração muda também os registros antigos; se o nome mudar, o **nome anterior é gravado automaticamente nas observações**, com a data — corrigir digitação deixa de ser impossível sem perder rastreabilidade.
 - **Documentação unificada no `README.md`.** O memorial/roadmap virou `README.md` (exibido automaticamente pelo GitHub) e incorporou as instruções de instalação e primeiro acesso que estavam no `LEIA-ME.md`, agora removido.
 
@@ -229,7 +235,7 @@ Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tó
 - Impressão do Livro em **paisagem** se as 9 colunas ficarem apertadas em retrato.
 
 ### Compras e fornecedores (P2)
-- **Previsão de compra por consumo** (quando houver histórico de dispensação): uso/dia, dias de cobertura, sugestão de compra — reaproveitando a lógica da planilha de 2019.
+- ✅ **Previsão de cobertura e alertas de compra** — concluída (base: prescrições ativas, com custódia em quadro separado).
 - ✅ **Qualificação de fornecedores** (habilitação documental + desempenho Bom/Regular/Ruim) — concluída. Pendente: disparo de e-mail de cotação direto do sistema.
 
 ### Inventário (P2)

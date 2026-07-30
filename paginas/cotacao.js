@@ -394,6 +394,7 @@ function _viewItens(cot) {
         <div class="toolbar">
           ${substances.length ? '<button class="btn ghost sm" onclick="adicionarTodasSubstancias()">+ Todas as substâncias</button>' : ''}
           <button class="btn ghost sm" onclick="abrirFormItemCotacao()">+ Item</button>
+          <button class="btn ghost sm" onclick="abrirImportarPrecos('${cot.id}')">⬆ Importar preços</button>
           <button class="btn ghost sm" onclick="exportarCotacaoExcel('${cot.id}')">⬇ Exportar Excel</button>
           <button class="btn sm" onclick="imprimirCotacao('${cot.id}')">🖶 Imprimir solicitação</button>
         </div>
@@ -726,4 +727,114 @@ async function excluirFornecedor(id) {
   const { error } = await window.SB.from("fornecedores").delete().eq("id", id);
   if (error) { alert("Erro ao excluir: " + error.message); return; }
   await recarregarTela();
+}
+
+/* ============================================================
+   IMPORTAR PREÇOS DE UMA PROPOSTA (colar CSV)
+   Formato esperado, uma linha por item:
+     ITEM;UNID_POR_CAIXA;PRECO_CAIXA[;INDISPONIVEL]
+   O fornecedor é escolhido na tela. Antes de gravar, o sistema
+   mostra o que casou e o que não casou — nada é aplicado no escuro.
+   ============================================================ */
+let _impDados = null;   // { linhas:[...], ok:[...], erro:[...] }
+
+function abrirImportarPrecos(cotId) {
+  const cot = cotacoes.find((c) => c.id === cotId);
+  if (!cot) return;
+  if (!cot.itens.length) { alert("A cotação não tem itens."); return; }
+  _impDados = null;
+  const optF = `<option value="">— selecione o fornecedor —</option>` +
+    fornecedores.filter(fornAtivo).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+      .map((f) => `<option value="${f.id}">${f.nome}</option>`).join("");
+  abrirModal("Importar preços de uma proposta", `
+    <div class="ff"><label>Fornecedor *</label><select id="impForn">${optF}</select></div>
+    <div class="ff"><label>Cole aqui as linhas da proposta <span style="font-weight:400;color:var(--muted)">— ITEM;UNID_POR_CAIXA;PRECO_CAIXA</span></label>
+      <textarea id="impTxt" rows="10" class="no-upper" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;font-family:'IBM Plex Mono',monospace;font-size:12px;resize:vertical" placeholder="QUETIAPINA 25MG COMP.;500;60.71&#10;CLONAZEPAM 2MG COMP.;480;26.83&#10;OLANZAPINA 5MG COMP.;30;27.05"></textarea></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">
+      <button type="button" class="btn ghost sm" onclick="_impConferir('${cotId}')">Conferir antes de gravar</button>
+      <span style="font-size:12px;color:var(--muted)">Aceita ponto-e-vírgula, tabulação ou vírgula como separador.</span>
+    </div>
+    <div id="impPrev"></div>
+  `, async () => {
+    const fid = fv("impForn");
+    if (!fid) throw new Error("Selecione o fornecedor.");
+    if (!_impDados) _impConferir(cotId);
+    if (!_impDados || !_impDados.ok.length) throw new Error("Nenhuma linha reconhecida. Use \"Conferir antes de gravar\" para ver o motivo.");
+    // remove preços anteriores deste fornecedor nesta cotação e insere os novos
+    const ids = _impDados.ok.map((l) => l.itemId);
+    for (const itemId of ids) {
+      await window.SB.from("cotacao_precos").delete().eq("cotacao_item_id", itemId).eq("fornecedor_id", fid);
+    }
+    const rows = _impDados.ok.map((l) => ({
+      cotacao_item_id: l.itemId, fornecedor_id: fid, disponivel: l.disponivel,
+      unid_por_caixa: l.unid, preco_caixa: l.preco,
+    }));
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await window.SB.from("cotacao_precos").insert(rows.slice(i, i + 100));
+      if (error) throw error;
+    }
+  }, "Gravar preços");
+}
+
+/* Converte número em pt-BR ou internacional:
+   "60.71" → 60.71 · "26,83" → 26.83 · "1.239,53" → 1239.53 · "1,239.53" → 1239.53 */
+function _impNum(txt) {
+  let t = String(txt == null ? "" : txt).replace(/[^\d.,-]/g, "").trim();
+  if (!t) return NaN;
+  const temP = t.includes("."), temV = t.includes(",");
+  if (temP && temV) {
+    // o último separador que aparece é o decimal
+    t = t.lastIndexOf(",") > t.lastIndexOf(".")
+      ? t.replace(/\./g, "").replace(",", ".")
+      : t.replace(/,/g, "");
+  } else if (temV) {
+    // vírgula única: decimal se houver 1 ou 2 casas depois; senão é milhar
+    const d = t.split(",");
+    t = (d.length === 2 && d[1].length <= 2) ? t.replace(",", ".") : t.replace(/,/g, "");
+  }
+  const n = parseFloat(t);
+  return isNaN(n) ? NaN : n;
+}
+
+function _impConferir(cotId) {
+  const cot = cotacoes.find((c) => c.id === cotId);
+  const txt = (document.getElementById("impTxt") || {}).value || "";
+  const idx = {};
+  cot.itens.forEach((it) => { idx[(it.descricao || "").trim().toUpperCase()] = it.id; });
+
+  const ok = [], erro = [];
+  txt.split(/\r?\n/).forEach((linha, n) => {
+    const l = linha.trim();
+    if (!l) return;
+    if (/^ITEM\s*[;,\t]/i.test(l)) return;                       // cabeçalho
+    // separador: ponto-e-vírgula ou tabulação. Vírgula só quando não houver
+    // nenhum dos dois (senão quebraria o decimal "26,83").
+    const sep = /[;\t]/.test(l) ? /[;\t]/ : /,/;
+    const partes = l.split(sep).map((x) => x.trim());
+    const nome = (partes[0] || "").toUpperCase();
+    const unid = _impNum(partes[1]);
+    const preco = _impNum(partes[2]);
+    const indisp = /INDISPON|N\/?A|SEM ESTOQUE/i.test(partes[3] || "");
+    if (!nome) { erro.push({ n: n + 1, l, m: "linha sem nome de item" }); return; }
+    if (!idx[nome]) { erro.push({ n: n + 1, l, m: "item não existe nesta cotação (nome precisa ser idêntico)" }); return; }
+    if (!(unid > 0)) { erro.push({ n: n + 1, l, m: "unidades por caixa inválida" }); return; }
+    if (!(preco >= 0)) { erro.push({ n: n + 1, l, m: "preço inválido" }); return; }
+    ok.push({ itemId: idx[nome], nome, unid, preco, disponivel: !indisp });
+  });
+  _impDados = { ok, erro };
+
+  const naoCotados = cot.itens.filter((it) => !ok.some((o) => o.itemId === it.id));
+  const el = document.getElementById("impPrev");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="note-box" style="margin:10px 0 0;background:${erro.length ? "#FBF3E3" : "#E7F0E3"};border-color:${erro.length ? "#e8d9b0" : "#c9dcc2"}">
+      <b>${ok.length}</b> linha(s) reconhecida(s)${erro.length ? ` · <b style="color:#B04A3F">${erro.length} com problema</b>` : ""} · ${naoCotados.length} item(ns) da cotação sem preço nesta proposta.
+    </div>
+    ${ok.length ? `<div style="max-height:180px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px">
+      <table style="font-size:12px"><thead><tr><th>Item</th><th class="num">Unid./cx</th><th class="num">Preço cx</th><th class="num">Unitário</th></tr></thead>
+      <tbody>${ok.map((o) => `<tr><td>${_esc(o.nome)}</td><td class="num mono">${o.unid}</td><td class="num mono">${brl(o.preco)}</td><td class="num mono">${brl(o.preco / o.unid)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${erro.length ? `<div style="margin-top:8px;font-size:12px">
+      <b style="color:#B04A3F">Linhas não aplicadas:</b>
+      <ul style="margin:4px 0 0 18px;padding:0">${erro.slice(0, 12).map((e) => `<li>linha ${e.n}: ${_esc(e.m)} — <span class="mono">${_esc(e.l.slice(0, 60))}</span></li>`).join("")}</ul>
+      ${erro.length > 12 ? `<div style="color:var(--muted)">…e mais ${erro.length - 12}.</div>` : ""}</div>` : ""}`;
 }

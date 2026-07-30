@@ -27,7 +27,7 @@ const NAV = [
     { id: "cotacao", label: "Cotação de Compras", href: "cotacao.html" },
     { id: "notasfiscais", label: "Notas Fiscais", href: "notasfiscais.html" },
     { id: "doacoes", label: "Doações", href: "doacoes.html" },
-    { id: "previsao", label: "Previsão de Compras", href: "previsao.html" },
+    { id: "previsao", label: "Previsão e Alertas de Compra", href: "previsao.html" },
   ]},
   { group: "Financeiro", items: [
     { id: "financeiro", label: "Custos & Indicadores", href: "financeiro.html" },
@@ -57,7 +57,7 @@ const TITLES = {
   cotacao: ["Cotação de Compras", "Monte a lista a cotar e gere a planilha para enviar aos fornecedores"],
   notasfiscais: ["Notas Fiscais", "Entradas por compra — cada item gera um lote em estoque"],
   doacoes: ["Doações", "Entradas sem custo ao hospital — valor estimado para relatório de economia"],
-  previsao: ["Previsão de Compras", "Consumo médio, dias restantes e sugestão de reposição"],
+  previsao: ["Previsão de Cobertura e Compras", "Dias de cobertura por medicamento com base nas prescrições ativas, com alerta de reposição"],
   financeiro: ["Custos & Indicadores", "Custos da farmácia — medicamentos dispensados, valor em estoque e economia com doações"],
   escrituracao: ["Livro de Registro", "Todas as movimentações — fonte de verdade do estoque"],
   balanco: ["Balanço Mensal (BMPO)", "Estoque inicial, entradas, saídas e saldo final por substância"],
