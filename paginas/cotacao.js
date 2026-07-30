@@ -404,6 +404,7 @@ function _viewItens(cot) {
         <div class="toolbar">
           ${substances.length ? '<button class="btn ghost sm" onclick="adicionarTodasSubstancias()">+ Todas as substâncias</button>' : ''}
           <button class="btn ghost sm" onclick="abrirFormItemCotacao()">+ Item</button>
+          <button class="btn ghost sm" onclick="imprimirRelatorioCotacao('${cot.id}')">🖶 Relatório de justificativa</button>
           <button class="btn ghost sm" onclick="abrirImportarPrecos('${cot.id}')">⬆ Importar preços</button>
           <button class="btn ghost sm" onclick="exportarCotacaoExcel('${cot.id}')">⬇ Exportar Excel</button>
           <button class="btn sm" onclick="imprimirCotacao('${cot.id}')">🖶 Imprimir solicitação</button>
@@ -495,6 +496,7 @@ function _viewComp(cot) {
         <div class="mono" style="font-size:13px">${brl(u)}</div>
         <div class="mono" style="font-size:10.5px;color:var(--muted)">${p.unidPorCaixa || "—"} un/cx · ${brl(p.precoCaixa || 0)}</div>
         <div class="mono" style="font-size:10.5px;color:${excPct >= 100 ? "#B04A3F" : "var(--muted)"}">${caixas} cx = ${brl(caixas * (p.precoCaixa || 0))}${exc ? " · sobra " + exc : ""}</div>
+        ${p.validade ? `<div class="mono" style="font-size:10px;color:var(--muted)">val. ${fmtDate(p.validade)}${_valTag(p.validade)}</div>` : ""}
       </td>`;
     }).join('');
     const d = _itemDecisao(it);
@@ -784,11 +786,11 @@ function abrirImportarPrecos(cotId) {
       .map((f) => `<option value="${f.id}">${f.nome}</option>`).join("");
   abrirModal("Importar preços de uma proposta", `
     <div class="ff"><label>Fornecedor *</label><select id="impForn">${optF}</select></div>
-    <div class="ff"><label>Cole aqui as linhas da proposta <span style="font-weight:400;color:var(--muted)">— ITEM;UNID_POR_CAIXA;PRECO_CAIXA</span></label>
+    <div class="ff"><label>Cole aqui as linhas da proposta <span style="font-weight:400;color:var(--muted)">— ITEM;UNID_POR_CAIXA;PRECO_CAIXA;VALIDADE</span></label>
       <textarea id="impTxt" rows="10" class="no-upper" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font:inherit;font-family:'IBM Plex Mono',monospace;font-size:12px;resize:vertical" placeholder="QUETIAPINA 25MG COMP.;500;60.71&#10;CLONAZEPAM 2MG COMP.;480;26.83&#10;OLANZAPINA 5MG COMP.;30;27.05"></textarea></div>
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:6px">
       <button type="button" class="btn ghost sm" onclick="_impConferir('${cotId}')">Conferir antes de gravar</button>
-      <span style="font-size:12px;color:var(--muted)">Aceita ponto-e-vírgula, tabulação ou vírgula como separador.</span>
+      <span style="font-size:12px;color:var(--muted)">Separador: ponto-e-vírgula ou tabulação. A <b>validade</b> é opcional (31/05/2028, 2028-05-31 ou 05/2028) e pode vir junto de <b>INDISPONIVEL</b>.</span>
     </div>
     <div id="impPrev"></div>
   `, async () => {
@@ -803,7 +805,7 @@ function abrirImportarPrecos(cotId) {
     }
     const rows = _impDados.ok.map((l) => ({
       cotacao_item_id: l.itemId, fornecedor_id: fid, disponivel: l.disponivel,
-      unid_por_caixa: l.unid, preco_caixa: l.preco,
+      unid_por_caixa: l.unid, preco_caixa: l.preco, validade: l.validade || null,
     }));
     for (let i = 0; i < rows.length; i += 100) {
       const { error } = await window.SB.from("cotacao_precos").insert(rows.slice(i, i + 100));
@@ -832,6 +834,20 @@ function _impNum(txt) {
   return isNaN(n) ? NaN : n;
 }
 
+/* Reconhece a validade em vários formatos: 31/05/2028 · 2028-05-31 · 05/2028
+   (mês/ano assume o último dia do mês, como é praxe em validade de lote). */
+function _impData(txt) {
+  const t = String(txt || "");
+  let m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2,"0")}-${String(m[3]).padStart(2,"0")}`;
+  m = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
+  m = t.match(/(?:^|\s)(\d{1,2})\/(\d{4})(?:\s|$)/);
+  if (m) { const ult = new Date(Number(m[2]), Number(m[1]), 0).getDate();
+           return `${m[2]}-${String(m[1]).padStart(2,"0")}-${ult}`; }
+  return null;
+}
+
 function _impConferir(cotId) {
   const cot = cotacoes.find((c) => c.id === cotId);
   const txt = (document.getElementById("impTxt") || {}).value || "";
@@ -850,12 +866,15 @@ function _impConferir(cotId) {
     const nome = (partes[0] || "").toUpperCase();
     const unid = _impNum(partes[1]);
     const preco = _impNum(partes[2]);
-    const indisp = /INDISPON|N\/?A|SEM ESTOQUE/i.test(partes[3] || "");
+    // campos 4+ em qualquer ordem: data de validade e/ou marcação de indisponível
+    const resto = partes.slice(3).join(" ");
+    const indisp = /INDISPON|SEM ESTOQUE|\bN\/?A\b/i.test(resto);
+    const validade = _impData(resto);
     if (!nome) { erro.push({ n: n + 1, l, m: "linha sem nome de item" }); return; }
     if (!idx[nome]) { erro.push({ n: n + 1, l, m: "item não existe nesta cotação (nome precisa ser idêntico)" }); return; }
     if (!(unid > 0)) { erro.push({ n: n + 1, l, m: "unidades por caixa inválida" }); return; }
     if (!(preco >= 0)) { erro.push({ n: n + 1, l, m: "preço inválido" }); return; }
-    ok.push({ itemId: idx[nome], nome, unid, preco, disponivel: !indisp });
+    ok.push({ itemId: idx[nome], nome, unid, preco, disponivel: !indisp, validade });
   });
   _impDados = { ok, erro };
 
@@ -867,8 +886,8 @@ function _impConferir(cotId) {
       <b>${ok.length}</b> linha(s) reconhecida(s)${erro.length ? ` · <b style="color:#B04A3F">${erro.length} com problema</b>` : ""} · ${naoCotados.length} item(ns) da cotação sem preço nesta proposta.
     </div>
     ${ok.length ? `<div style="max-height:180px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px">
-      <table style="font-size:12px"><thead><tr><th>Item</th><th class="num">Unid./cx</th><th class="num">Preço cx</th><th class="num">Unitário</th></tr></thead>
-      <tbody>${ok.map((o) => `<tr><td>${_esc(o.nome)}</td><td class="num mono">${o.unid}</td><td class="num mono">${brl(o.preco)}</td><td class="num mono">${brl(o.preco / o.unid)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      <table style="font-size:12px"><thead><tr><th>Item</th><th class="num">Unid./cx</th><th class="num">Preço cx</th><th class="num">Unitário</th><th>Validade</th></tr></thead>
+      <tbody>${ok.map((o) => `<tr><td>${_esc(o.nome)}${o.disponivel ? "" : ' <span class="tag" style="background:#F1F3F1;color:#6a736e">indisp.</span>'}</td><td class="num mono">${o.unid}</td><td class="num mono">${brl(o.preco)}</td><td class="num mono">${brl(o.preco / o.unid)}</td><td class="mono">${o.validade ? fmtDate(o.validade) : "—"}</td></tr>`).join("")}</tbody></table></div>` : ""}
     ${erro.length ? `<div style="margin-top:8px;font-size:12px">
       <b style="color:#B04A3F">Linhas não aplicadas:</b>
       <ul style="margin:4px 0 0 18px;padding:0">${erro.slice(0, 12).map((e) => `<li>linha ${e.n}: ${_esc(e.m)} — <span class="mono">${_esc(e.l.slice(0, 60))}</span></li>`).join("")}</ul>
@@ -901,6 +920,22 @@ function _itemDecisao(it) {
   const caixas = b.p.unidPorCaixa ? Math.ceil((Number(it.quantidade) || 0) / b.p.unidPorCaixa) : 0;
   return { fornecedorId: b.fornecedorId, p: b.p, unit: b.unit, caixas,
            subtotal: caixas * (b.p.precoCaixa || 0), origem: "sugestao" };
+}
+
+/* Meses até a validade — usado para alertar quando uma embalagem grande
+   tem prazo curto, o pior cenário para excesso de compra. */
+function _mesesAte(iso) {
+  if (!iso) return null;
+  const hoje = new Date(HOJE + "T12:00:00"), v = new Date(iso + "T12:00:00");
+  return (v - hoje) / (1000 * 60 * 60 * 24 * 30.44);
+}
+function _valTag(iso) {
+  const m = _mesesAte(iso);
+  if (m == null) return "";
+  if (m <= 0) return ' <span class="tag" style="background:#F7E3E1;color:#B04A3F">vencido</span>';
+  if (m <= 6) return ` <span class="tag" style="background:#F7E3E1;color:#B04A3F">${Math.round(m)} meses</span>`;
+  if (m <= 12) return ` <span class="tag" style="background:#FBF3E3;color:#B07A2F">${Math.round(m)} meses</span>`;
+  return "";
 }
 
 function _decTag(it) {
@@ -949,6 +984,7 @@ function abrirDecisaoItem(cotId, itemId) {
       <td class="num mono">${o.unidTotal || "—"}</td>
       <td class="num mono" style="color:${alerta ? "#B04A3F" : "inherit"}">${o.excesso ? o.excesso + (excPct >= 100 ? ` (+${Math.round(excPct)}%)` : "") : "—"}</td>
       <td class="num mono"><b>${o.total ? brl(o.total) : "—"}</b></td>
+      <td class="mono" style="text-align:center;font-size:11.5px">${o.p.validade ? fmtDate(o.p.validade) + _valTag(o.p.validade) : "—"}</td>
     </tr>`;
   }).join("");
 
@@ -957,13 +993,18 @@ function abrirDecisaoItem(cotId, itemId) {
       <b>${_esc(it.descricao)}</b>${sub && sub.lista && sub.lista !== "—" ? ` <span class="tag ${listaTagClass(sub.lista)}">${sub.lista}</span>` : ""}
       · necessidade registrada: <b>${necessario} ${_esc(it.unidade || "")}</b>
       <div style="margin-top:6px;font-size:12.5px">O menor preço unitário é apenas um filtro. Verifique o <b>excesso</b>: embalagem grande e barata por unidade pode obrigar a comprar muito mais do que se vai consumir, com risco de vencimento.</div>
+      ${(() => {
+        const risco = ofertas.filter((o) => o.excesso > necessario && _mesesAte(o.p.validade) != null && _mesesAte(o.p.validade) <= 12);
+        return risco.length ? `<div style="margin-top:8px;padding:7px 9px;background:#F7E3E1;border-radius:7px;font-size:12.5px">
+          <b>Atenção:</b> ${risco.map((o) => `${_esc(o.f ? o.f.nome : "")} — sobra ${o.excesso} com validade em ${fmtDate(o.p.validade)}`).join(" · ")}. Embalagem grande com prazo curto é o pior cenário: provavelmente vence antes do consumo.</div>` : "";
+      })()}
     </div>
     <div style="overflow:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:14px">
       <table style="font-size:12.5px">
         <thead><tr>
           <th style="width:34px"></th><th>Fornecedor</th>
           <th class="num">Unitário</th><th class="num">Unid./cx</th><th class="num">Preço cx</th>
-          <th class="num">Caixas</th><th class="num">Total unid.</th><th class="num">Excesso</th><th class="num">Custo</th>
+          <th class="num">Caixas</th><th class="num">Total unid.</th><th class="num">Excesso</th><th class="num">Custo</th><th>Validade</th>
         </tr></thead>
         <tbody>${linhas}</tbody>
       </table>
@@ -1012,4 +1053,175 @@ function _decSelecionar(fid, caixasSugeridas) {
   if (c && (!c.value || Number(c.value) === 0)) c.value = caixasSugeridas || 1;
   const st = document.getElementById("decStatus");
   if (st) st.value = "escolhido";
+}
+
+/* ============================================================
+   RELATÓRIO DE COTAÇÃO — justificativa de compra para a direção
+   Mostra todas as propostas recebidas item a item, a escolha do
+   RT com a razão, e compara dois cenários: comprar tudo pelo
+   menor preço unitário (escolha automática) x a decisão técnica.
+   ============================================================ */
+function imprimirRelatorioCotacao(cotId) {
+  const cot = cotacoes.find((c) => c.id === cotId);
+  if (!cot) return;
+  if (!cot.itens.length) { alert("A cotação não tem itens."); return; }
+
+  // fornecedores que apresentaram proposta
+  const fids = [...new Set(cot.itens.flatMap((it) => (it.precos || []).map((p) => p.fornecedorId)))];
+  const forns = fids.map(fornById).filter(Boolean).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+  // cenário A (menor unitário) x cenário B (decisão do RT)
+  let totA = 0, totB = 0, unidA = 0, unidB = 0, excA = 0, excB = 0;
+  let nDecid = 0, nFora = 0, nSug = 0;
+  const linhas = [];
+
+  cot.itens.slice().sort((a, b) => {
+    const ca = a.substanciaId ? catRotulo(subById(a.substanciaId).categoria) : "";
+    const cb = b.substanciaId ? catRotulo(subById(b.substanciaId).categoria) : "";
+    return ca.localeCompare(cb, "pt-BR") || (a.descricao || "").localeCompare(b.descricao || "", "pt-BR");
+  }).forEach((it) => {
+    const nec = Number(it.quantidade) || 0;
+    const sub = it.substanciaId ? subById(it.substanciaId) : null;
+    const ofertas = (it.precos || []).map((p) => {
+      const unit = _precoUnit(p);
+      const cx = p.unidPorCaixa ? Math.ceil(nec / p.unidPorCaixa) : 0;
+      const un = cx * (p.unidPorCaixa || 0);
+      return { p, f: fornById(p.fornecedorId), unit, cx, un,
+               exc: Math.max(0, un - nec), total: cx * (p.precoCaixa || 0) };
+    }).sort((a, b) => (a.unit == null ? 1 : b.unit == null ? -1 : a.unit - b.unit));
+
+    const auto = ofertas.find((o) => o.unit != null && o.p.disponivel !== false);
+    const d = _itemDecisao(it);
+    if (it.decisaoStatus === "escolhido") nDecid++;
+    else if (it.decisaoStatus === "nao_comprar") nFora++;
+    else if (d) nSug++;
+
+    if (auto) { totA += auto.total; unidA += auto.un; excA += auto.exc; }
+    if (d) {
+      const un = d.caixas * (d.p.unidPorCaixa || 0);
+      totB += d.subtotal; unidB += un; excB += Math.max(0, un - nec);
+    }
+    linhas.push({ it, nec, sub, ofertas, auto, d });
+  });
+
+  const economia = totA - totB;
+
+  // ---- corpo do relatório ----
+  const bloco = (L) => {
+    const rows = L.ofertas.map((o) => {
+      const escolhido = L.d && L.d.p === o.p;
+      const menorU = o === L.ofertas.find((x) => x.unit != null);
+      return `<tr class="${escolhido ? "esc" : ""}">
+        <td>${_esc(o.f ? o.f.nome : "—")}${o.p.disponivel === false ? " <i>(indisponível)</i>" : ""}</td>
+        <td class="c mono">${o.unit != null ? brl(o.unit) : "—"}</td>
+        <td class="c mono">${o.p.unidPorCaixa || "—"}</td>
+        <td class="c mono">${o.p.precoCaixa != null ? brl(o.p.precoCaixa) : "—"}</td>
+        <td class="c mono">${o.cx || "—"}</td>
+        <td class="c mono">${o.un || "—"}</td>
+        <td class="c mono">${o.exc || "—"}</td>
+        <td class="c mono">${o.p.validade ? fmtDate(o.p.validade) : "—"}</td>
+        <td class="c mono"><b>${o.total ? brl(o.total) : "—"}</b></td>
+        <td class="c">${escolhido ? "★" : (menorU ? "menor unit." : "")}</td>
+      </tr>`;
+    }).join("");
+    const dec = L.it.decisaoStatus === "nao_comprar"
+      ? `<div class="just nao"><b>Não adquirir nesta cotação.</b>${L.it.decisaoObs ? " " + _esc(L.it.decisaoObs) : ""}</div>`
+      : L.d
+        ? `<div class="just"><b>Escolhido: ${_esc(_fornNome(L.d.fornecedorId))}</b> — ${L.d.caixas} caixa(s), ${brl(L.d.subtotal)}${L.d.origem === "sugestao" ? " <i>(menor preço unitário, sem ressalva)</i>" : ""}.${L.it.decisaoObs ? " " + _esc(L.it.decisaoObs) : ""}</div>`
+        : `<div class="just nao"><b>Sem proposta válida</b> — cotar com outros fornecedores.</div>`;
+    return `<section class="item">
+      <div class="it-h"><span class="it-n">${_esc(L.it.descricao)}</span>
+        ${L.sub && L.sub.lista && L.sub.lista !== "—" ? `<span class="lista">Lista ${_esc(L.sub.lista)}</span>` : ""}
+        <span class="it-q">necessidade: ${L.nec} ${_esc(L.it.unidade || "")}</span></div>
+      <table class="of"><thead><tr><th>Fornecedor</th><th class="c">Unitário</th><th class="c">Un./cx</th><th class="c">Preço cx</th><th class="c">Cx</th><th class="c">Total un.</th><th class="c">Excesso</th><th class="c">Validade</th><th class="c">Custo</th><th class="c"></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="10" class="c">Nenhuma proposta recebida para este item.</td></tr>'}</tbody></table>
+      ${dec}
+    </section>`;
+  };
+
+  // resumo por fornecedor
+  const map = _pedidos(cot);
+  const porForn = Object.keys(map).map((fid) => {
+    const t = map[fid].reduce((a, r) => a + r.subtotal, 0);
+    return `<tr><td>${_esc(_fornNome(fid))}</td><td class="c mono">${map[fid].length}</td><td class="c mono">${brl(t)}</td></tr>`;
+  }).join("");
+
+  const corpo = `
+    <style>
+      .cx{border:1px solid #cfd6cf;border-radius:6px;padding:10px 12px;margin-bottom:12px}
+      .cx h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#2C5F5A;margin:0 0 6px}
+      .cen{display:flex;gap:10px;flex-wrap:wrap}
+      .cen>div{flex:1;min-width:150px;border:1px solid #cfd6cf;border-radius:6px;padding:8px 10px}
+      .cen .v{font-size:16px;font-weight:700}.cen .r{font-size:9px;color:#6a736e;text-transform:uppercase}
+      .cen .ok{color:#2C5F5A}.cen .al{color:#B04A3F}
+      .item{border:1px solid #cfd6cf;border-radius:6px;padding:8px 10px;margin-bottom:9px;break-inside:avoid;page-break-inside:avoid}
+      .it-h{display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #1E2A28;padding-bottom:3px;margin-bottom:5px;flex-wrap:wrap}
+      .it-n{font-size:12px;font-weight:700}.it-q{font-size:9.5px;color:#6a736e;margin-left:auto}
+      .lista{background:#E7F0E3;color:#2C5F5A;font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px}
+      table.of{width:100%;border-collapse:collapse}
+      table.of th,table.of td{border:1px solid #dfe5df;padding:3px 5px;font-size:9.5px}
+      table.of th{background:#EEF2EC;font-size:8px;text-transform:uppercase}
+      table.of td.c,table.of th.c{text-align:center}
+      table.of tr.esc td{background:#E7F0E3;font-weight:600}
+      .just{margin-top:5px;font-size:10px;background:#F4F6F3;border-left:3px solid #2C5F5A;padding:4px 8px}
+      .just.nao{border-left-color:#8a938d;color:#4a544f}
+      table.res{width:100%;border-collapse:collapse}
+      table.res th,table.res td{border:1px solid #cfd6cf;padding:4px 6px;font-size:10.5px}
+      table.res th{background:#EEF2EC;font-size:8.5px;text-transform:uppercase}
+      table.res td.c,table.res th.c{text-align:center}
+      .met{font-size:10px;line-height:1.5;color:#3a443f}
+      .met li{margin:3px 0}
+      .assin{display:flex;justify-content:space-between;gap:30px;margin-top:26px}
+      .assin .l{border-top:1px solid #1E2A28;padding-top:5px;text-align:center;flex:1;font-size:10px}
+    </style>
+
+    <div class="cx"><h2>Comparação de cenários</h2>
+      <div class="cen">
+        <div><div class="r">A) Menor preço unitário</div><div class="v">${brl(totA)}</div>
+          <div class="r">${unidA} unid. · excesso ${excA}</div></div>
+        <div><div class="r">B) Decisão técnica (adotada)</div><div class="v ok">${brl(totB)}</div>
+          <div class="r">${unidB} unid. · excesso ${excB}</div></div>
+        <div><div class="r">Diferença</div><div class="v ${economia >= 0 ? "ok" : "al"}">${economia >= 0 ? "−" : "+"} ${brl(Math.abs(economia))}</div>
+          <div class="r">${excA - excB >= 0 ? (excA - excB) + " unid. de excesso evitadas" : "—"}</div></div>
+      </div>
+      <div class="met" style="margin-top:8px">
+        O cenário A representa a escolha automática pelo menor preço por unidade. O cenário B é a decisão técnica do farmacêutico responsável, que considera também o tamanho da embalagem frente à necessidade real, o prazo de validade ofertado e a regularidade do fornecedor.
+      </div>
+    </div>
+
+    <div class="cx"><h2>Critérios adotados na escolha</h2>
+      <ol class="met" style="margin:0 0 0 16px;padding:0">
+        <li><b>Menor preço unitário como filtro inicial</b>, não como decisão final.</li>
+        <li><b>Adequação da embalagem à necessidade.</b> Embalagem grande com preço unitário baixo pode obrigar à aquisição de quantidade muito superior ao consumo previsto — o menor custo por unidade transforma-se em desembolso maior e em risco de perda por vencimento.</li>
+        <li><b>Prazo de validade ofertado.</b> Lotes com validade curta associados a quantidade excedente foram recusados.</li>
+        <li><b>Regularidade do fornecedor.</b> Só se adquire de fornecedor com documentação sanitária em ordem, conforme o procedimento de qualificação.</li>
+        <li><b>Itens sujeitos a controle especial</b> (Portaria SVS/MS 344/1998) exigem fornecedor autorizado e são identificados nesta relação.</li>
+      </ol>
+    </div>
+
+    <div class="cx"><h2>Situação dos itens</h2>
+      <table class="res"><tr>
+        <th class="c">Total de itens</th><th class="c">Decididos pelo RT</th><th class="c">Pela sugestão automática</th><th class="c">Excluídos da compra</th><th class="c">Sem proposta</th></tr>
+        <tr><td class="c mono">${cot.itens.length}</td><td class="c mono">${nDecid}</td><td class="c mono">${nSug}</td><td class="c mono">${nFora}</td>
+        <td class="c mono">${cot.itens.filter((it) => !(it.precos || []).some((p) => _precoUnit(p) != null)).length}</td></tr></table>
+    </div>
+
+    ${porForn ? `<div class="cx"><h2>Distribuição do pedido por fornecedor</h2>
+      <table class="res"><thead><tr><th>Fornecedor</th><th class="c">Itens</th><th class="c">Valor</th></tr></thead>
+      <tbody>${porForn}<tr><td><b>TOTAL</b></td><td class="c mono"><b>${Object.values(map).flat().length}</b></td><td class="c mono"><b>${brl(totB)}</b></td></tr></tbody></table></div>` : ""}
+
+    <div class="cx"><h2>Propostas recebidas</h2>
+      <div class="met">${forns.length} fornecedor(es): ${_esc(forns.map((f) => f.nome).join(" · "))}. A seguir, item a item, todas as propostas e a escolha adotada (★).</div>
+    </div>
+
+    ${linhas.map(bloco).join("")}
+
+    <div class="assin">
+      <div class="l">${rtLinha()}<br><span style="color:#6a736e">Farmacêutico Responsável Técnico</span></div>
+      <div class="l">____________________<br><span style="color:#6a736e">Direção — ciência e autorização</span></div>
+    </div>`;
+
+  imprimirRelatorio("Relatório de Cotação e Justificativa de Compra",
+    `Cotação ${_esc(cot.identificador || "")} · ${cot.data ? fmtDate(cot.data) : ""} · ${cot.itens.length} itens · ${forns.length} proposta(s)`,
+    corpo);
 }

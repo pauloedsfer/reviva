@@ -68,6 +68,7 @@ Para cada item correspondido, produza:
   cobre. Vem do "C/500", "C/30", "x1ML C/100" da descrição, ou da quantidade
   quando o preço é por unidade.
 - PRECO_CAIXA = o valor TOTAL correspondente a essas unidades.
+- VALIDADE = o prazo de validade do lote ofertado, se a proposta informar.
 Confira sempre: PRECO_CAIXA ÷ UNID_POR_CAIXA deve bater com o preço unitário
 impresso na proposta. Se não bater, não invente — relate na divergência.
 
@@ -76,10 +77,12 @@ O QUE ENTREGAR (nesta ordem)
 1) BLOCO PARA IMPORTAR — dentro de um bloco de código, uma linha por item,
    exatamente neste formato, sem cabeçalho e sem texto em volta:
 
-   NOME EXATO DO ITEM;UNID_POR_CAIXA;PRECO_CAIXA
+   NOME EXATO DO ITEM;UNID_POR_CAIXA;PRECO_CAIXA;VALIDADE
 
-   Use ponto como separador decimal. Itens cotados como indisponíveis:
-   acrescente ";INDISPONIVEL" no fim da linha.
+   Use ponto como separador decimal. A VALIDADE é o prazo do lote ofertado,
+   quando a proposta informar — aceito em 31/05/2028, 2028-05-31 ou 05/2028;
+   se não constar, deixe o campo vazio ou omita. Itens cotados como
+   indisponíveis: acrescente INDISPONIVEL no fim da linha.
 
 2) DIVERGÊNCIAS QUE PRECISAM DA MINHA DECISÃO — lista curta, cada uma com o
    produto da proposta, o item meu mais parecido e por que não casou.
@@ -89,11 +92,17 @@ O QUE ENTREGAR (nesta ordem)
 
 4) ITENS MEUS SEM PREÇO NESTA PROPOSTA — para eu cobrar de outro fornecedor.
 
-5) RESUMO COMERCIAL — validade da proposta, condição de pagamento, prazo de
+5) RISCO DE VENCIMENTO — aponte os itens em que a embalagem ofertada é muito
+   maior do que a necessidade E o prazo de validade é curto (12 meses ou
+   menos). Diga, para cada um, quantas unidades sobrariam e até quando valem.
+   Embalagem grande com prazo curto é o pior cenário de compra.
+
+6) RESUMO COMERCIAL — validade da proposta, condição de pagamento, prazo de
    entrega, faturamento mínimo e frete, se constarem.
 
-6) CONFERÊNCIA — quantos itens da proposta você leu, quantos casaram e a soma
-   dos preços, para eu comparar com o total impresso na proposta.
+7) CONFERÊNCIA — quantos itens da proposta você leu, quantos casaram, a soma
+   dos preços de caixa e o total impresso na proposta. Se divergirem, explique
+   a diferença (normalmente vem de itens com mais de uma caixa pedida).
 
 Não escreva SQL. Não altere meus nomes de item. Se ficar em dúvida sobre uma
 correspondência, prefira colocá-la nas divergências a arriscar o lançamento.
@@ -122,3 +131,13 @@ que entra silenciosamente. Por isso o prompt manda a IA jogar toda dúvida para
 as divergências. Ao revisar, dê atenção especial a: injetáveis com
 concentração por mL, formas de liberação prolongada (XR, CR), sais diferentes
 do mesmo princípio e apresentações em gotas.
+
+## Onde colar o resultado no sistema
+
+**Cotação** (menu Suprimentos) → abra a cotação → aba **Itens** → botão
+**⬆ Importar preços** → escolha o fornecedor → cole o bloco no campo de texto →
+**Conferir antes de gravar** → revise a prévia → **Gravar preços**.
+
+A prévia mostra, linha por linha, o preço unitário calculado e a validade lida,
+além das linhas rejeitadas com o motivo. Nada é gravado antes da sua conferência,
+e reimportar substitui apenas os preços daquele fornecedor.
