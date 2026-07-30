@@ -98,9 +98,10 @@ async function carregarDados() {
     id: nf.id, numero: nf.numero, data: nf.data_emissao,
     fornecedor: nf.fornecedores ? nf.fornecedores.nome : "", fornecedorId: nf.fornecedor_id, canal: nf.canal,
     itens: (nf.nota_fiscal_itens || []).map((it) => ({
-      subId: it.substancia_id, qtd: it.quantidade, lote: it.numero_lote,
+      id: it.id, subId: it.substancia_id, qtd: Number(it.quantidade), lote: it.numero_lote,
       validade: it.validade, custoUnit: Number(it.custo_unit),
     })),
+    valorTotal: nf.valor_total == null ? null : Number(nf.valor_total),
   }));
 
   donations = dons.map((d) => ({
