@@ -77,20 +77,35 @@ function _pvLinhasEstoque() {
     });
 }
 
-/* ---- CUSTÓDIA: cobertura do próprio paciente ---- */
+/* ---- CUSTÓDIA: cobertura do próprio paciente ----
+   Agrupa por PACIENTE + SUBSTÂNCIA. Um mesmo paciente pode ter mais de uma
+   prescrição da mesma substância (doses diferentes ao longo do dia, ex.:
+   insulina 25 UI de manhã e 15 UI à noite). Nesse caso o consumo diário é a
+   SOMA das prescrições, e o saldo do lote é dividido uma única vez — antes,
+   cada prescrição gerava uma linha dividindo o lote inteiro pelo seu próprio
+   consumo, superestimando a cobertura. */
 function _pvLinhasCustodia() {
-  const out = [];
+  const mapa = {};
   prescriptions.filter((pr) => pr.ativo !== false).forEach((pr) => {
     const p = patById(pr.paciente);
     if (!p || p.ativo === false) return;
-    const cust = lotesCustodiaDoPaciente(pr.subId, pr.paciente);
+    const k = pr.paciente + "|" + pr.subId;
+    if (!mapa[k]) mapa[k] = { p, subId: pr.subId, consumoDia: 0, nPresc: 0, sos: 0, doses: [] };
+    const g = mapa[k];
+    g.nPresc++;
+    if (_pvSOS(pr)) { g.sos++; return; }
+    g.consumoDia += _pvConsumoDia(pr);
+    g.doses.push(fmtDose(qtdPorHorario(pr)) + "×" + _pvDosesDia(pr));
+  });
+  const out = [];
+  Object.values(mapa).forEach((g) => {
+    const cust = lotesCustodiaDoPaciente(g.subId, g.p.id);
     const saldoCust = cust.reduce((a, l) => a + l.saldo, 0);
     if (saldoCust <= 0) return;
-    const consumoDia = _pvSOS(pr) ? 0 : _pvConsumoDia(pr);
-    const dias = consumoDia > 0 ? saldoCust / consumoDia : null;
-    const s = subById(pr.subId);
-    out.push({ p, s, saldoCust, consumoDia, dias, st: _pvStatus(dias),
-               validade: cust[0] ? cust[0].validade : null });
+    const dias = g.consumoDia > 0 ? saldoCust / g.consumoDia : null;
+    out.push({ p: g.p, s: subById(g.subId), saldoCust, consumoDia: g.consumoDia, dias,
+               nPresc: g.nPresc, sos: g.sos, doses: g.doses,
+               st: _pvStatus(dias), validade: cust[0] ? cust[0].validade : null });
   });
   return out.sort((a, b) => {
     const va = a.dias === null ? 1e9 : a.dias, vb = b.dias === null ? 1e9 : b.dias;
@@ -130,7 +145,7 @@ function renderPage() {
     <tr style="background:${r.st.k === "crit" || r.st.k === "zero" ? "#FDF6F5" : "transparent"}">
       <td style="text-align:center;font-size:15px">${_pvBolinha(r.st)}</td>
       <td><b>${_esc(r.p.nome)}</b>${r.p.leito ? `<div style="font-size:11px;color:var(--muted)">leito ${_esc(r.p.leito)}</div>` : ""}</td>
-      <td>${_esc(r.s.nome)}</td>
+      <td>${_esc(r.s.nome)}${r.nPresc > 1 ? `<div style="font-size:11px;color:var(--muted)">${r.nPresc} prescrições somadas${r.doses.length ? " (" + _esc(r.doses.join(" + ")) + ")" : ""}${r.sos ? " · " + r.sos + " SOS" : ""}</div>` : ""}</td>
       <td class="num mono">${r.consumoDia ? fmtDose(r.consumoDia) : "SOS"}</td>
       <td class="num mono">${r.saldoCust}</td>
       <td class="num mono" style="font-weight:700;color:${r.st.cor}">${_pvDias(r.dias)}</td>
