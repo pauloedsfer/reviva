@@ -198,7 +198,10 @@ function _tabAtivos() {
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">Pacientes internados</div><div class="panel-title-sub">${ativos.length} de ${typeof CAPACIDADE_TOTAL !== "undefined" ? CAPACIDADE_TOTAL : 35} leitos ocupados</div></div>
-        <button class="btn sm" onclick="abrirFormPaciente()">+ Novo paciente</button>
+        <div class="toolbar">
+          <button class="btn ghost sm" onclick="abrirEtiquetasPaciente()">🏷 Etiquetas</button>
+          <button class="btn sm" onclick="abrirFormPaciente()">+ Novo paciente</button>
+        </div>
       </div>
       <div class="panel-body">
         ${ativos.length ? `<table>
@@ -212,6 +215,7 @@ function _tabAtivos() {
                 <td style="color:var(--muted)">${p.prescritor || "—"}</td>
                 <td class="num mono"><b>${fmtBRL(custoMedicamentosPaciente(p.id))}</b></td>
                 <td style="text-align:right">
+                  <button class="btn ghost sm" onclick="abrirEtiquetasPaciente('${p.id}')" title="Etiquetas de identificação">🏷</button>
                   <button class="btn ghost sm" onclick="abrirFormPaciente('${p.id}')">Editar</button>
                   <button class="btn ghost sm" onclick="abrirAltaPaciente('${p.id}')">Dar alta</button>
                 </td>
@@ -258,4 +262,108 @@ function renderPage() {
     <div class="toolbar" style="margin-bottom:14px">${tab('ativos','Internados')} ${tab('arquivo','Arquivo (altas)')}</div>
     ${_pacView === 'arquivo' ? _tabArquivo() : _tabAtivos()}
   `;
+}
+
+/* ============================================================
+   ETIQUETAS DE IDENTIFICAÇÃO DO PACIENTE
+   Etiqueta única, usada para prontuário, caixa de medicação em
+   custódia e qualquer outra identificação. Sai em folha A4 numa
+   grade compatível com etiquetas adesivas comuns.
+   ============================================================ */
+let _etqCfg = { pac: "", qtd: 8, formato: "grande", custodia: false };
+
+function abrirEtiquetasPaciente(pacId) {
+  const ativos = patients.filter((p) => p.ativo !== false)
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!ativos.length) { alert("Nenhum paciente internado."); return; }
+  _etqCfg.pac = pacId || _etqCfg.pac || ativos[0].id;
+  const opt = `<option value="__todos__"${_etqCfg.pac === "__todos__" ? " selected" : ""}>★ TODOS os internados (${ativos.length})</option>` +
+    ativos.map((p) => `<option value="${p.id}"${p.id === _etqCfg.pac ? " selected" : ""}>${p.nome}${p.leito ? " · leito " + p.leito : ""}</option>`).join("");
+  abrirModal("Imprimir etiquetas de identificação", `
+    <div class="ff"><label>Paciente</label><select id="etqPac">${opt}</select></div>
+    <div class="ff row2">
+      <div><label>Formato</label>
+        <select id="etqFmt">
+          <option value="grande"${_etqCfg.formato === "grande" ? " selected" : ""}>Grande — 99 × 34 mm (16 por folha)</option>
+          <option value="media"${_etqCfg.formato === "media" ? " selected" : ""}>Média — 67 × 25 mm (30 por folha)</option>
+        </select></div>
+      <div><label>Etiquetas por paciente</label><input id="etqQtd" type="number" min="1" max="60" value="${_etqCfg.qtd}"></div>
+    </div>
+    <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
+      <input type="checkbox" id="etqCust"${_etqCfg.custodia ? " checked" : ""}> Incluir aviso <b>USO EXCLUSIVO DESTE PACIENTE</b> (para caixa de custódia)</label></div>
+    <div class="note-box" style="margin:0">A etiqueta traz nome, prontuário, leito, nascimento/idade e data de internação, com o nome da clínica. Serve para prontuário, caixa de custódia e demais identificações. Imprima em folha adesiva A4 ou em papel comum para recortar.</div>
+  `, async () => {
+    _etqCfg.pac = fv("etqPac");
+    _etqCfg.formato = fv("etqFmt");
+    _etqCfg.qtd = Math.max(1, Math.min(60, parseInt(fv("etqQtd"), 10) || 1));
+    _etqCfg.custodia = document.getElementById("etqCust").checked;
+    setTimeout(imprimirEtiquetasPaciente, 60);
+  }, "Gerar etiquetas");
+}
+
+function imprimirEtiquetasPaciente() {
+  const est = window.ESTAB || {};
+  const alvos = _etqCfg.pac === "__todos__"
+    ? patients.filter((p) => p.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+    : [patById(_etqCfg.pac)].filter(Boolean);
+  if (!alvos.length) { alert("Selecione um paciente."); return; }
+
+  const idade = (d) => {
+    if (!d) return "";
+    const t = new Date(), n = new Date(d);
+    let a = t.getFullYear() - n.getFullYear();
+    const m = t.getMonth() - n.getMonth();
+    if (m < 0 || (m === 0 && t.getDate() < n.getDate())) a--;
+    return a >= 0 && a < 130 ? a + " anos" : "";
+  };
+
+  const gr = _etqCfg.formato === "grande";
+  const etiqueta = (p) => {
+    const nasc = p.dataNascimento ? fmtDate(p.dataNascimento) : "";
+    const id = idade(p.dataNascimento);
+    return `<div class="etq">
+      <div class="clin">${_esc(est.nome_fantasia || est.razao_social || "Clínica Reviva")}</div>
+      <div class="nome">${_esc(p.nome)}</div>
+      <div class="dados">
+        <span><b>Prontuário:</b> ${_esc(p.prontuario || "____")}</span>
+        <span><b>Leito:</b> ${_esc(p.leito || "____")}</span>
+      </div>
+      <div class="dados">
+        ${nasc || id ? `<span><b>Nasc.:</b> ${nasc}${id ? " (" + id + ")" : ""}</span>` : ""}
+        ${p.admissao ? `<span><b>Internação:</b> ${fmtDate(p.admissao)}</span>` : ""}
+      </div>
+      ${_etqCfg.custodia ? `<div class="aviso">USO EXCLUSIVO DESTE PACIENTE</div>` : ""}
+    </div>`;
+  };
+
+  let etiquetas = "";
+  alvos.forEach((p) => { for (let i = 0; i < _etqCfg.qtd; i++) etiquetas += etiqueta(p); });
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas de identificação</title>
+  <style>
+  @page{size:A4 portrait;margin:${gr ? "13mm 5mm" : "13mm 6mm"}}
+  *{box-sizing:border-box}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;margin:0}
+  .grade{display:grid;grid-template-columns:repeat(${gr ? 2 : 3}, 1fr);gap:0}
+  .etq{width:100%;height:${gr ? "33.9mm" : "25.4mm"};padding:${gr ? "2mm 3mm" : "1.4mm 2mm"};
+       border:1px dashed #c8cfc8;overflow:hidden;display:flex;flex-direction:column;justify-content:center;
+       page-break-inside:avoid}
+  .clin{font-size:${gr ? "7pt" : "5.5pt"};text-transform:uppercase;letter-spacing:.04em;color:#4a544f}
+  .nome{font-size:${gr ? "11pt" : "8pt"};font-weight:700;line-height:1.1;margin:${gr ? "1mm 0 .8mm" : ".6mm 0 .4mm"};
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dados{display:flex;gap:${gr ? "4mm" : "2.5mm"};font-size:${gr ? "7.5pt" : "5.5pt"};line-height:1.35;flex-wrap:nowrap;overflow:hidden}
+  .dados b{font-weight:600}
+  .aviso{margin-top:${gr ? "1mm" : ".5mm"};font-size:${gr ? "6.5pt" : "5pt"};font-weight:700;
+         letter-spacing:.03em;color:#B04A3F;border:1px solid #B04A3F;border-radius:1mm;
+         padding:${gr ? ".6mm 1.5mm" : ".3mm 1mm"};display:inline-block;align-self:flex-start}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;
+       border-radius:8px;cursor:pointer;font:inherit;font-size:13px;z-index:9}
+  @media print{.btn{display:none} .etq{border-color:transparent}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <div class="grade">${etiquetas}</div>
+  </body></html>`;
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir as etiquetas."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }

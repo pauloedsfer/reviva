@@ -130,9 +130,12 @@ function imprimirSinaisVitais() {
 
 /* ---- catálogo de documentos da enfermagem (cresce com o tempo) ---- */
 const _ENF_DOCS = [
-  { id: "sinaisvitais", nome: "Sinais Vitais",
+  { id: "sinaisvitais", area: "Enfermagem", nome: "Sinais Vitais",
     desc: "Data, hora, PA, FC, SpO₂, temperatura, HGT e assinatura da enfermagem.",
-    fn: "imprimirSinaisVitais()" },
+    fn: "imprimirSinaisVitais()", usaPaciente: true },
+  { id: "temperatura", area: "Farmácia", nome: "Registro de Temperatura e Umidade",
+    desc: "Controle da geladeira (atual, mínima e máxima) e do ambiente (temperatura e umidade), com campo de ocorrências e assinatura do RT. Cadeia de frio — POP-FAR-014.",
+    fn: "imprimirRegistroTemperatura()", usaPaciente: false },
 ];
 
 function renderPage() {
@@ -143,14 +146,18 @@ function renderPage() {
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
       .map((p) => `<option value="${p.id}"${p.id === _enfCfg.pac ? " selected" : ""}>${p.nome}${p.leito ? " · leito " + p.leito : ""}</option>`).join("");
 
-  const cards = _ENF_DOCS.map((d) => `
-    <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:16px">
-      <div>
-        <div style="font-weight:700;font-size:14.5px">${d.nome}</div>
-        <div style="font-size:12.5px;color:var(--muted);margin-top:2px">${d.desc}</div>
-      </div>
-      <button class="btn sm" onclick="${d.fn}">🖶 Imprimir</button>
-    </div>`).join("");
+  const areas = [...new Set(_ENF_DOCS.map((d) => d.area))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const cards = areas.map((a) => `
+    <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--primary-dark);margin:6px 0 2px">${a}</div>
+    ${_ENF_DOCS.filter((d) => d.area === a).map((d) => `
+      <div style="border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:16px">
+        <div>
+          <div style="font-weight:700;font-size:14.5px">${d.nome}</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:2px">${d.desc}</div>
+          ${d.usaPaciente ? "" : '<div style="font-size:11.5px;color:var(--muted);margin-top:3px">Não usa o cabeçalho de paciente — é registro do setor.</div>'}
+        </div>
+        <button class="btn sm" onclick="${d.fn}">🖶 Imprimir</button>
+      </div>`).join("")}`).join("");
 
   return `
     <div class="note-box">Documentos próprios da enfermagem, para <b>impressão e preenchimento à mão</b>. O sistema não guarda esses registros — a folha impressa e assinada é o documento do prontuário. Escolha um paciente para sair com o cabeçalho preenchido, ou deixe em branco.</div>
@@ -186,4 +193,86 @@ function renderPage() {
       </div>
     </div>
   `;
+}
+
+/* ---- FOLHA DE REGISTRO DE TEMPERATURA E UMIDADE (cadeia de frio) ---- */
+function imprimirRegistroTemperatura() {
+  const nLin = Math.max(5, Math.min(70, _enfCfg.linhas));
+  const nFolhas = Math.max(1, Math.min(20, _enfCfg.folhas));
+
+  const cab = `
+    <tr>
+      <th rowspan="2" class="c-dia">Data</th>
+      <th rowspan="2" class="c-hora">Hora</th>
+      <th colspan="3" class="grp">Refrigerador (2 °C a 8 °C)</th>
+      <th colspan="2" class="grp">Ambiente (15 °C a 30 °C)</th>
+      <th rowspan="2" class="c-conf">Conforme</th>
+      <th rowspan="2" class="c-ass">Rubrica</th>
+    </tr>
+    <tr>
+      <th class="c-num">Atual</th><th class="c-num">Mín.</th><th class="c-num">Máx.</th>
+      <th class="c-num">Temp.</th><th class="c-num">Umid. %</th>
+    </tr>`;
+  const linha = `<tr><td class="c-dia"></td><td class="c-hora"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td><td class="c-conf"></td><td class="c-ass"></td></tr>`;
+  const corpoTab = Array.from({ length: nLin }, () => linha).join("");
+
+  const folha = () => `
+    <section class="folha">
+      ${_enfCabecalho()}
+      <h1>REGISTRO DE TEMPERATURA E UMIDADE — FARMÁCIA</h1>
+      <div class="ref">
+        <div class="campo" style="flex:1"><span class="rot">Mês / Ano:</span><span class="val"></span></div>
+        <div class="campo" style="flex:1.4"><span class="rot">Equipamento / local:</span><span class="val"></span></div>
+        <div class="campo" style="flex:1"><span class="rot">Termo-higrômetro nº:</span><span class="val"></span></div>
+      </div>
+      <div class="inst">Leitura <b>duas vezes ao dia</b>, no início e no fim do funcionamento da farmácia. Registrar temperatura <b>atual, mínima e máxima</b> do refrigerador e <b>temperatura e umidade</b> do ambiente, e <b>zerar a memória</b> de máxima/mínima após anotar. Fora da faixa: marcar <b>N</b> em Conforme, isolar os medicamentos como EM AVALIAÇÃO e acionar o farmacêutico RT (POP-FAR-014).</div>
+      <table><thead>${cab}</thead><tbody>${corpoTab}</tbody></table>
+      <div class="desvio">
+        <div class="bl">Ocorrências e desvios de temperatura (data, valor, duração, medicamentos afetados e conduta)</div>
+        ${Array.from({ length: 4 }, () => `<div class="linha"></div>`).join("")}
+      </div>
+      <div class="assin">
+        <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico Responsável Técnico</div>
+        <div class="dt">Data: ____ / ____ / ______</div>
+      </div>
+      <div class="rod">Registro da farmácia — arquivar mensalmente. POP-FAR-014 · Referência: RDC 430/2020, arts. 77 a 81.</div>
+    </section>`;
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Registro de Temperatura e Umidade</title>
+  <style>
+  @page{size:A4 portrait;margin:9mm 9mm}
+  *{box-sizing:border-box}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:10.5px;margin:0}
+  .folha{page-break-after:always}.folha:last-child{page-break-after:auto}
+  .cab{display:flex;align-items:center;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:6px 10px}
+  .cab-logo img{height:34px;width:auto;display:block}
+  .cab-txt{flex:1;text-align:center}.cab-nome{font-size:14px;font-weight:700}.cab-sub{font-size:9px;color:#4a544f;margin-top:1px}
+  h1{font-size:12px;letter-spacing:.06em;text-align:center;margin:0;padding:3px 0;border:1px solid #1E2A28;border-bottom:none;background:#EEF2EC;font-weight:700}
+  .ref{display:flex;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:5px 10px}
+  .campo{display:flex;align-items:baseline;gap:5px;border-bottom:1px dotted #9aa39d;min-height:15px}
+  .campo .rot{font-size:8.5px;text-transform:uppercase;color:#6a736e;font-weight:600;white-space:nowrap}
+  .campo .val{flex:1}
+  .inst{border:1px solid #1E2A28;border-bottom:none;padding:4px 10px;font-size:8.5px;color:#4a544f;line-height:1.4;background:#F7F9F6}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #1E2A28;padding:0 3px;font-size:9.5px;height:18px;text-align:center}
+  th{background:#EEF2EC;font-size:8px;text-transform:uppercase;font-weight:700;height:20px}
+  th.grp{background:#DFE8DC;letter-spacing:.03em}
+  .c-dia{width:8%}.c-hora{width:7%}.c-num{width:9%}.c-conf{width:8%}.c-ass{width:15%}
+  .desvio{border:1px solid #1E2A28;border-top:none;padding:5px 10px}
+  .desvio .bl{font-size:8px;text-transform:uppercase;color:#6a736e;letter-spacing:.03em;margin-bottom:3px;font-weight:700}
+  .desvio .linha{border-bottom:1px solid #b9c1ba;height:16px}
+  .assin{display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;gap:24px}
+  .assin .sig{text-align:center;font-size:8.5px;color:#6a736e;min-width:250px}
+  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:3px;color:#1E2A28;font-size:10.5px}
+  .assin .dt{font-size:10px}
+  .rod{margin-top:5px;font-size:8px;color:#8a938d;text-align:center}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
+  @media print{.btn{display:none}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  ${Array.from({ length: nFolhas }, folha).join("")}
+  </body></html>`;
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }
