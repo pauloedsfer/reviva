@@ -315,17 +315,19 @@ async function salvarPrecosFornecedor() {
 }
 function selecionarForn(id) { _fornSel = id; document.getElementById("viewport").innerHTML = renderPage(); }
 
+// Monta os pedidos a partir da DECISÃO de cada item (ou da sugestão, quando
+// ainda não decidido). Itens marcados como "não comprar" ficam de fora.
 function _pedidos(cot) {
   const map = {};
   cot.itens.forEach((it) => {
-    const b = _melhor(it); if (!b) return;
-    const qtd = Number(it.quantidade) || 0;
-    const caixas = b.p.unidPorCaixa ? Math.ceil(qtd / b.p.unidPorCaixa) : 0;
-    const subtotal = caixas * (b.p.precoCaixa || 0);
-    (map[b.fornecedorId] = map[b.fornecedorId] || []).push({ it, p: b.p, unit: b.unit, caixas, subtotal });
+    const d = _itemDecisao(it); if (!d || !d.caixas) return;
+    (map[d.fornecedorId] = map[d.fornecedorId] || []).push(
+      { it, p: d.p, unit: d.unit, caixas: d.caixas, subtotal: d.subtotal, origem: d.origem });
   });
   return map;
 }
+// itens deixados de fora do pedido por decisão do RT
+function _itensNaoComprar(cot) { return cot.itens.filter((it) => it.decisaoStatus === "nao_comprar"); }
 function imprimirPedidos(id) {
   const cot = cotacoes.find((c) => c.id === id); if (!cot) return;
   const est = window.ESTAB || {}, rt = window.RT || {};
@@ -465,20 +467,38 @@ function _viewComp(cot) {
   const forns = _fornDaCotacao(cot);
   const brl = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   if (!forns.length) return `<div class="note-box">Nenhum preço lançado ainda. Vá em <b>Lançar preços</b> e registre a resposta de pelo menos um fornecedor.</div>`;
-  const head = `<th>Descrição</th>` + forns.map((f)=>`<th style="text-align:center">${f.nome}${_fornTag(f)}</th>`).join('');
+  const head = `<th>Descrição</th>` + forns.map((f)=>`<th style="text-align:center">${f.nome}${_fornTag(f)}</th>`).join('') + `<th>Decisão</th>`;
   const body = cot.itens.map((it)=>{
     const best=_melhor(it);
+    const necessario = Number(it.quantidade) || 0;
     const cells = forns.map((f)=>{
       const p=(it.precos||[]).find((x)=>x.fornecedorId===f.id);
       const u=_precoUnit(p);
       if (p && p.disponivel===false) return `<td style="text-align:center;color:var(--muted)">indisp.</td>`;
       if (u==null) return `<td style="text-align:center;color:var(--muted)">—</td>`;
       const win = best && best.fornecedorId===f.id;
-      return `<td class="mono" style="text-align:center;${win?'background:#E7F0E3;font-weight:700':''}">${brl(u)}</td>`;
+      const escolhido = it.decisaoStatus === "escolhido" && it.decisaoFornecedorId === f.id;
+      const caixas = p.unidPorCaixa ? Math.ceil(necessario / p.unidPorCaixa) : 0;
+      const unidTotal = caixas * (p.unidPorCaixa || 0);
+      const exc = Math.max(0, unidTotal - necessario);
+      const excPct = necessario > 0 ? (exc / necessario) * 100 : 0;
+      const fundo = escolhido ? "background:#D9EAD1;font-weight:700" : win ? "background:#E7F0E3" : "";
+      return `<td style="text-align:center;${fundo}">
+        <div class="mono" style="font-size:13px">${brl(u)}</div>
+        <div class="mono" style="font-size:10.5px;color:var(--muted)">${p.unidPorCaixa || "—"} un/cx · ${brl(p.precoCaixa || 0)}</div>
+        <div class="mono" style="font-size:10.5px;color:${excPct >= 100 ? "#B04A3F" : "var(--muted)"}">${caixas} cx = ${brl(caixas * (p.precoCaixa || 0))}${exc ? " · sobra " + exc : ""}</div>
+      </td>`;
     }).join('');
-    return `<tr><td><b>${it.descricao}</b></td>${cells}</tr>`;
+    const d = _itemDecisao(it);
+    const dec = `<div style="white-space:nowrap">${_decTag(it)}</div>
+      ${d ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${_esc(_fornNome(d.fornecedorId))} · ${d.caixas} cx · ${brl(d.subtotal)}</div>` : ""}
+      ${it.decisaoObs ? `<div style="font-size:10.5px;color:var(--muted);font-style:italic">${_esc(it.decisaoObs)}</div>` : ""}
+      <button class="btn ghost sm" style="margin-top:4px" onclick="abrirDecisaoItem('${cot.id}','${it.id}')">Decidir</button>`;
+    return `<tr><td><b>${it.descricao}</b><div style="font-size:11px;color:var(--muted)">precisa: ${necessario} ${_esc(it.unidade || "")}</div></td>${cells}<td>${dec}</td></tr>`;
   }).join('');
   const map=_pedidos(cot);
+  const fora = _itensNaoComprar(cot);
+  const semPreco = cot.itens.filter((it) => !(it.precos || []).some((p) => _precoUnit(p) != null));
   const resumo = Object.keys(map).map((fid)=>{
     const total=map[fid].reduce((a,r)=>a+r.subtotal,0);
     const f = fornById(fid);
@@ -488,18 +508,26 @@ function _viewComp(cot) {
   const totalGeral = Object.values(map).flat().reduce((a,r)=>a+r.subtotal,0);
   return `
     <div class="panel">
-      <div class="panel-head"><div><div class="panel-title">Comparativo por preço unitário</div><div class="panel-title-sub">O menor preço de cada item aparece destacado — é o escolhido no pedido</div></div></div>
-      <div class="panel-body" style="overflow-x:auto"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      <div class="panel-head"><div><div class="panel-title">Comparativo e decisão de compra</div><div class="panel-title-sub">Cada célula traz preço unitário, unidades por caixa, preço da caixa e o custo das caixas necessárias — o menor unitário fica destacado como sugestão</div></div></div>
+      <div class="panel-body">
+        <div class="note-box" style="margin-top:0">O <b>menor preço unitário</b> é um filtro inicial, não a decisão. Repare na linha <b>“cx = valor · sobra”</b>: embalagem grande e barata por unidade pode obrigar a comprar muito mais do que se vai consumir, com risco de vencer na farmácia. Use <b>Decidir</b> em cada item para escolher o fornecedor, a quantidade de caixas, ou marcar que não vale comprar agora.</div>
+        <div style="overflow-x:auto"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      </div>
     </div>
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Pedidos por fornecedor</div><div class="panel-title-sub">Cada fornecedor recebe os itens em que teve o melhor preço unitário</div></div>
+        <div><div class="panel-title">Pedidos por fornecedor</div><div class="panel-title-sub">Monta-se pela decisão de cada item; onde ainda não há decisão, usa-se a sugestão de menor preço unitário</div></div>
         <button class="btn sm" onclick="imprimirPedidos('${cot.id}')">🖶 Imprimir pedidos</button>
       </div>
       <div class="panel-body">
         ${resumo ? `<table><thead><tr><th>Fornecedor</th><th>Itens</th><th>Total</th></tr></thead><tbody>${resumo}</tbody>
           <tfoot><tr><td style="text-align:right"><b>Total geral</b></td><td></td><td class="num mono"><b>${brl(totalGeral)}</b></td></tr></tfoot></table>`
           : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Sem itens com preço válido ainda.</div>`}
+        ${fora.length ? `<div class="note-box" style="margin-top:14px;background:#F1F3F1">
+          <b>${fora.length} item(ns) fora deste pedido por decisão:</b>
+          <div style="font-size:12.5px;margin-top:4px">${fora.map((it) => `${_esc(it.descricao)}${it.decisaoObs ? ` — <i>${_esc(it.decisaoObs)}</i>` : ""}`).join(" · ")}</div></div>` : ""}
+        ${semPreco.length ? `<div class="note-box" style="margin-top:10px;background:#FBF3E3;border-color:#e8d9b0">
+          <b>${semPreco.length} item(ns) sem preço em nenhuma proposta</b> — cobrar de outro fornecedor.</div>` : ""}
       </div>
     </div>`;
 }
@@ -837,4 +865,138 @@ function _impConferir(cotId) {
       <b style="color:#B04A3F">Linhas não aplicadas:</b>
       <ul style="margin:4px 0 0 18px;padding:0">${erro.slice(0, 12).map((e) => `<li>linha ${e.n}: ${_esc(e.m)} — <span class="mono">${_esc(e.l.slice(0, 60))}</span></li>`).join("")}</ul>
       ${erro.length > 12 ? `<div style="color:var(--muted)">…e mais ${erro.length - 12}.</div>` : ""}</div>` : ""}`;
+}
+
+/* ============================================================
+   DECISÃO DE COMPRA POR ITEM
+   O menor preço unitário é apenas a sugestão inicial. Aqui o RT
+   vê todas as ofertas do item lado a lado — preço unitário,
+   unidades por caixa e preço da caixa — com o EXCESSO que cada
+   embalagem geraria frente à quantidade necessária, e decide:
+   de quem comprar, quantas caixas, ou não comprar agora.
+   ============================================================ */
+
+// o que efetivamente vale para o pedido: a decisão do RT ou, na falta, a sugestão
+function _itemDecisao(it) {
+  if (it.decisaoStatus === "nao_comprar") return null;
+  if (it.decisaoStatus === "escolhido" && it.decisaoFornecedorId) {
+    const p = (it.precos || []).find((x) => x.fornecedorId === it.decisaoFornecedorId);
+    if (p) {
+      const caixas = it.decisaoCaixas != null ? it.decisaoCaixas
+                   : (p.unidPorCaixa ? Math.ceil((Number(it.quantidade) || 0) / p.unidPorCaixa) : 0);
+      return { fornecedorId: p.fornecedorId, p, unit: _precoUnit(p), caixas,
+               subtotal: caixas * (p.precoCaixa || 0), origem: "escolhido" };
+    }
+  }
+  const b = _melhor(it);
+  if (!b) return null;
+  const caixas = b.p.unidPorCaixa ? Math.ceil((Number(it.quantidade) || 0) / b.p.unidPorCaixa) : 0;
+  return { fornecedorId: b.fornecedorId, p: b.p, unit: b.unit, caixas,
+           subtotal: caixas * (b.p.precoCaixa || 0), origem: "sugestao" };
+}
+
+function _decTag(it) {
+  if (it.decisaoStatus === "nao_comprar")
+    return '<span class="tag" style="background:#F1F3F1;color:#6a736e">não comprar</span>';
+  if (it.decisaoStatus === "escolhido")
+    return '<span class="tag" style="background:#E7F0E3;color:#2C5F5A">decidido</span>';
+  return '<span class="tag" style="background:#FBF3E3;color:#B07A2F">sugestão</span>';
+}
+
+function abrirDecisaoItem(cotId, itemId) {
+  const cot = cotacoes.find((c) => c.id === cotId); if (!cot) return;
+  const it = (cot.itens || []).find((x) => x.id === itemId); if (!it) return;
+  const necessario = Number(it.quantidade) || 0;
+  const sub = it.substanciaId ? subById(it.substanciaId) : null;
+
+  // ofertas ordenadas por preço unitário
+  const ofertas = (it.precos || []).map((p) => {
+    const unit = _precoUnit(p);
+    const caixasMin = p.unidPorCaixa ? Math.ceil(necessario / p.unidPorCaixa) : 0;
+    const unidTotal = caixasMin * (p.unidPorCaixa || 0);
+    return { p, f: fornById(p.fornecedorId), unit, caixasMin, unidTotal,
+             excesso: Math.max(0, unidTotal - necessario),
+             total: caixasMin * (p.precoCaixa || 0) };
+  }).sort((a, b) => (a.unit == null ? 1 : b.unit == null ? -1 : a.unit - b.unit));
+
+  if (!ofertas.length) { alert("Este item não tem preço lançado por nenhum fornecedor."); return; }
+
+  const melhorUnit = ofertas.find((o) => o.unit != null);
+  const melhorTotal = [...ofertas].filter((o) => o.total > 0).sort((a, b) => a.total - b.total)[0];
+
+  const linhas = ofertas.map((o, i) => {
+    const sel = it.decisaoStatus === "escolhido" && it.decisaoFornecedorId === o.p.fornecedorId;
+    const excPct = necessario > 0 ? (o.excesso / necessario) * 100 : 0;
+    const alerta = o.excesso > 0 && excPct >= 100;
+    return `<tr style="background:${sel ? "#E7F0E3" : alerta ? "#FDF6F5" : "transparent"}">
+      <td style="text-align:center"><input type="radio" name="decForn" value="${o.p.fornecedorId}"${sel ? " checked" : ""}
+        onchange="_decSelecionar('${o.p.fornecedorId}', ${o.caixasMin})"${o.unit == null ? " disabled" : ""}></td>
+      <td><b>${_esc(o.f ? o.f.nome : "—")}</b>${o.p.disponivel === false ? ' <span class="tag" style="background:#F1F3F1;color:#6a736e">indisponível</span>' : ""}
+        ${o === melhorUnit ? ' <span class="tag" style="background:#E7F0E3;color:#2C5F5A">menor unitário</span>' : ""}
+        ${melhorTotal && o === melhorTotal && o !== melhorUnit ? ' <span class="tag" style="background:#EEF2EC;color:#2C5F5A">menor total</span>' : ""}</td>
+      <td class="num mono">${o.unit != null ? brl(o.unit) : "—"}</td>
+      <td class="num mono">${o.p.unidPorCaixa || "—"}</td>
+      <td class="num mono">${o.p.precoCaixa != null ? brl(o.p.precoCaixa) : "—"}</td>
+      <td class="num mono">${o.caixasMin || "—"}</td>
+      <td class="num mono">${o.unidTotal || "—"}</td>
+      <td class="num mono" style="color:${alerta ? "#B04A3F" : "inherit"}">${o.excesso ? o.excesso + (excPct >= 100 ? ` (+${Math.round(excPct)}%)` : "") : "—"}</td>
+      <td class="num mono"><b>${o.total ? brl(o.total) : "—"}</b></td>
+    </tr>`;
+  }).join("");
+
+  const corpo = `
+    <div class="note-box" style="margin-top:0">
+      <b>${_esc(it.descricao)}</b>${sub && sub.lista && sub.lista !== "—" ? ` <span class="tag ${listaTagClass(sub.lista)}">${sub.lista}</span>` : ""}
+      · necessidade registrada: <b>${necessario} ${_esc(it.unidade || "")}</b>
+      <div style="margin-top:6px;font-size:12.5px">O menor preço unitário é apenas um filtro. Verifique o <b>excesso</b>: embalagem grande e barata por unidade pode obrigar a comprar muito mais do que se vai consumir, com risco de vencimento.</div>
+    </div>
+    <div style="overflow:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:14px">
+      <table style="font-size:12.5px">
+        <thead><tr>
+          <th style="width:34px"></th><th>Fornecedor</th>
+          <th class="num">Unitário</th><th class="num">Unid./cx</th><th class="num">Preço cx</th>
+          <th class="num">Caixas</th><th class="num">Total unid.</th><th class="num">Excesso</th><th class="num">Custo</th>
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>
+    <div class="ff row2">
+      <div><label>Caixas a comprar</label><input id="decCaixas" type="number" min="0" step="1"
+        value="${it.decisaoCaixas != null ? it.decisaoCaixas : (melhorUnit ? melhorUnit.caixasMin : 1)}"></div>
+      <div><label>Situação</label>
+        <select id="decStatus">
+          <option value="escolhido"${it.decisaoStatus === "escolhido" ? " selected" : ""}>Comprar do fornecedor marcado</option>
+          <option value="nao_comprar"${it.decisaoStatus === "nao_comprar" ? " selected" : ""}>Não comprar agora (fora do pedido)</option>
+          <option value="sugestao"${it.decisaoStatus === "sugestao" ? " selected" : ""}>Deixar na sugestão automática (menor unitário)</option>
+        </select></div>
+    </div>
+    <div class="ff"><label>Observação da decisão</label><input id="decObs" value="${(it.decisaoObs || "").replace(/"/g, "&quot;")}" placeholder="Ex.: caixa de 100 vence antes do consumo — comprar 2 unidades em drogaria"></div>
+  `;
+  abrirModal("Decisão de compra do item", corpo, async () => {
+    const status = fv("decStatus");
+    const caixas = fvNum("decCaixas");
+    const dados = { decisao_status: status, decisao_obs: fvOrNull("decObs") };
+    if (status === "escolhido") {
+      const fid = _decFornSel || it.decisaoFornecedorId;
+      if (!fid) throw new Error("Marque o fornecedor escolhido na tabela.");
+      if (!(caixas > 0)) throw new Error("Informe quantas caixas comprar.");
+      dados.decisao_fornecedor_id = fid;
+      dados.decisao_caixas = caixas;
+    } else {
+      dados.decisao_fornecedor_id = null;
+      dados.decisao_caixas = null;
+    }
+    const { error } = await window.SB.from("cotacao_itens").update(dados).eq("id", itemId);
+    if (error) throw error;
+  }, "Salvar decisão");
+  _decFornSel = it.decisaoFornecedorId || null;
+}
+
+let _decFornSel = null;
+function _decSelecionar(fid, caixasSugeridas) {
+  _decFornSel = fid;
+  const c = document.getElementById("decCaixas");
+  if (c && (!c.value || Number(c.value) === 0)) c.value = caixasSugeridas || 1;
+  const st = document.getElementById("decStatus");
+  if (st) st.value = "escolhido";
 }

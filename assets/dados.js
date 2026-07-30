@@ -183,6 +183,8 @@ async function carregarDados() {
       itens: (c.cotacao_itens || [])
         .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
         .map((it) => ({ id: it.id, substanciaId: it.substancia_id, descricao: it.descricao, unidade: it.unidade, quantidade: it.quantidade,
+          decisaoFornecedorId: it.decisao_fornecedor_id, decisaoCaixas: it.decisao_caixas == null ? null : Number(it.decisao_caixas),
+          decisaoObs: it.decisao_obs, decisaoStatus: it.decisao_status || "sugestao",
           precos: (it.cotacao_precos || []).map((p) => ({ id: p.id, fornecedorId: p.fornecedor_id, disponivel: p.disponivel,
             unidPorCaixa: p.unid_por_caixa == null ? null : Number(p.unid_por_caixa),
             precoCaixa: p.preco_caixa == null ? null : Number(p.preco_caixa), validade: p.validade })) })),
