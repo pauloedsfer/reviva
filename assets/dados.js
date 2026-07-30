@@ -194,6 +194,9 @@ async function carregarDados() {
 }
 
 /* Linha de identificação do RT, montada a partir da configuração. */
+// atalho global de moeda (usado também fora das páginas que declaravam brl localmente)
+function brl(v) { return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+
 function rtLinha() {
   const rt = window.RT;
   if (!rt) return "Responsável técnico não configurado";

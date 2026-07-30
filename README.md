@@ -1,7 +1,7 @@
 # Hospital Reviva — Sistema de Gestão da Farmácia
 
 > Memorial de atualizações, estado do sistema e roadmap. Este é o documento de referência único do projeto.
-**Documento vivo · última atualização: 21/07/2026**
+**Documento vivo · última atualização: 30/07/2026**
 
 Este é o documento de referência único do sistema. Ele cumpre três papéis:
 1. **Memorial de atualizações** — o que já foi construído, em ordem (seção 2).
@@ -57,7 +57,12 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 
 ## 2. Memorial de atualizações
 
-### Versão atual — 21/07/2026
+### Versão atual
+_As entradas abaixo acompanham a data no topo deste documento._
+
+- **Correção — botão “Decidir” não abria.** A função da decisão de compra chamava o formatador de moeda `brl()`, que existia apenas como variável **local** dentro de outras funções da página — o clique gerava erro e o modal não abria. `brl()` passou a ser um utilitário global.
+- **Correção — itens entrando na cotação com quantidade 0.** O “adicionar todos os itens da padronização” inseria **quantidade 0**, o que zerava caixas, custo e sobra e tornava a decisão impossível ("precisa: 0 comp."). Agora a quantidade vem **sugerida pela apresentação** (injetáveis 10, líquidos 2, demais 1 caixa) e o modal de decisão ganhou o campo **Necessidade**, destacado em vermelho quando está zerada, permitindo corrigir sem sair da tela. O modal também nunca abre com 0 caixas.
+- **Documentação — data única.** O documento tinha **duas datas** para manter (topo e cabeçalho do memorial), e a do memorial ficava defasada. Agora há **uma só data**, no topo, e o cabeçalho do memorial apenas a referencia.
 Mudanças mais recentes, da mais nova para a mais antiga:
 
 - **Decisão de compra por item (`migration_decisao_compra.sql`).** O menor preço unitário deixou de ser o vencedor automático e passou a ser **sugestão**: embalagem grande e barata por unidade pode obrigar a comprar muito mais do que se vai consumir, com risco de vencimento. Cada célula do comparativo mostra agora **preço unitário, unidades por caixa, preço da caixa, caixas necessárias, custo total e a sobra** — com destaque em vermelho quando o excesso passa de 100% da necessidade. O botão **Decidir** abre a comparação completa do item (todas as ofertas lado a lado, com excesso e custo) e permite escolher o **fornecedor**, a **quantidade de caixas**, ou marcar **não comprar agora** (ex.: adquirir em drogaria), com observação registrada. Os **pedidos passam a ser montados pela decisão**, caindo na sugestão automática só onde ainda não há decisão; itens excluídos aparecem listados à parte, junto dos que ficaram sem preço em nenhuma proposta.
@@ -232,7 +237,7 @@ Priorizado por valor regulatório e esforço. **P1 = próximo**, **P2 = médio p
 - ✅ Receituário de Controle Especial (C, 2 vias) e Receituário comum imprimíveis pelo sistema.
 - Notificação B (azul) e A (amarela): dependem de numeração da VISA e de modelo Versão 2 da Anvisa; avaliar impressão pelo sistema quando a numeração estiver disponível. Confirmar rito com a VISA-GO.
 
-### Fase POPs (P1) — Camadas 1 e 2 concluídas (21/07/2026)
+### Fase POPs (P1) — Camadas 1 e 2 concluídas
 Reestruturar a área de POPs, hoje um checklist estático e somente-leitura (tópicos cadastrados como dado de teste, botão sem ação).
 - ✅ **Camada 1 (concluída):** registro/checklist funcional — CRUD, status clicável, campos de controle, tópicos permanentes e impressão do registro mestre.
 - ✅ **Camada 2 (concluída):** corpo estruturado + impressão do documento formatado. Todos os **13 POPs do fluxo** redigidos com corpo estruturado e impressão formatada. Próximo: revisar em conjunto e coletar assinaturas; incrementar versões conforme a estrutura evoluir.

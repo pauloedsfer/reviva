@@ -76,9 +76,9 @@ async function adicionarTodasSubstancias() {
   const novas = subsPadronizadas().filter((s) => !jaTem.has(s.id))
     .sort((a, b) => (catOrdem(a.categoria) - catOrdem(b.categoria)) || a.nome.localeCompare(b.nome, "pt-BR"));
   if (!novas.length) { alert("Todos os itens da padronização já estão na cotação."); return; }
-  if (!confirm(`Adicionar ${novas.length} item(ns) da padronização (quantidade 0, ajuste depois)?`)) return;
+  if (!confirm(`Adicionar ${novas.length} item(ns) da padronização?\n\nA quantidade vem sugerida (injetáveis 10, líquidos 2, demais 1 caixa) e pode ser ajustada depois.`)) return;
   const base = cot.itens.length;
-  const { error } = await window.SB.from("cotacao_itens").insert(novas.map((s, i) => ({ cotacao_id: _cotAberta, substancia_id: s.id, descricao: s.nome, unidade: s.unidade, quantidade: 0, ordem: base + i })));
+  const { error } = await window.SB.from("cotacao_itens").insert(novas.map((s, i) => ({ cotacao_id: _cotAberta, substancia_id: s.id, descricao: s.nome, unidade: s.unidade, quantidade: _cotQtdSugerida(s), ordem: base + i })));
   if (error) { alert("Erro: " + error.message); return; }
   await recarregarTela();
 }
@@ -141,6 +141,14 @@ function imprimirCotacao(id) {
 /* ============================ FASE B ============================ */
 function _precoUnit(p) { return (p && p.disponivel && p.precoCaixa != null && p.unidPorCaixa) ? p.precoCaixa / p.unidPorCaixa : null; }
 // opções de substância para a cotação: só padronizadas, agrupadas por categoria
+// quantidade inicial sugerida, conforme a apresentação
+function _cotQtdSugerida(s) {
+  const u = (s.unidade || "").toLowerCase();
+  if (u.indexOf("ampola") === 0 || u.indexOf("frasco-ampola") === 0) return 10;
+  if (u.indexOf("frasco") === 0) return 2;
+  return 1;
+}
+
 function _optSubsPadronizadas(sel) {
   const cats = {};
   subsPadronizadas().forEach((s) => { (cats[s.categoria] = cats[s.categoria] || []).push(s); });
@@ -961,8 +969,11 @@ function abrirDecisaoItem(cotId, itemId) {
       </table>
     </div>
     <div class="ff row2">
+      <div><label>Necessidade (unidades)${necessario ? "" : ' <span style="color:#B04A3F;font-weight:400">— está zerada, informe</span>'}</label>
+        <input id="decNec" type="number" min="0" step="1" value="${necessario}">
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">Quanto se pretende comprar deste item. Usada para calcular caixas e sobra.</div></div>
       <div><label>Caixas a comprar</label><input id="decCaixas" type="number" min="0" step="1"
-        value="${it.decisaoCaixas != null ? it.decisaoCaixas : (melhorUnit ? melhorUnit.caixasMin : 1)}"></div>
+        value="${it.decisaoCaixas != null ? it.decisaoCaixas : ((melhorUnit && melhorUnit.caixasMin) || 1)}"></div>
       <div><label>Situação</label>
         <select id="decStatus">
           <option value="escolhido"${it.decisaoStatus === "escolhido" ? " selected" : ""}>Comprar do fornecedor marcado</option>
@@ -976,6 +987,8 @@ function abrirDecisaoItem(cotId, itemId) {
     const status = fv("decStatus");
     const caixas = fvNum("decCaixas");
     const dados = { decisao_status: status, decisao_obs: fvOrNull("decObs") };
+    const nec = fvNum("decNec");
+    if (nec >= 0 && nec !== necessario) dados.quantidade = nec;
     if (status === "escolhido") {
       const fid = _decFornSel || it.decisaoFornecedorId;
       if (!fid) throw new Error("Marque o fornecedor escolhido na tabela.");
