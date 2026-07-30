@@ -60,6 +60,8 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 ### Versão atual — 21/07/2026
 Mudanças mais recentes, da mais nova para a mais antiga:
 
+- **Correção de item de custódia.** A tela Medicação do Paciente ganhou o botão **Corrigir**: permite ajustar **validade**, **quantidade recebida** e **observação** de um item de custódia. O **número do lote só é editável enquanto não houver administração vinculada** — depois disso fica bloqueado, porque o lote é a chave que liga as baixas ao item e trocá-lo romperia a rastreabilidade; o modal informa quantas administrações existem. A quantidade não pode ser reduzida abaixo do que já foi administrado. Para correção imediata via banco, há também `corrigir_validade_custodia.sql`.
+
 - **Importação de preços por colagem (`⬆ Importar preços`).** Na cotação, escolhe-se o fornecedor e cola-se a lista no formato `ITEM;UNID_POR_CAIXA;PRECO_CAIXA`. O botão **Conferir antes de gravar** mostra a prévia — linhas reconhecidas com preço unitário calculado, linhas rejeitadas com o motivo, e quantos itens ficaram sem preço — de modo que **nada é aplicado no escuro**. Aceita ponto-e-vírgula ou tabulação como separador e números em formato pt-BR ou internacional (`60.71`, `26,83`, `1.239,53`). Reimportar substitui apenas os preços daquele fornecedor naquela cotação, sem duplicar.
 - **Prompt padrão para análise de cotações (`PROMPT-cotacoes.md`).** Roteiro reutilizável para processar cada proposta recebida com apoio de IA: anexar a proposta + a planilha exportada do sistema (que fornece os nomes oficiais dos itens), regras de correspondência por princípio ativo e concentração, casos que **não** devem ser correspondidos, e saída já no formato da importação. Inclui recomendação de modelo e esforço.
 

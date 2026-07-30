@@ -192,7 +192,7 @@ function renderPage(){
                 <td class="num mono">${it.qtd}</td>
                 <td class="num mono"><b>${bal}</b></td>
                 <td>${stTag}</td>
-                <td style="text-align:right;white-space:nowrap">${acoes}</td>
+                <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="abrirEditarCustodia('${it.id}')">Corrigir</button>${acoes}</td>
               </tr>`;
             })).join('')}
           </tbody>
@@ -280,4 +280,51 @@ function imprimirTermoDevolucao(itemId, qtd, quem, data) {
   </body></html>`;
   const win = window.open("", "_blank"); if (!win) { alert("Permita pop-ups para imprimir o termo."); return; }
   win.document.open(); win.document.write(html); win.document.close();
+}
+
+/* ============================================================
+   Corrigir dados do item de custódia
+   Validade e observação podem ser corrigidas sempre — não afetam
+   saldo nem movimentação. O NÚMERO DO LOTE só é editável enquanto
+   não houver dispensação vinculada a ele: o lote é a chave que
+   liga as baixas ao item, e trocá-lo depois romperia a
+   rastreabilidade da escrituração.
+   ============================================================ */
+function abrirEditarCustodia(itemId) {
+  const achado = _acharItemCustodia(itemId);
+  if (!achado) return;
+  const { pm, it } = achado;
+  const pac = patById(pm.paciente);
+  // dispensações já feitas com este lote
+  const usos = dispensations.filter((d) => d.lote === it.lote).length;
+  const dispQtd = dispensations.filter((d) => d.lote === it.lote).reduce((a, d) => a + d.qtd, 0);
+
+  abrirModal(`Corrigir item de custódia — ${pac ? pac.nome : ""}`, `
+    <div class="note-box" style="margin-top:0">
+      <b>${_esc(subById(it.subId).nome)}</b> · quantidade recebida: <b>${it.qtd}</b> · saldo atual: <b>${saldoLote(it.lote)}</b>
+      ${usos ? `<div style="margin-top:6px">Já houve <b>${usos} administração(ões)</b> deste lote (${dispQtd} unidade(s)). O número do lote fica bloqueado para preservar a rastreabilidade.</div>` : ""}
+    </div>
+    <div class="ff row2">
+      <div><label>Número do lote${usos ? " (bloqueado)" : ""}</label>
+        <input id="ecLote" value="${(it.lote || "").replace(/"/g, "&quot;")}"${usos ? " disabled style=\"background:#F1F3F1;color:var(--muted)\"" : ""}></div>
+      <div><label>Validade *</label><input id="ecVal" type="date" value="${it.validade || ""}"></div>
+    </div>
+    <div class="ff"><label>Quantidade recebida</label><input id="ecQtd" type="number" min="0" step="0.01" value="${it.qtd}">
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">Corrija apenas se a contagem no recebimento estiver errada. ${usos ? "Não pode ficar menor que o já administrado (" + dispQtd + ")." : ""}</div></div>
+    <div class="ff"><label>Observação</label><input id="ecObs" value="${(it.obs || "").replace(/"/g, "&quot;")}"></div>
+  `, async () => {
+    const val = fv("ecVal");
+    if (!val) throw new Error("Informe a validade.");
+    const qtd = fvNum("ecQtd");
+    if (!(qtd >= 0)) throw new Error("Quantidade inválida.");
+    if (usos && qtd < dispQtd) throw new Error(`A quantidade não pode ser menor que o já administrado (${dispQtd}).`);
+    const dados = { validade: val, quantidade: qtd, obs: fvOrNull("ecObs") };
+    if (!usos) {
+      const novoLote = fv("ecLote");
+      if (!novoLote) throw new Error("Informe o número do lote.");
+      dados.numero_lote = novoLote;
+    }
+    const { error } = await window.SB.from("medicacao_propria_itens").update(dados).eq("id", itemId);
+    if (error) throw error;
+  }, "Salvar correção");
 }
