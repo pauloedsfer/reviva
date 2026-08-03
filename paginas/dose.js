@@ -45,7 +45,12 @@ function _dosesEsperadas() {
       });
     });
   });
-  return list.sort((a, b) => (a.nomePac + a.horario).localeCompare(b.nomePac + b.horario));
+  // ordena por horário (JEJUM primeiro, SOS por último) e, dentro dele, por leito/paciente
+  return list.sort((a, b) =>
+    (_horValor(a.horario) - _horValor(b.horario)) ||
+    String(a.horario).localeCompare(String(b.horario)) ||
+    (a.leito || "").localeCompare(b.leito || "", "pt-BR", { numeric: true }) ||
+    a.nomePac.localeCompare(b.nomePac, "pt-BR"));
 }
 function _dispensadoNaData(pac, subId, horario) {
   const d = dataRef();
@@ -146,6 +151,69 @@ async function estornarDispensacao(id) {
   } catch (e) { alert("Erro ao estornar: " + (e.message || e)); }
 }
 
+/* ============================================================
+   Organização por HORÁRIO
+   A dispensação segue o relógio: às 9h separam-se as doses das 9h,
+   de todos os pacientes. Por isso as pendências são agrupadas por
+   horário (e não por paciente), com filtro por período.
+   SOS fica fora da rotina — só aparece quando pedido, porque é
+   lançado retroativamente, após a enfermagem administrar.
+   ============================================================ */
+let _dispFiltro = [];   // horários selecionados; vazio = todos, menos SOS
+
+function _ehSOSHor(h) { return /\bSOS\b|S\.?O\.?S\.?|SE\s+NECESS/i.test(String(h)); }
+function _ehJejumHor(h) { return /JEJUM/i.test(String(h)); }
+function _horValor(h) {
+  if (_ehJejumHor(h)) return -1;
+  if (_ehSOSHor(h)) return 9999;
+  const m = String(h).match(/\d{1,2}/);
+  return m ? parseInt(m[0], 10) : 9998;
+}
+function _periodoHor(h) {
+  if (_ehJejumHor(h)) return "manha";
+  if (_ehSOSHor(h)) return "sos";
+  const v = _horValor(h);
+  if (v >= 5 && v < 12) return "manha";
+  if (v >= 12 && v < 18) return "tarde";
+  return "noite";
+}
+const _PER_ROT = { manha: "Manhã", tarde: "Tarde", noite: "Noite", sos: "SOS" };
+
+// horários distintos entre as doses pendentes, em ordem
+function _horariosPendentes(pend) {
+  return [...new Set(pend.map((x) => x.horario))].sort((a, b) => _horValor(a) - _horValor(b) || String(a).localeCompare(String(b)));
+}
+// período sugerido pelo relógio (só quando a data é hoje)
+function _periodoAgora() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return "manha";
+  if (h >= 12 && h < 18) return "tarde";
+  return "noite";
+}
+function _filtrarPend(pend) {
+  if (!_dispFiltro.length) return pend.filter((x) => !_ehSOSHor(x.horario));
+  return pend.filter((x) => _dispFiltro.indexOf(x.horario) !== -1);
+}
+function _dispSetFiltro(lista) {
+  _dispFiltro = lista;
+  document.getElementById("viewport").innerHTML = renderPage();
+}
+function togglePeriodoDisp(per, pendJSON) {
+  const todos = JSON.parse(decodeURIComponent(pendJSON));
+  const doPer = todos.filter((h) => _periodoHor(h) === per);
+  const jaTodos = doPer.length && doPer.every((h) => _dispFiltro.indexOf(h) !== -1);
+  _dispSetFiltro(jaTodos ? [] : doPer);
+}
+function toggleHorarioDisp(h) {
+  const i = _dispFiltro.indexOf(h);
+  const novo = _dispFiltro.slice();
+  if (i >= 0) novo.splice(i, 1); else novo.push(h);
+  _dispSetFiltro(novo);
+}
+function marcarGrupo(hor, v) {
+  document.querySelectorAll('.disp-check[data-hor="' + hor + '"]:not(:disabled)').forEach((c) => (c.checked = v));
+}
+
 function marcarTodas(v) {
   document.querySelectorAll(".disp-check:not(:disabled)").forEach((c) => (c.checked = v));
 }
@@ -161,25 +229,76 @@ function renderPage() {
   const bannerRetro = ehHoje ? "" :
     `<div class="note-box" style="border-color:#E0C9A6;background:#FBF3E4"><b>Dispensação retroativa — ${fmtDate(d)}.</b> Você está dando baixa em um dia passado, a partir do Mapa de Medicação preenchido. As saídas serão gravadas com esta data.</div>`;
 
+  // ---- filtros por horário / período ----
+  const horTodos = _horariosPendentes(pendentes);
+  const horJSON = encodeURIComponent(JSON.stringify(horTodos));
+  const perDisp = [...new Set(horTodos.map(_periodoHor))].sort((a, b) => ["manha","tarde","noite","sos"].indexOf(a) - ["manha","tarde","noite","sos"].indexOf(b));
+  const perAgora = ehHoje ? _periodoAgora() : null;
+  const nSOS = pendentes.filter((x) => _ehSOSHor(x.horario)).length;
+
+  const chipPer = perDisp.map((p) => {
+    const doPer = horTodos.filter((h) => _periodoHor(h) === p);
+    const ativo = doPer.length && doPer.every((h) => _dispFiltro.indexOf(h) !== -1) && _dispFiltro.length === doPer.length;
+    const n = pendentes.filter((x) => _periodoHor(x.horario) === p).length;
+    const sug = p === perAgora && !_dispFiltro.length;
+    return `<button class="btn ${ativo ? "" : "ghost"} sm" onclick="togglePeriodoDisp('${p}','${horJSON}')"
+      style="${sug ? "box-shadow:0 0 0 2px var(--primary-tint)" : ""}">${_PER_ROT[p]} (${n})${sug ? " · agora" : ""}</button>`;
+  }).join("");
+
+  const chipHor = horTodos.filter((h) => !_ehSOSHor(h)).map((h) => {
+    const ativo = _dispFiltro.indexOf(h) !== -1;
+    const n = pendentes.filter((x) => x.horario === h).length;
+    return `<button class="btn ${ativo ? "" : "ghost"} sm" onclick="toggleHorarioDisp('${h}')">${h} (${n})</button>`;
+  }).join("");
+
+  const visiveis = _filtrarPend(pendentes);
+  const grupos = _horariosPendentes(visiveis);
+
+  const barraFiltro = pendentes.length ? `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px">
+      <button class="btn ${_dispFiltro.length ? "ghost" : ""} sm" onclick="_dispSetFiltro([])">Todos (${pendentes.length - nSOS})</button>
+      ${chipPer}
+      <span style="width:1px;height:22px;background:var(--line);margin:0 4px"></span>
+      ${chipHor}
+    </div>
+    ${nSOS ? `<div class="note-box" style="margin:0 0 12px">
+      <b>${nSOS} dose(s) SOS pendente(s).</b> SOS não entra na rotina: é lançado depois que a enfermagem administra, com a data em que ocorreu.
+      <button class="btn ghost sm" style="margin-left:8px" onclick="_dispSetFiltro(${JSON.stringify(horTodos.filter(_ehSOSHor)).replace(/"/g, "&quot;")})">Ver apenas SOS</button></div>` : ""}` : "";
+
+  const linha = (x) => {
+    const semSaldo = lotesDisponiveis(x.subId).length === 0 && lotesCustodiaDoPaciente(x.subId, x.pac).length === 0;
+    return `<tr>
+      <td><input type="checkbox" class="disp-check" ${semSaldo ? "disabled" : ""}
+           data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
+      <td><b>${x.nomePac}</b> <span style="color:var(--muted)">· ${x.leito}</span></td>
+      <td>${subById(x.subId).nome}</td>
+      <td class="num mono">${fmtDose(x.qtdAdm)}${x.descarte ? `<div style="font-size:10px;color:var(--muted);font-family:inherit">baixa ${fmtDose(x.qtd)} (descarta ${fmtDose(x.qtd - x.qtdAdm)})</div>` : ""}</td>
+      <td>${_selLote(x.subId, x.pac)}</td>
+    </tr>`;
+  };
+
+  const corpoGrupos = grupos.map((h) => {
+    const doGrupo = visiveis.filter((x) => x.horario === h);
+    const sos = _ehSOSHor(h);
+    return `<tr class="grupo-hor">
+        <td colspan="5" style="background:${sos ? "#FBF3E3" : "var(--primary-dark)"};color:${sos ? "#B07A2F" : "#fff"};padding:6px 10px;font-size:12px;font-weight:700;letter-spacing:.04em">
+          ${_esc(h)} <span style="font-weight:400;opacity:.85">· ${doGrupo.length} dose(s) · ${_PER_ROT[_periodoHor(h)]}</span>
+          <button class="btn ghost sm" style="float:right;margin-top:-2px;background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3);color:${sos ? "#B07A2F" : "#fff"}" onclick="marcarGrupo('${_esc(h)}', true)">marcar todas</button>
+        </td></tr>
+      ${doGrupo.map(linha).join("")}`;
+  }).join("");
+
   const pendentesHtml = pendentes.length ? `
-    <table>
-      <thead><tr><th style="width:34px"><input type="checkbox" onclick="marcarTodas(this.checked)"></th><th>Paciente</th><th>Horário</th><th>Substância</th><th>Qtd.</th><th>Lote (saída)</th></tr></thead>
-      <tbody>
-        ${pendentes.map((x) => {
-          const semSaldo = lotesDisponiveis(x.subId).length === 0 && lotesCustodiaDoPaciente(x.subId, x.pac).length === 0;
-          return `<tr>
-            <td><input type="checkbox" class="disp-check" ${semSaldo ? "disabled" : ""}
-                 data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
-            <td><b>${x.nomePac}</b> <span style="color:var(--muted)">· ${x.leito}</span></td>
-            <td><span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${x.horario}</span></td>
-            <td>${subById(x.subId).nome}</td>
-            <td class="num mono">${fmtDose(x.qtdAdm)}${x.descarte ? `<div style="font-size:10px;color:var(--muted);font-family:inherit">baixa ${fmtDose(x.qtd)} (descarta ${fmtDose(x.qtd - x.qtdAdm)})</div>` : ""}</td>
-            <td>${_selLote(x.subId, x.pac)}</td>
-          </tr>`;
-        }).join("")}
-      </tbody>
+    ${barraFiltro}
+    ${visiveis.length ? `<table>
+      <thead><tr><th style="width:34px"><input type="checkbox" onclick="marcarTodas(this.checked)"></th><th>Paciente</th><th>Substância</th><th>Qtd.</th><th>Lote (saída)</th></tr></thead>
+      <tbody>${corpoGrupos}</tbody>
     </table>
-    <div style="margin-top:14px;text-align:right"><button class="btn" id="btnDispensar" onclick="confirmarDispensacao()">Confirmar dispensação${ehHoje ? "" : " (retroativa)"}</button></div>
+    <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div style="font-size:12.5px;color:var(--muted)">${visiveis.length} dose(s) na seleção atual${_dispFiltro.length ? ` · <a href="#" onclick="_dispSetFiltro([]);return false" style="color:var(--primary-dark)">ver todas</a>` : ""}</div>
+      <button class="btn" id="btnDispensar" onclick="confirmarDispensacao()">Confirmar dispensação${ehHoje ? "" : " (retroativa)"}</button>
+    </div>`
+    : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma dose no filtro selecionado. <a href="#" onclick="_dispSetFiltro([]);return false" style="color:var(--primary-dark)">Ver todas</a>.</div>`}
   ` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nada pendente nesta data — todas as doses já foram dispensadas (ou não há prescrições ativas em ${fmtDate(d)}).</div>`;
 
   const dispHtml = dispensadasData.length ? `
