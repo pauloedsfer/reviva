@@ -181,7 +181,7 @@ function renderPage() {
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">Cobertura do estoque da clínica</div><div class="panel-title-sub">Por princípio ativo + dosagem · ordenado do mais urgente</div></div>
-        <button class="btn ghost sm" onclick="imprimirPrevisao()">🖶 Imprimir</button>
+        <button class="btn ghost sm" onclick="abrirImprimirPrevisao()">🖶 Imprimir</button>
       </div>
       <div class="panel-body">
         ${est.length ? `<table>
@@ -206,9 +206,49 @@ function renderPage() {
   `;
 }
 
-/* ---- impressão da projeção ---- */
-function imprimirPrevisao() {
+/* ---- impressão: escolha da faixa de cobertura ---- */
+function abrirImprimirPrevisao() {
   const est = _pvLinhasEstoque(), cus = _pvLinhasCustodia();
+  const n = (arr, ks) => arr.filter((r) => ks.indexOf(r.st.k) !== -1).length;
+  abrirModal("Imprimir previsão de cobertura", `
+    <div class="note-box" style="margin-top:0">Escolha o que entra no relatório. Para levar à direção, a faixa <b>crítica</b> costuma bastar — é a lista do que precisa ser comprado agora.</div>
+    <div class="ff"><label>Faixa de cobertura</label>
+      <select id="pvFaixa">
+        <option value="todos">Todos os itens (${est.length})</option>
+        <option value="crit" selected>🔴 Apenas crítico — comprar agora (${n(est, ["crit", "zero"])})</option>
+        <option value="critaten">🔴 + 🟡 Crítico e atenção (${n(est, ["crit", "zero", "aten"])})</option>
+        <option value="aten">🟡 Apenas atenção — programar compra (${n(est, ["aten"])})</option>
+        <option value="ok">🟢 Apenas adequado (${n(est, ["ok"])})</option>
+      </select></div>
+    <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
+      <input type="checkbox" id="pvCust" checked> Incluir o quadro de <b>medicação em custódia</b> (${cus.length} item(ns))</label>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">A custódia é reposta pela família, não pela clínica — costuma interessar à equipe, não à direção.</div></div>
+    <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
+      <input type="checkbox" id="pvSemPresc"> Incluir itens <b>sem consumo previsto</b> (só saldo em estoque)</label></div>
+  `, async () => {
+    const faixa = fv("pvFaixa");
+    const incCust = document.getElementById("pvCust").checked;
+    const incSem = document.getElementById("pvSemPresc").checked;
+    setTimeout(() => imprimirPrevisao({ faixa, incCust, incSem }), 60);
+  }, "Gerar relatório");
+}
+
+const _PV_FAIXAS = {
+  todos: { ks: ["crit", "zero", "aten", "ok", "sem"], rot: "todos os itens" },
+  crit: { ks: ["crit", "zero"], rot: "situação crítica — comprar agora" },
+  critaten: { ks: ["crit", "zero", "aten"], rot: "crítico e atenção" },
+  aten: { ks: ["aten"], rot: "atenção — programar compra" },
+  ok: { ks: ["ok"], rot: "cobertura adequada" },
+};
+
+/* ---- impressão da projeção ---- */
+function imprimirPrevisao(o) {
+  o = o || { faixa: "todos", incCust: true, incSem: true };
+  const fx = _PV_FAIXAS[o.faixa] || _PV_FAIXAS.todos;
+  const est0 = _pvLinhasEstoque(), cus0 = _pvLinhasCustodia();
+  const est = est0.filter((r) => fx.ks.indexOf(r.st.k) !== -1 && (o.incSem || r.st.k !== "sem"));
+  const cus = o.incCust ? cus0 : [];
+  if (!est.length && !cus.length) { alert("Nenhum item na faixa selecionada."); return; }
   const tb = (r) => `<tr>
     <td class="c">${r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO"}</td>
     <td>${_esc(r.g.label)}${r.g.lista && r.g.lista !== "—" ? " [" + r.g.lista + "]" : ""}</td>
@@ -235,9 +275,13 @@ function imprimirPrevisao() {
     <h2>Cobertura do estoque da clínica</h2>
     <table><thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Pac.</th><th class="c">Consumo/dia</th><th class="c">Estoque</th><th class="c">Cobertura</th><th class="c">Comprar</th></tr></thead>
     <tbody>${est.map(tb).join("") || '<tr><td colspan="7" class="c">Sem dados</td></tr>'}</tbody></table>
-    <h2>Medicação em custódia — cobertura por paciente</h2>
+    ${o.incCust ? `<h2>Medicação em custódia — cobertura por paciente</h2>
     <table><thead><tr><th class="c">Situação</th><th>Paciente</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
-    <tbody>${cus.map(tc).join("") || '<tr><td colspan="6" class="c">Sem custódia com saldo</td></tr>'}</tbody></table>`;
+    <tbody>${cus.map(tc).join("") || '<tr><td colspan="6" class="c">Sem custódia com saldo</td></tr>'}</tbody></table>` : ""}`;
+  const totalCompra = est.reduce((a, r) => a + (r.comprar || 0), 0);
   imprimirRelatorio("Previsão de Cobertura e Compras",
-    `Projeção com base nas prescrições vigentes em ${fmtDate(HOJE)}`, corpo);
+    `Projeção com base nas prescrições vigentes em ${fmtDate(HOJE)} · recorte: ${fx.rot} · ${est.length} item(ns)`,
+    corpo.replace("<h2>Cobertura do estoque da clínica</h2>",
+      `<h2>Cobertura do estoque da clínica — ${fx.rot}</h2>` +
+      (totalCompra ? `<div class="leg" style="margin-bottom:6px"><b>${totalCompra}</b> unidade(s) a adquirir para ${_pvCfg.cobertura} dias de cobertura.</div>` : "")));
 }
