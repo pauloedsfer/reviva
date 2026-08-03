@@ -97,17 +97,38 @@ function _pvLinhasCustodia() {
     g.consumoDia += _pvConsumoDia(pr);
     g.doses.push(fmtDose(qtdPorHorario(pr)) + "×" + _pvDosesDia(pr));
   });
+  // saldo da clínica por grupo (princípio + dosagem), para saber se ela cobre
+  const grupos = gruposSubstancias();
+  const saldoDaClinica = (subId) => {
+    const gr = grupos.find((x) => x.subIds.indexOf(subId) !== -1);
+    return gr ? gr.subIds.reduce((a, id) => a + saldo(id), 0) : saldo(subId);
+  };
+
   const out = [];
   Object.values(mapa).forEach((g) => {
     const cust = lotesCustodiaDoPaciente(g.subId, g.p.id);
     const saldoCust = cust.reduce((a, l) => a + l.saldo, 0);
-    if (saldoCust <= 0) return;
-    const dias = g.consumoDia > 0 ? saldoCust / g.consumoDia : null;
-    out.push({ p: g.p, s: subById(g.subId), saldoCust, consumoDia: g.consumoDia, dias,
+    const s = subById(g.subId);
+
+    if (saldoCust > 0) {
+      // medicação do próprio paciente
+      const dias = g.consumoDia > 0 ? saldoCust / g.consumoDia : null;
+      out.push({ tipo: "custodia", p: g.p, s, saldoCust, consumoDia: g.consumoDia, dias,
+                 nPresc: g.nPresc, sos: g.sos, doses: g.doses,
+                 st: _pvStatus(dias), validade: cust[0] ? cust[0].validade : null });
+      return;
+    }
+    // sem custódia: só entra se a CLÍNICA também não tem como fornecer.
+    // Nesse caso o caminho prático é o médico prescrever e a família adquirir.
+    if (saldoDaClinica(g.subId) > 0) return;
+    if (!g.consumoDia && !g.sos) return;
+    out.push({ tipo: "faltante", p: g.p, s, saldoCust: 0, consumoDia: g.consumoDia, dias: 0,
                nPresc: g.nPresc, sos: g.sos, doses: g.doses,
-               st: _pvStatus(dias), validade: cust[0] ? cust[0].validade : null });
+               st: _pvStatus(0), validade: null });
   });
   return out.sort((a, b) => {
+    // faltantes primeiro (ação imediata), depois por cobertura
+    if ((a.tipo === "faltante") !== (b.tipo === "faltante")) return a.tipo === "faltante" ? -1 : 1;
     const va = a.dias === null ? 1e9 : a.dias, vb = b.dias === null ? 1e9 : b.dias;
     return va - vb || a.p.nome.localeCompare(b.p.nome, "pt-BR");
   });
@@ -120,7 +141,8 @@ function renderPage() {
   const nCrit = cont(est, "crit") + cont(est, "zero");
   const nAten = cont(est, "aten");
   const nOk = cont(est, "ok");
-  const custCrit = cont(cus, "crit") + cont(cus, "zero");
+  const nFalt = cus.filter((r) => r.tipo === "faltante").length;
+  const custCrit = cus.filter((r) => r.tipo === "custodia" && (r.st.k === "crit" || r.st.k === "zero")).length;
 
   const cartao = (n, rot, cor, bg) => `
     <div style="flex:1;min-width:130px;background:${bg};border:1px solid ${cor}33;border-radius:10px;padding:12px 14px">
@@ -141,16 +163,20 @@ function renderPage() {
       <td class="num mono">${r.comprar ? "<b>" + r.comprar + "</b>" : "—"}</td>
     </tr>`).join("");
 
-  const linhasCus = cus.map((r) => `
-    <tr style="background:${r.st.k === "crit" || r.st.k === "zero" ? "#FDF6F5" : "transparent"}">
-      <td style="text-align:center;font-size:15px">${_pvBolinha(r.st)}</td>
+  const linhasCus = cus.map((r) => {
+    const falt = r.tipo === "faltante";
+    return `<tr style="background:${falt ? "#FDF0EE" : (r.st.k === "crit" || r.st.k === "zero" ? "#FDF6F5" : "transparent")}">
+      <td style="text-align:center;font-size:15px">${falt ? "🔴" : _pvBolinha(r.st)}</td>
       <td><b>${_esc(r.p.nome)}</b>${r.p.leito ? `<div style="font-size:11px;color:var(--muted)">leito ${_esc(r.p.leito)}</div>` : ""}</td>
       <td>${_esc(r.s.nome)}${r.nPresc > 1 ? `<div style="font-size:11px;color:var(--muted)">${r.nPresc} prescrições somadas${r.doses.length ? " (" + _esc(r.doses.join(" + ")) + ")" : ""}${r.sos ? " · " + r.sos + " SOS" : ""}</div>` : ""}</td>
       <td class="num mono">${r.consumoDia ? fmtDose(r.consumoDia) : "SOS"}</td>
-      <td class="num mono">${r.saldoCust}</td>
-      <td class="num mono" style="font-weight:700;color:${r.st.cor}">${_pvDias(r.dias)}</td>
+      <td class="num mono">${falt ? "—" : r.saldoCust}</td>
+      <td style="font-weight:700;color:${falt ? "#B04A3F" : r.st.cor}" class="${falt ? "" : "num mono"}">${falt
+        ? '<span style="font-size:12px">sem estoque na clínica<br><span style="font-weight:400;font-size:11px">solicitar prescrição e aquisição pela família</span></span>'
+        : _pvDias(r.dias)}</td>
       <td class="mono">${r.validade ? fmtDate(r.validade) : "—"}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   return `
     <div class="note-box"><b>Como é calculado.</b> O consumo diário vem das <b>prescrições ativas</b>: quantidade por horário × número de horários por dia, já contando o descarte quando a dose é fracionada (meio comprimido consome uma unidade inteira). Medicação em <b>custódia</b> cobre apenas o próprio paciente e é mostrada em quadro separado — quando ela acaba, quem precisa repor é a família. Prescrições <b>SOS</b> não entram no consumo diário porque não têm frequência definida.</div>
@@ -159,7 +185,7 @@ function renderPage() {
       ${cartao(nCrit, "comprar agora", "#B04A3F", "#F7E3E1")}
       ${cartao(nAten, "programar compra", "#B07A2F", "#FBF3E3")}
       ${cartao(nOk, "estoque adequado", "#2C5F5A", "#E7F0E3")}
-      ${cartao(custCrit, "custódia acabando", "#B04A3F", "#F7E3E1")}
+      ${cartao(custCrit + nFalt, nFalt ? "família precisa repor" : "custódia acabando", "#B04A3F", "#F7E3E1")}
     </div>
 
     <div class="panel">
@@ -194,13 +220,15 @@ function renderPage() {
 
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Medicação em custódia — cobertura por paciente</div><div class="panel-title-sub">Ao acabar, a reposição é responsabilidade da família</div></div>
+        <div><div class="panel-title">Medicação por paciente — custódia e reposição</div><div class="panel-title-sub">O que o paciente já tem e o que a família precisa adquirir${nFalt ? ` · <b style="color:var(--warn)">${nFalt} item(ns) sem estoque na clínica</b>` : ""}</div></div>
+        ${cus.length ? '<button class="btn ghost sm" onclick="imprimirSolicitacaoFamilia()">🖶 Lista para médico/família</button>' : ""}
       </div>
       <div class="panel-body">
+        ${nFalt ? `<div class="note-box" style="margin-top:0;background:#FDF0EE;border-color:#e6b8b1"><b>${nFalt} medicamento(s) prescrito(s) sem estoque na clínica e sem custódia do paciente.</b> Enquanto a compra não chega, o caminho é solicitar ao médico a prescrição para aquisição e à família a compra. Use a lista imprimível ao lado.</div>` : ""}
         ${cus.length ? `<table>
-          <thead><tr><th style="width:34px"></th><th>Paciente</th><th>Medicamento</th><th class="num">Consumo/dia</th><th class="num">Saldo</th><th class="num">Cobertura</th><th>Validade</th></tr></thead>
+          <thead><tr><th style="width:34px"></th><th>Paciente</th><th>Medicamento</th><th class="num">Consumo/dia</th><th class="num">Saldo</th><th>Cobertura / situação</th><th>Validade</th></tr></thead>
           <tbody>${linhasCus}</tbody></table>`
-          : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhum paciente com medicação em custódia com saldo.</div>`}
+          : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma medicação em custódia e nenhum item prescrito em falta.</div>`}
       </div>
     </div>
   `;
@@ -271,10 +299,11 @@ function imprimirPrevisao(o) {
     <td class="c mono">${_pvDias(r.dias)}</td>
     <td class="c mono">${r.comprar || "—"}</td></tr>`;
   const tc = (r) => `<tr>
-    <td class="c">${r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO"}</td>
+    <td class="c">${r.tipo === "faltante" ? "EM FALTA" : r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO"}</td>
     <td>${_esc(r.p.nome)}</td><td>${_esc(r.s.nome)}</td>
     <td class="c mono">${r.consumoDia ? fmtDose(r.consumoDia) : "SOS"}</td>
-    <td class="c mono">${r.saldoCust}</td><td class="c mono">${_pvDias(r.dias)}</td></tr>`;
+    <td class="c mono">${r.tipo === "faltante" ? "—" : r.saldoCust}</td>
+    <td class="c">${r.tipo === "faltante" ? "sem estoque na clínica — solicitar à família" : _pvDias(r.dias)}</td></tr>`;
   const corpo = `
     <style>
       table{width:100%;border-collapse:collapse;margin-bottom:14px}
@@ -290,7 +319,7 @@ function imprimirPrevisao(o) {
     <h2>Cobertura do estoque da clínica</h2>
     <table><thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Pac.</th><th class="c">Consumo/dia</th><th class="c">Estoque</th><th class="c">Cobertura</th><th class="c">Comprar</th></tr></thead>
     <tbody>${est.map(tb).join("") || '<tr><td colspan="7" class="c">Sem dados</td></tr>'}</tbody></table>
-    ${o.incCust ? `<h2>Medicação em custódia — cobertura por paciente</h2>
+    ${o.incCust ? `<h2>Medicação por paciente — custódia e reposição</h2>
     <table><thead><tr><th class="c">Situação</th><th>Paciente</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
     <tbody>${cus.map(tc).join("") || '<tr><td colspan="6" class="c">Sem custódia com saldo</td></tr>'}</tbody></table>` : ""}`;
   const totalCompra = est.reduce((a, r) => a + (r.comprar || 0), 0);
@@ -299,4 +328,60 @@ function imprimirPrevisao(o) {
     corpo.replace("<h2>Cobertura do estoque da clínica</h2>",
       `<h2>Cobertura do estoque da clínica — ${fx.rot}</h2>` +
       (totalCompra ? `<div class="leg" style="margin-bottom:6px"><b>${totalCompra}</b> unidade(s) a adquirir para ${_pvCfg.cobertura} dias de cobertura.</div>` : "")));
+}
+
+/* ============================================================
+   LISTA PARA MÉDICO / FAMÍLIA
+   Relação, por paciente, dos medicamentos prescritos que a clínica
+   não tem em estoque e que o paciente também não trouxe. Serve para
+   o médico emitir a prescrição e a família adquirir.
+   ============================================================ */
+function imprimirSolicitacaoFamilia() {
+  const linhas = _pvLinhasCustodia().filter((r) => r.tipo === "faltante");
+  if (!linhas.length) { alert("Nenhum medicamento prescrito está em falta — a clínica ou a própria custódia cobrem todos."); return; }
+
+  const porPac = {};
+  linhas.forEach((r) => { (porPac[r.p.id] = porPac[r.p.id] || { p: r.p, itens: [] }).itens.push(r); });
+
+  const blocos = Object.values(porPac)
+    .sort((a, b) => (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true }) || a.p.nome.localeCompare(b.p.nome, "pt-BR"))
+    .map((g) => `
+      <section class="pac">
+        <div class="pac-h"><b>${_esc(g.p.nome)}</b>${g.p.leito ? ` · leito ${_esc(g.p.leito)}` : ""}${g.p.prontuario ? ` · prontuário ${_esc(g.p.prontuario)}` : ""}</div>
+        <table><thead><tr><th>Medicamento</th><th class="c">Uso por dia</th><th class="c">Sugestão p/ 30 dias</th><th class="c">Prescrito</th><th class="c">Adquirido</th></tr></thead>
+        <tbody>${g.itens.map((r) => `<tr>
+          <td><b>${_esc(r.s.nome)}</b>${r.sos ? ' <span class="sos">uso se necessário</span>' : ""}</td>
+          <td class="c mono">${r.consumoDia ? fmtDose(r.consumoDia) + " " + _esc(r.s.unidade || "") : "SOS"}</td>
+          <td class="c mono">${r.consumoDia ? Math.ceil(r.consumoDia * 30) + " " + _esc(r.s.unidade || "") : "—"}</td>
+          <td class="c bx"></td><td class="c bx"></td></tr>`).join("")}</tbody></table>
+      </section>`).join("");
+
+  const corpo = `
+    <style>
+      .aviso{background:#FDF0EE;border-left:3px solid #B04A3F;padding:7px 10px;font-size:11px;margin-bottom:12px;line-height:1.5}
+      .pac{border:1px solid #cfd6cf;border-radius:6px;padding:8px 10px;margin-bottom:10px;break-inside:avoid;page-break-inside:avoid}
+      .pac-h{font-size:12.5px;border-bottom:1px solid #1E2A28;padding-bottom:3px;margin-bottom:5px}
+      table{width:100%;border-collapse:collapse}
+      th,td{border:1px solid #cfd6cf;padding:4px 6px;font-size:11px}
+      th{background:#EEF2EC;font-size:8.5px;text-transform:uppercase}
+      td.c,th.c{text-align:center}.mono{font-family:"IBM Plex Mono",monospace}
+      td.bx{width:64px;height:24px}
+      .sos{font-size:9px;color:#B07A2F;font-weight:600}
+      .nota{font-size:10px;color:#4a544f;margin-top:10px;line-height:1.5}
+    </style>
+    <div class="aviso">
+      <b>Medicamentos prescritos sem disponibilidade na farmácia da clínica.</b>
+      Estes itens constam da prescrição vigente, não há saldo no estoque da clínica e o paciente não possui medicação própria em custódia.
+      Solicita-se ao médico assistente a emissão da prescrição para aquisição e, à família, a compra e entrega na clínica,
+      onde a medicação será registrada em custódia e utilizada exclusivamente para o próprio paciente.
+    </div>
+    ${blocos}
+    <div class="nota">
+      A quantidade sugerida corresponde a 30 dias de tratamento no esquema prescrito e pode ser ajustada pelo médico.
+      Ao entregar, a medicação deve estar na embalagem original, com lote e validade legíveis.
+      Medicamentos sujeitos a controle especial exigem receita própria e retenção conforme a Portaria SVS/MS nº 344/1998.
+    </div>`;
+
+  imprimirRelatorio("Medicamentos a Adquirir — Solicitação à Família",
+    `${linhas.length} item(ns) · ${Object.keys(porPac).length} paciente(s) · emitido em ${fmtDate(HOJE)}`, corpo);
 }
