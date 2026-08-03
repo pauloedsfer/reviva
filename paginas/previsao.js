@@ -214,41 +214,54 @@ function abrirImprimirPrevisao() {
     <div class="note-box" style="margin-top:0">Escolha o que entra no relatório. Para levar à direção, a faixa <b>crítica</b> costuma bastar — é a lista do que precisa ser comprado agora.</div>
     <div class="ff"><label>Faixa de cobertura</label>
       <select id="pvFaixa">
-        <option value="todos">Todos os itens (${est.length})</option>
-        <option value="crit" selected>🔴 Apenas crítico — comprar agora (${n(est, ["crit", "zero"])})</option>
-        <option value="critaten">🔴 + 🟡 Crítico e atenção (${n(est, ["crit", "zero", "aten"])})</option>
-        <option value="aten">🟡 Apenas atenção — programar compra (${n(est, ["aten"])})</option>
-        <option value="ok">🟢 Apenas adequado (${n(est, ["ok"])})</option>
-      </select></div>
+        ${[["comconsumo", "Itens com consumo previsto"],
+           ["crit", "🔴 Apenas crítico — comprar agora"],
+           ["critaten", "🔴 + 🟡 Crítico e atenção"],
+           ["aten", "🟡 Apenas atenção — programar compra"],
+           ["ok", "🟢 Adequado"],
+           ["sem", "⚪ Sem consumo previsto (em estoque, sem prescrição)"],
+           ["todos", "Todos os itens"]].map(([k, rot]) => {
+             const q = n(est, _PV_FAIXAS[k].ks);
+             const sel = k === (n(est, ["crit", "zero"]) ? "crit" : "comconsumo");
+             return `<option value="${k}"${q ? "" : " disabled"}${sel && q ? " selected" : ""}>${rot} (${q})</option>`;
+           }).join("")}
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">O número entre parênteses é quanto sai no relatório. Opções sem itens ficam indisponíveis.</div></div>
     <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
       <input type="checkbox" id="pvCust" checked> Incluir o quadro de <b>medicação em custódia</b> (${cus.length} item(ns))</label>
       <div style="font-size:11px;color:var(--muted);margin-top:3px">A custódia é reposta pela família, não pela clínica — costuma interessar à equipe, não à direção.</div></div>
-    <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
-      <input type="checkbox" id="pvSemPresc"> Incluir itens <b>sem consumo previsto</b> (só saldo em estoque)</label></div>
   `, async () => {
-    const faixa = fv("pvFaixa");
+    const faixa = fv("pvFaixa") || "comconsumo";
     const incCust = document.getElementById("pvCust").checked;
-    const incSem = document.getElementById("pvSemPresc").checked;
-    setTimeout(() => imprimirPrevisao({ faixa, incCust, incSem }), 60);
+    setTimeout(() => imprimirPrevisao({ faixa, incCust }), 60);
   }, "Gerar relatório");
 }
 
 const _PV_FAIXAS = {
-  todos: { ks: ["crit", "zero", "aten", "ok", "sem"], rot: "todos os itens" },
-  crit: { ks: ["crit", "zero"], rot: "situação crítica — comprar agora" },
-  critaten: { ks: ["crit", "zero", "aten"], rot: "crítico e atenção" },
-  aten: { ks: ["aten"], rot: "atenção — programar compra" },
-  ok: { ks: ["ok"], rot: "cobertura adequada" },
+  todos:    { ks: ["crit", "zero", "aten", "ok", "sem"], rot: "todos os itens" },
+  crit:     { ks: ["crit", "zero"],                      rot: "situação crítica — comprar agora" },
+  critaten: { ks: ["crit", "zero", "aten"],              rot: "crítico e atenção" },
+  aten:     { ks: ["aten"],                              rot: "atenção — programar compra" },
+  ok:       { ks: ["ok"],                                rot: "cobertura adequada" },
+  sem:      { ks: ["sem"],                               rot: "sem consumo previsto (em estoque, sem prescrição ativa)" },
+  comconsumo: { ks: ["crit", "zero", "aten", "ok"],      rot: "itens com consumo previsto" },
 };
 
 /* ---- impressão da projeção ---- */
 function imprimirPrevisao(o) {
-  o = o || { faixa: "todos", incCust: true, incSem: true };
+  o = o || { faixa: "todos", incCust: true };
   const fx = _PV_FAIXAS[o.faixa] || _PV_FAIXAS.todos;
   const est0 = _pvLinhasEstoque(), cus0 = _pvLinhasCustodia();
-  const est = est0.filter((r) => fx.ks.indexOf(r.st.k) !== -1 && (o.incSem || r.st.k !== "sem"));
+  const est = est0.filter((r) => fx.ks.indexOf(r.st.k) !== -1);   // sem exclusão oculta
   const cus = o.incCust ? cus0 : [];
-  if (!est.length && !cus.length) { alert("Nenhum item na faixa selecionada."); return; }
+  if (!est.length) {
+    const dist = ["crit", "zero", "aten", "ok", "sem"].map((k) => ({ k, n: est0.filter((r) => r.st.k === k).length })).filter((x) => x.n);
+    const rot = { crit: "crítico", zero: "sem estoque", aten: "atenção", ok: "adequado", sem: "sem consumo previsto" };
+    alert(`Nenhum item em "${fx.rot}".\n\nDistribuição atual:\n` +
+          dist.map((x) => `  ${x.n} ${rot[x.k]}`).join("\n") +
+          `\n\nEscolha outra faixa.`);
+    return;
+  }
   const tb = (r) => `<tr>
     <td class="c">${r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO"}</td>
     <td>${_esc(r.g.label)}${r.g.lista && r.g.lista !== "—" ? " [" + r.g.lista + "]" : ""}</td>
@@ -270,7 +283,9 @@ function imprimirPrevisao(o) {
       td.c,th.c{text-align:center}.mono{font-family:"IBM Plex Mono",monospace}
       h2{font-size:11px;text-transform:uppercase;color:#2C5F5A;margin:12px 0 4px;border-bottom:1px solid #cfd6cf;padding-bottom:2px}
       .leg{font-size:9.5px;color:#6a736e;margin-bottom:8px}
+      .recorte{background:#EEF2EC;border-left:3px solid #2C5F5A;padding:5px 9px;font-size:11px;margin-bottom:8px}
     </style>
+    <div class="recorte"><b>Recorte deste relatório:</b> ${_esc(fx.rot)} — ${est.length} de ${est0.length} item(ns).</div>
     <div class="leg">Consumo diário calculado a partir das prescrições ativas. Crítico: até ${_pvCfg.critico} dias · Atenção: até ${_pvCfg.atencao} dias · Sugestão de compra para ${_pvCfg.cobertura} dias de cobertura.</div>
     <h2>Cobertura do estoque da clínica</h2>
     <table><thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Pac.</th><th class="c">Consumo/dia</th><th class="c">Estoque</th><th class="c">Cobertura</th><th class="c">Comprar</th></tr></thead>
