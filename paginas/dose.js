@@ -54,7 +54,18 @@ function _dosesEsperadas() {
 }
 function _dispensadoNaData(pac, subId, horario) {
   const d = dataRef();
+  // SOS nunca é dado como "já dispensado": pode haver mais de uma crise no
+  // mesmo dia, então a linha permanece disponível para novo lançamento.
+  if (_ehSOSHor(horario)) return false;
   return dispensations.some((x) => x.data === d && x.paciente === pac && x.subId === subId && x.ref === "Dose " + horario);
+}
+
+// quantas vezes e quanto de um SOS já foi lançado na data
+function _sosLancados(pac, subId) {
+  const d = dataRef();
+  const ls = dispensations.filter((x) => x.data === d && x.paciente === pac && x.subId === subId &&
+    String(x.ref || "").indexOf("SOS") === 0);
+  return { n: ls.length, total: ls.reduce((a, x) => a + x.qtd, 0) };
 }
 
 /* -------- etiquetas (para a data de referência) -------- */
@@ -144,12 +155,31 @@ async function confirmarDispensacao() {
     const sel = tr.querySelector(".disp-lote");
     const lote = sel ? sel.value : "";
     if (!lote) { alert(`Sem lote com saldo para ${c.dataset.nome} (${subById(c.dataset.sub).nome}). Dê entrada de estoque antes.`); return; }
+    const ehSOS = c.dataset.sos === "1";
+    let qtd = Number(c.dataset.qtd);
+    let ref = "Dose " + c.dataset.hor;
+    if (ehSOS) {
+      const inp = tr.querySelector(".disp-qtd");
+      qtd = inp ? parseFloat(String(inp.value).replace(",", ".")) : NaN;
+      if (!(qtd > 0)) {
+        alert(`Informe a quantidade usada de ${subById(c.dataset.sub).nome} para ${c.dataset.nome}.\n\nNo SOS a quantidade não vem da prescrição: digite quanto foi realmente administrado.`);
+        if (inp) inp.focus();
+        return;
+      }
+      const obsEl = tr.querySelector(".disp-obs");
+      const obs = obsEl ? obsEl.value.trim() : "";
+      ref = "SOS" + (obs ? " — " + obs : "");
+    }
     rows.push({ data: d, substancia_id: c.dataset.sub, numero_lote: lote,
-      quantidade: Number(c.dataset.qtd), referencia: "Dose " + c.dataset.hor,
+      quantidade: qtd, referencia: ref,
       paciente_id: c.dataset.pac, ...usuarioId() });
   }
   const msgData = d === HOJE ? "" : ` na data ${fmtDate(d)} (baixa retroativa)`;
-  if (!confirm(`Confirmar a dispensação de ${rows.length} dose(s)${msgData}? Isso dará baixa no estoque.`)) return;
+  const nSOS = rows.filter((r) => String(r.referencia).indexOf("SOS") === 0);
+  const resumoSOS = nSOS.length
+    ? `\n\nSOS (quantidade digitada):\n` + nSOS.map((r) => `  ${fmtDose(r.quantidade)} — ${subById(r.substancia_id).nome}`).join("\n")
+    : "";
+  if (!confirm(`Confirmar a dispensação de ${rows.length} dose(s)${msgData}? Isso dará baixa no estoque.${resumoSOS}`)) return;
   const btn = document.getElementById("btnDispensar");
   if (btn) { btn.disabled = true; btn.textContent = "Dispensando…"; }
   try {
@@ -243,7 +273,9 @@ function renderPage() {
   const ehHoje = d === HOJE;
   const esperadas = _dosesEsperadas();
   const pendentes = esperadas.filter((x) => !_dispensadoNaData(x.pac, x.subId, x.horario));
-  const dispensadasData = dispensations.filter((x) => x.data === d && x.ref && x.ref.indexOf("Dose ") === 0);
+  // histórico do dia: doses programadas ("Dose HH") e SOS ("SOS — obs")
+  const dispensadasData = dispensations.filter((x) => x.data === d && x.ref &&
+    (x.ref.indexOf("Dose ") === 0 || x.ref.indexOf("SOS") === 0));
   const returnsData = returns.filter((r) => r.data === d);
 
   const bannerRetro = ehHoje ? "" :
@@ -282,17 +314,29 @@ function renderPage() {
       ${chipHor}
     </div>
     ${nSOS ? `<div class="note-box" style="margin:0 0 12px">
-      <b>${nSOS} dose(s) SOS pendente(s).</b> SOS não entra na rotina: é lançado depois que a enfermagem administra, com a data em que ocorreu.
+      <b>${nSOS} SOS disponível(is) para lançamento.</b> O SOS é lançado depois que a enfermagem administra, com a data em que ocorreu, <b>digitando a quantidade usada</b> — a prescrição não prevê quantas crises haverá. Pode ser lançado <b>mais de uma vez no mesmo dia</b>.
       <button class="btn ghost sm" style="margin-left:8px" onclick="_dispSetFiltro(${JSON.stringify(horTodos.filter(_ehSOSHor)).replace(/"/g, "&quot;")})">Ver apenas SOS</button></div>` : ""}` : "";
 
   const linha = (x) => {
     const semSaldo = lotesDisponiveis(x.subId).length === 0 && lotesCustodiaDoPaciente(x.subId, x.pac).length === 0;
+    const sos = _ehSOSHor(x.horario);
+    // SOS: a prescrição não prevê quantas crises ocorrerão — a quantidade é
+    // digitada na baixa, e há campo para justificar o uso.
+    const colQtd = sos
+      ? `<input type="number" class="disp-qtd" min="0" step="0.25" value="${x.qtd}" ${semSaldo ? "disabled" : ""}
+           style="width:74px;padding:5px 7px;border:1px solid var(--warn);border-radius:7px;font:inherit;text-align:right">
+         <div style="font-size:10px;color:var(--warn)">digite o total usado</div>`
+      : `<span class="mono">${fmtDose(x.qtdAdm)}</span>${x.descarte ? `<div style="font-size:10px;color:var(--muted)">baixa ${fmtDose(x.qtd)} (descarta ${fmtDose(x.qtd - x.qtdAdm)})</div>` : ""}`;
     return `<tr>
       <td><input type="checkbox" class="disp-check" ${semSaldo ? "disabled" : ""}
-           data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
+           data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-sos="${sos ? 1 : 0}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
       <td><b>${x.nomePac}</b> <span style="color:var(--muted)">· ${x.leito}</span></td>
-      <td>${subById(x.subId).nome}</td>
-      <td class="num mono">${fmtDose(x.qtdAdm)}${x.descarte ? `<div style="font-size:10px;color:var(--muted);font-family:inherit">baixa ${fmtDose(x.qtd)} (descarta ${fmtDose(x.qtd - x.qtdAdm)})</div>` : ""}</td>
+      <td>${subById(x.subId).nome}
+        ${sos ? (() => { const j = _sosLancados(x.pac, x.subId);
+          return j.n ? `<div style="font-size:11px;color:var(--warn);margin-top:2px">já lançado ${j.n}× hoje · total ${fmtDose(j.total)}</div>` : ""; })() : ""}
+        ${sos ? `<input type="text" class="disp-obs" maxlength="180" placeholder="Observação / justificativa do uso (opcional)"
+           style="width:100%;margin-top:4px;padding:5px 7px;border:1px solid var(--line);border-radius:7px;font:inherit;font-size:12px">` : ""}</td>
+      <td class="num">${colQtd}</td>
       <td>${_selLote(x.subId, x.pac)}</td>
     </tr>`;
   };
@@ -327,7 +371,7 @@ function renderPage() {
       <tbody>
         ${dispensadasData.map((x) => `<tr>
           <td><b>${x.paciente ? patById(x.paciente).nome : "—"}</b></td>
-          <td>${x.ref}</td>
+          <td>${x.ref.indexOf("SOS") === 0 ? `<span class="tag" style="background:#FBF3E3;color:#B07A2F">SOS</span> ${_esc(x.ref.replace(/^SOS\s*—?\s*/, "")) || "<span style=\"color:var(--muted)\">sem observação</span>"}` : _esc(x.ref)}</td>
           <td>${subById(x.subId).nome}</td>
           <td><span class="folio">${x.lote}</span></td>
           <td class="num mono">−${x.qtd}</td>
