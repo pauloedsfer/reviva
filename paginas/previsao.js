@@ -54,7 +54,7 @@ function _pvLinhasEstoque() {
   const grupos = gruposSubstancias();
   return grupos.map((g) => {
     let consumoDia = 0, pacs = [], sos = 0;
-    prescriptions.filter((pr) => pr.ativo !== false && g.subIds.indexOf(pr.subId) !== -1).forEach((pr) => {
+    prescriptions.filter((pr) => prescVigenteEm(pr) && g.subIds.indexOf(pr.subId) !== -1).forEach((pr) => {
       const p = patById(pr.paciente);
       if (!p || p.ativo === false) return;               // paciente com alta não consome
       if (_pvSOS(pr)) { sos++; return; }
@@ -86,7 +86,7 @@ function _pvLinhasEstoque() {
    consumo, superestimando a cobertura. */
 function _pvLinhasCustodia() {
   const mapa = {};
-  prescriptions.filter((pr) => pr.ativo !== false).forEach((pr) => {
+  prescriptions.filter((pr) => prescVigenteEm(pr)).forEach((pr) => {
     const p = patById(pr.paciente);
     if (!p || p.ativo === false) return;
     const k = pr.paciente + "|" + pr.subId;

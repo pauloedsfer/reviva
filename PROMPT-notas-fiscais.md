@@ -3,9 +3,14 @@
 Use quando chegar uma nota fiscal (DANFE). **Abra uma conversa nova** e anexe:
 
 1. **A DANFE** — foto, PDF ou XML. Fotos de todas as páginas, legíveis.
-2. **A lista de itens cadastrados** — na tela Estoque, os nomes das substâncias.
-   O jeito mais simples é exportar a planilha da cotação (**Cotação → ⬇ Exportar
-   Excel**), cuja coluna “Item” traz os nomes oficiais.
+2. **O Pedido de Compra do sistema** — na cotação, botão de imprimir pedidos,
+   salvo em PDF. Ele cumpre dois papéis: traz os **nomes oficiais** dos itens
+   (dispensando a lista à parte) e permite **conferir o que foi entregue
+   contra o que foi pedido**.
+
+Se por algum motivo não houver pedido no sistema (compra avulsa, drogaria),
+anexe no lugar dele a planilha da cotação (**Cotação → ⬇ Exportar Excel**),
+cuja coluna “Item” traz os nomes oficiais.
 
 Depois cole o prompt abaixo.
 
@@ -35,7 +40,9 @@ farmácia do Hospital Reviva. Sou o farmacêutico responsável técnico.
 
 ANEXOS
 - DANFE da nota fiscal (todas as páginas).
-- Lista dos itens cadastrados no meu sistema (coluna "Item").
+- Pedido de Compra emitido pelo meu sistema (nomes oficiais dos itens e o
+  que foi solicitado). Se eu anexar uma planilha de cotação no lugar, use a
+  coluna "Item" como fonte dos nomes e pule a seção de conferência do pedido.
 
 REGRA CENTRAL
 Os nomes dos itens devem sair EXATAMENTE como estão na minha lista. Nunca
@@ -83,20 +90,41 @@ O QUE ENTREGAR
 2) DIVERGÊNCIAS — produtos da nota que não entraram, com o motivo, e itens
    cujo lote ou validade ficaram duvidosos na leitura.
 
-3) CONFERÊNCIA — soma dos valores dos itens e o total impresso na nota. Se
-   divergirem, aponte. Informe também quantos produtos a nota tem e quantos
+3) CONFERÊNCIA DA ENTREGA (pedido x nota) — compare item a item o Pedido de
+   Compra com a nota fiscal e organize em três listas:
+   - ENTREGUE CONFORME: itens do pedido que vieram na quantidade e no preço
+     pedidos.
+   - DIVERGENTE: itens que vieram em quantidade diferente, preço diferente do
+     pedido, ou em apresentação/embalagem diferente da cotada. Diga o que foi
+     pedido e o que veio.
+   - NÃO ENTREGUE: itens do pedido que não constam da nota, com o valor de
+     cada um e o total que deixou de vir.
+   Feche com a aritmética: total do pedido, total da nota e a diferença,
+   verificando se a diferença equivale exatamente aos itens não entregues.
+   Se não fechar, aponte — sobra ou falta indica erro de leitura ou cobrança
+   indevida.
+   Liste também itens que vieram na nota mas NÃO constavam do pedido.
+
+4) CONFERÊNCIA DE LEITURA — soma dos valores dos itens que você extraiu e o
+   total impresso na nota. Informe quantos produtos a nota tem e quantos
    entraram no bloco.
 
-4) ALERTAS — itens com validade curta (12 meses ou menos) e itens sujeitos a
+5) ALERTAS — itens com validade curta (12 meses ou menos) e itens sujeitos a
    controle especial identificados na nota (marcados com *** ou C1/B1).
+   Sinalize especialmente se algum item **não entregue** for controlado, pois
+   pode indicar exigência documental pendente com o fornecedor, e não falta
+   de estoque.
 ```
 
 ---
 
 ## Depois de receber a resposta
 
-1. Confira a seção **3 (conferência)** contra o total impresso na nota.
-2. Leia as **divergências** — é onde entra o seu trabalho de RT.
+1. Leia a **conferência da entrega**: é o que diz se o fornecedor cumpriu o
+   pedido. Itens não entregues voltam para a próxima cotação ou são cobrados
+   do representante.
+2. Confira a **aritmética** (total do pedido − total da nota = itens não
+   entregues) e leia as **divergências de leitura**.
 3. Copie o **bloco para importar**.
 4. No sistema: **Notas Fiscais → ⬆ Importar da DANFE** → cole → **Conferir
    antes de gravar** → revise a prévia → **Gravar nota fiscal**.

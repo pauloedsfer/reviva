@@ -91,7 +91,7 @@ async function carregarDados() {
     id: x.id, paciente: x.paciente_id, subId: x.substancia_id, dose: x.dose, via: x.via,
     horarios: Array.isArray(x.horarios) ? x.horarios : (x.horarios || []),
     qtdPorHorario: x.qtd_por_horario != null ? Number(x.qtd_por_horario) : 1,
-    prescritorId: x.prescritor_id, dataInicio: x.data_inicio, ativo: x.ativo,
+    prescritorId: x.prescritor_id, dataInicio: x.data_inicio, dataFim: x.data_fim, ativo: x.ativo,
   }));
 
   invoices = invs.map((nf) => ({
@@ -209,6 +209,30 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
 const patById = (id) => patients.find((p) => p.id === id) || { nome: "—", leito: "—" };
 const prescById = (id) => prescritores.find((p) => p.id === id) || null;
+
+/* ---- Vigência da prescrição ----
+   Uma prescrição vale numa data quando não foi suspensa manualmente, já
+   começou e ainda não passou da data limite. A data limite atende os
+   tratamentos com duração definida (antimicrobianos, corticoides em
+   esquema curto): terminado o prazo, a prescrição sai do mapa e da
+   dispensação sozinha, sem depender de alguém lembrar de suspender. */
+function prescVigenteEm(pr, d) {
+  if (!pr || pr.ativo === false) return false;
+  const dia = d || HOJE;
+  if (pr.dataInicio && pr.dataInicio > dia) return false;
+  if (pr.dataFim && pr.dataFim < dia) return false;
+  return true;
+}
+// encerrada pela data limite (e não por suspensão manual)
+function prescEncerrada(pr, d) {
+  return !!(pr && pr.ativo !== false && pr.dataFim && pr.dataFim < (d || HOJE));
+}
+// dias restantes até a data limite (null se não houver)
+function prescDiasRestantes(pr, d) {
+  if (!pr || !pr.dataFim) return null;
+  const dia = d || HOJE;
+  return Math.round((new Date(pr.dataFim + "T12:00:00") - new Date(dia + "T12:00:00")) / 86400000);
+}
 
 /* ---- ordenação dos POPs: por código, FAR antes de ENF, número crescente ----
    POPs sem código vão para o fim (ordenados por 'ordem' e depois pelo título). */
