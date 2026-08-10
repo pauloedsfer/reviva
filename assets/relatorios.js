@@ -54,23 +54,7 @@ function imprimirRelatorio(titulo, subtitulo, corpoHTML) {
       .rl-print-btn { position:fixed; top:16px; right:16px; background:#2C5F5A; color:#fff; border:none;
         padding:10px 16px; border-radius:8px; font-size:13px; cursor:pointer; font-family:inherit; }
     }
-    @media print {
-      .rl-print-btn { display:none; }
-      .sheet { padding:0; }
-      /* O rodapé é fixo e se repete em toda página. Em impressão, "fixed" é
-         posicionado a partir da ÁREA DE CONTEÚDO — com bottom positivo ele
-         cai por cima das últimas linhas da tabela. O deslocamento negativo
-         o joga para dentro da margem inferior reservada no @page,
-         liberando a área útil inteira para o conteúdo. */
-      .rl-footer { bottom:-20mm; }
-      /* nenhuma linha é partida entre páginas */
-      tr, td, th { break-inside:avoid; page-break-inside:avoid; }
-      /* o cabeçalho da tabela se repete no alto de cada página */
-      thead { display:table-header-group; }
-      tfoot { display:table-footer-group; }
-      /* título não fica órfão no pé da página */
-      h1, h2, h3 { break-after:avoid; page-break-after:avoid; }
-    }
+    @media print { .rl-print-btn { display:none; } .sheet { padding:0; } }
   </style></head>
   <body>
     <button class="rl-print-btn" onclick="window.print()">Imprimir / Salvar PDF</button>
