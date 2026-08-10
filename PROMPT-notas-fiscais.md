@@ -1,0 +1,114 @@
+# Prompt para lançar notas fiscais — Hospital Reviva
+
+Use quando chegar uma nota fiscal (DANFE). **Abra uma conversa nova** e anexe:
+
+1. **A DANFE** — foto, PDF ou XML. Fotos de todas as páginas, legíveis.
+2. **A lista de itens cadastrados** — na tela Estoque, os nomes das substâncias.
+   O jeito mais simples é exportar a planilha da cotação (**Cotação → ⬇ Exportar
+   Excel**), cuja coluna “Item” traz os nomes oficiais.
+
+Depois cole o prompt abaixo.
+
+---
+
+## Modelo e esforço recomendados
+
+| Situação | Modelo | Raciocínio estendido |
+|---|---|---|
+| DANFE em foto (o caso normal) | **Claude Opus 5** | **Ligado** |
+| XML da NF-e ou PDF nativo | Claude Sonnet 5 | Ligado |
+| Foto ruim, torta ou com reflexo | **Claude Opus 5** | **Ligado** |
+
+**Por quê:** a leitura de lote e validade em foto é o ponto frágil — um dígito
+errado no lote quebra a rastreabilidade e um erro na validade pode fazer um
+medicamento vencido parecer válido. Some-se a isso a conversão de caixa para
+unidade, que exige entender a descrição do produto (“CPR C/500” = 500
+comprimidos por caixa). Não use modelo econômico.
+
+---
+
+## O PROMPT (copie daqui para baixo)
+
+```
+Você vai me ajudar a lançar uma nota fiscal de medicamentos no sistema da
+farmácia do Hospital Reviva. Sou o farmacêutico responsável técnico.
+
+ANEXOS
+- DANFE da nota fiscal (todas as páginas).
+- Lista dos itens cadastrados no meu sistema (coluna "Item").
+
+REGRA CENTRAL
+Os nomes dos itens devem sair EXATAMENTE como estão na minha lista. Nunca
+invente, abrevie ou reescreva. Produto da nota que não corresponder a nenhum
+item da minha lista NÃO entra no bloco — vai para as divergências.
+
+CORRESPONDÊNCIA
+Só corresponda quando princípio ativo E concentração forem equivalentes.
+- Nome comercial vale pelo princípio ativo (Cinetol = biperideno,
+  Bilyt = carbonato de lítio, Unihaloper = haloperidol, Narcan = naloxona,
+  Pamergan = prometazina, Zilepam = clonazepam, Clorpromaz = clorpromazina).
+- Concentrações equivalentes: "10MG/2ML" = "5MG/ML"; "50MG/2ML" = "25MG/ML".
+- NÃO correspondem: forma diferente (comprimido x injetável x gotas),
+  liberação diferente (CR, XR) quando meu item é convencional, concentração
+  diferente. Nesses casos, mande para as divergências e explique.
+
+CONVERSÃO DE CAIXA PARA UNIDADE (o ponto mais importante)
+A nota traz caixas; meu estoque trabalha em unidades (comprimidos, ampolas,
+frascos). Para cada item extraia:
+- CAIXAS = a coluna QUANT. da nota.
+- UNID_POR_CAIXA = quantas unidades vêm na caixa, lido da descrição do
+  produto ("CPR C/500" = 500, "INJ C/50" = 50, "C/25 C1" = 25, "20ML" de um
+  frasco isolado = 1 frasco).
+- VALOR_TOTAL_ITEM = a coluna VALOR TOTAL daquele item.
+Não calcule o custo unitário: o sistema faz isso.
+
+LOTE E VALIDADE
+Copie o lote exatamente como impresso, respeitando letras e números. Se algum
+caractere estiver ilegível na foto, NÃO adivinhe: escreva o lote como
+conseguir ler e liste o item nas divergências pedindo conferência.
+
+O QUE ENTREGAR
+
+1) BLOCO PARA IMPORTAR — dentro de um bloco de código, sem texto em volta.
+   Primeira linha, dados da nota:
+
+   NF;NUMERO;SERIE;DD/MM/AAAA;NOME DO FORNECEDOR;VALOR TOTAL DA NOTA
+
+   Depois, uma linha por item:
+
+   ITEM;NOME EXATO DO ITEM;CAIXAS;UNID_POR_CAIXA;LOTE;VALIDADE;VALOR_TOTAL_ITEM
+
+   Use ponto como separador decimal e datas em DD/MM/AAAA.
+
+2) DIVERGÊNCIAS — produtos da nota que não entraram, com o motivo, e itens
+   cujo lote ou validade ficaram duvidosos na leitura.
+
+3) CONFERÊNCIA — soma dos valores dos itens e o total impresso na nota. Se
+   divergirem, aponte. Informe também quantos produtos a nota tem e quantos
+   entraram no bloco.
+
+4) ALERTAS — itens com validade curta (12 meses ou menos) e itens sujeitos a
+   controle especial identificados na nota (marcados com *** ou C1/B1).
+```
+
+---
+
+## Depois de receber a resposta
+
+1. Confira a seção **3 (conferência)** contra o total impresso na nota.
+2. Leia as **divergências** — é onde entra o seu trabalho de RT.
+3. Copie o **bloco para importar**.
+4. No sistema: **Notas Fiscais → ⬆ Importar da DANFE** → cole → **Conferir
+   antes de gravar** → revise a prévia → **Gravar nota fiscal**.
+
+A prévia mostra, item a item, quantas unidades entrarão em estoque, o lote, a
+validade (em vermelho se vencida) e o custo unitário calculado. Compara também
+a soma dos itens com o total declarado da nota.
+
+## O que revisar com atenção
+
+O erro que passa despercebido não é o preço — é **lote e validade**, porque
+alimentam a rastreabilidade e o controle de vencimento. Confira esses dois
+campos contra a nota antes de gravar, principalmente nos itens sob controle
+especial. Confira também as **unidades por caixa**: se estiver errada, o
+estoque entra com quantidade errada e o custo unitário sai distorcido.
