@@ -94,9 +94,6 @@ function abrirFormPrescricao(pacientePre) {
     </div>
     <div id="prMeds"></div>
     <button type="button" class="btn ghost sm add-item" onclick="addMedRow()">+ Adicionar substância</button>
-    <div class="ff" style="margin-top:12px"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, vale para as medicações acima</span></label>
-      <input id="mFim" type="date">
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">Para tratamento com duração definida (ex.: antimicrobiano por 7 dias). Passada a data, sai do mapa e da dispensação sozinha. Em branco = uso contínuo.</div></div>
     <div class="note-box" style="margin:8px 0 0">Clique nos horários padronizados ou digite separando por vírgula. <b>JEJUM</b> aparece no topo do mapa e <b>SOS</b> no final. <b>Qtd/hor.</b> = quanto por horário, aceita fração (0,5 = meio comprimido).</div>
   `;
   abrirModal("Nova prescrição", corpo, async () => {
@@ -108,7 +105,7 @@ function abrirFormPrescricao(pacientePre) {
     const rows = meds.map((m) => ({
       paciente_id: pac, substancia_id: m.sub, prescritor_id: prescritorId,
       dose: m.dose || null, via: m.via || null, horarios: m.horarios, qtd_por_horario: m.qtd,
-      data_inicio: data, data_fim: fvOrNull("mFim"), ativo: true, ...usuarioId(),
+      data_inicio: data, ativo: true, ...usuarioId(),
     }));
     const { error } = await window.SB.from("prescricoes").insert(rows);
     if (error) throw error;
@@ -125,9 +122,6 @@ function abrirEditarPrescricao(id) {
       <div><label>Paciente *</label><select id="ePac">${_optPats(pr.paciente)}</select></div>
       <div><label>Data da prescrição *</label><input id="eData" type="date" value="${pr.dataInicio || new Date().toISOString().slice(0,10)}"></div>
     </div>
-    <div class="ff"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, para tratamento com duração definida</span></label>
-      <input id="eFim" type="date" value="${pr.dataFim || ""}">
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">Ex.: antimicrobiano por 7 dias. Passada a data, a prescrição sai do mapa e da dispensação automaticamente, sem precisar suspender à mão. Deixe em branco para uso contínuo.</div></div>
     <div class="ff"><label>Substância *</label><select id="eSub">${_optSubs(pr.subId)}</select></div>
     <div class="ff"><label>Médico prescritor</label>
       <select id="ePresc" onchange="_toggleBloco('ePresc','blocoNovoPresc')">${_optPresc(pr.prescritorId)}</select>
@@ -153,7 +147,6 @@ function abrirEditarPrescricao(id) {
       dose: fvOrNull("eDose"), via: fvOrNull("eVia"),
       horarios: fv("eHor").split(",").map((h) => h.trim()).filter(Boolean),
       qtd_por_horario: Math.max(0.25, fvNum("eQtd") || 1),
-      data_fim: fvOrNull("eFim"),
       data_inicio: data,
     };
     const { error } = await window.SB.from("prescricoes").update(dados).eq("id", id);
@@ -171,7 +164,7 @@ async function suspenderItem(id) {
 
 /* -------- render: lista por paciente OU detalhe de um paciente -------- */
 function _itensDoPaciente(pacId, incluirSuspensas) {
-  return prescriptions.filter((pr) => pr.paciente === pacId && (incluirSuspensas || prescVigenteEm(pr)))
+  return prescriptions.filter((pr) => pr.paciente === pacId && (incluirSuspensas || pr.ativo !== false))
     .sort((a, b) => subById(a.subId).nome.localeCompare(subById(b.subId).nome));
 }
 function _prescResumo(pacId) {
@@ -181,7 +174,7 @@ function _prescResumo(pacId) {
 
 function _cardsPorPaciente() {
   // pacientes com ao menos uma prescrição, ordenados por leito
-  const ids = [...new Set(prescriptions.filter((p) => prescVigenteEm(p)).map((p) => p.paciente))];
+  const ids = [...new Set(prescriptions.filter((p) => p.ativo !== false).map((p) => p.paciente))];
   const pacs = ids.map((id) => patById(id))
     .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || "")) || (a.nome || "").localeCompare(b.nome || ""));
   if (!pacs.length) return `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma prescrição cadastrada. Use <b>+ Nova prescrição</b>.</div>`;
@@ -216,14 +209,7 @@ function _detalhePaciente(pacId) {
       <td class="mono">${pr.via || "—"}</td>
       <td>${(pr.horarios || []).map((h) => `<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${h}</span>`).join(" ")}</td>
       <td style="color:var(--muted)">${pr.prescritorId ? prescNome(pr.prescritorId) + ext : "—"}</td>
-      <td class="mono">${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"}${(() => {
-        if (!pr.dataFim) return "";
-        const d = prescDiasRestantes(pr);
-        const cor = d < 0 ? "#F1F3F1;color:#6a736e" : d <= 2 ? "#F7E3E1;color:#B04A3F" : "#FBF3E3;color:#B07A2F";
-        const txt = d < 0 ? "encerrada em " + fmtDate(pr.dataFim)
-                  : d === 0 ? "último dia" : `até ${fmtDate(pr.dataFim)} · ${d} dia${d > 1 ? "s" : ""}`;
-        return `<div><span class="tag" style="background:${cor}">${txt}</span></div>`;
-      })()}</td>
+      <td class="mono">${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn ghost sm" onclick="abrirEditarPrescricao('${pr.id}')">Editar</button>
         <button class="btn ghost sm" onclick="suspenderItem('${pr.id}')">Suspender</button>
@@ -274,16 +260,7 @@ function renderPage() {
           <button class="btn sm" onclick="abrirFormPrescricao()">+ Nova prescrição</button>
         </div>
       </div>
-      <div class="panel-body">${(() => {
-        const enc = prescriptions.filter((pr) => prescEncerrada(pr));
-        if (!enc.length) return "";
-        return `<div class="note-box" style="margin-top:0;background:#F1F3F1">
-          <b>${enc.length} prescrição(ões) encerrada(s) por prazo</b> — saíram do mapa e da dispensação automaticamente.
-          <div style="font-size:12.5px;margin-top:4px">${enc.slice(0, 8).map((pr) => {
-            const p = patById(pr.paciente);
-            return `${_esc(subById(pr.subId).nome)} <span style="color:var(--muted)">· ${_esc(p ? p.nome : "")} · até ${fmtDate(pr.dataFim)}</span>`;
-          }).join(" · ")}${enc.length > 8 ? ` <span style="color:var(--muted)">e mais ${enc.length - 8}</span>` : ""}</div></div>`;
-      })()}${_cardsPorPaciente()}</div>
+      <div class="panel-body">${_cardsPorPaciente()}</div>
     </div>
   `;
 }
