@@ -74,9 +74,11 @@ function _linhasVazias(n, cols) {
   return r;
 }
 
-function _tabelaPaciente(p, periodos, blankRows) {
+// dISO = dia que está sendo impresso; a prescrição entra se estiver vigente
+// NAQUELE dia (respeita data de início e data limite do tratamento).
+function _tabelaPaciente(p, periodos, blankRows, dISO) {
   const cols = periodos.length;
-  const pres = prescriptions.filter((pr) => pr.paciente === p.id && pr.ativo !== false)
+  const pres = prescriptions.filter((pr) => pr.paciente === p.id && prescVigenteEm(pr, dISO))
     .sort((a, b) => _cmpMapa(a, b, cols));
   const linhas = pres.map((pr) => {
     const cells = {};
@@ -141,7 +143,7 @@ function imprimirMapa() {
     d.setDate(d.getDate() + i);
     const dISO = d.toISOString().slice(0, 10);
     const pacs = pacsAll.filter((p) => _internadoEm(p, dISO));
-    const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows)).join("");
+    const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows, dISO)).join("");
     const fichas = Array.from({ length: blankPacs }, () => _fichaVazia(periodos, blankRows)).join("");
     paginas.push(`
       <section class="dia">
@@ -198,7 +200,7 @@ function _diasSpan(dataIni, nDias) {
   return dias;
 }
 const _DOW = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
-function _temPrescricao(p) { return prescriptions.some((pr) => pr.paciente === p.id && pr.ativo !== false && (pr.horarios || []).length); }
+function _temPrescricao(p) { return prescriptions.some((pr) => pr.paciente === p.id && prescVigenteEm(pr) && (pr.horarios || []).length); }
 
 function imprimirMapaPaciente() {
   const nPer = document.getElementById("mapaPeriodos").value === "2" ? 2 : 3;
@@ -229,7 +231,7 @@ function imprimirMapaPaciente() {
       return `
         <div class="dia-bloco">
           <div class="dia-cab"><span class="dia-data">${_fmtDiaLongo(d)}</span> <span class="dia-pac"><b>${p.nome}</b> · Idade: ${_idade(p.dataNascimento) || "____"} · Leito: ${p.leito || "____"}${p.prontuario ? " · Prontuário: " + p.prontuario : ""}</span></div>
-          ${_tabelaPaciente(p, periodos, blankRows)}
+          ${_tabelaPaciente(p, periodos, blankRows, iso)}
         </div>`;
     }).join("");
 

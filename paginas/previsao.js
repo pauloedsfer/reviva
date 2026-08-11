@@ -54,7 +54,7 @@ function _pvLinhasEstoque() {
   const grupos = gruposSubstancias();
   return grupos.map((g) => {
     let consumoDia = 0, pacs = [], sos = 0;
-    prescriptions.filter((pr) => pr.ativo !== false && g.subIds.indexOf(pr.subId) !== -1).forEach((pr) => {
+    prescriptions.filter((pr) => prescVigenteEm(pr) && g.subIds.indexOf(pr.subId) !== -1).forEach((pr) => {
       const p = patById(pr.paciente);
       if (!p || p.ativo === false) return;               // paciente com alta não consome
       if (_pvSOS(pr)) { sos++; return; }
@@ -86,7 +86,7 @@ function _pvLinhasEstoque() {
    consumo, superestimando a cobertura. */
 function _pvLinhasCustodia() {
   const mapa = {};
-  prescriptions.filter((pr) => pr.ativo !== false).forEach((pr) => {
+  prescriptions.filter((pr) => prescVigenteEm(pr)).forEach((pr) => {
     const p = patById(pr.paciente);
     if (!p || p.ativo === false) return;
     const k = pr.paciente + "|" + pr.subId;
@@ -240,7 +240,13 @@ function abrirImprimirPrevisao() {
   const n = (arr, ks) => arr.filter((r) => ks.indexOf(r.st.k) !== -1).length;
   abrirModal("Imprimir previsão de cobertura", `
     <div class="note-box" style="margin-top:0">Escolha o que entra no relatório. Para levar à direção, a faixa <b>crítica</b> costuma bastar — é a lista do que precisa ser comprado agora.</div>
-    <div class="ff"><label>Faixa de cobertura</label>
+    <div class="ff"><label>O que imprimir</label>
+      <select id="pvConteudo" onchange="_pvAtualizaModal()">
+        <option value="ambos">Os dois quadros — estoque da clínica e medicação por paciente</option>
+        <option value="estoque">Somente cobertura do estoque da clínica</option>
+        <option value="pacientes">Somente medicação por paciente — custódia e reposição (${cus.length})</option>
+      </select></div>
+    <div class="ff" id="pvBlocoFaixa"><label>Faixa de cobertura <span style="font-weight:400;color:var(--muted)">— aplica-se ao quadro do estoque</span></label>
       <select id="pvFaixa">
         ${[["comconsumo", "Itens com consumo previsto"],
            ["crit", "🔴 Apenas crítico — comprar agora"],
@@ -255,14 +261,21 @@ function abrirImprimirPrevisao() {
            }).join("")}
       </select>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">O número entre parênteses é quanto sai no relatório. Opções sem itens ficam indisponíveis.</div></div>
-    <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
-      <input type="checkbox" id="pvCust" checked> Incluir o quadro de <b>medicação em custódia</b> (${cus.length} item(ns))</label>
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">A custódia é reposta pela família, não pela clínica — costuma interessar à equipe, não à direção.</div></div>
+    <div class="note-box" style="margin:0">O quadro de <b>medicação por paciente</b> mostra a custódia de cada um e o que está sem estoque na clínica — é o documento que interessa à equipe e à família. O quadro de <b>estoque da clínica</b> é o que sustenta a compra junto à direção.</div>
   `, async () => {
+    const cont = fv("pvConteudo") || "ambos";
     const faixa = fv("pvFaixa") || "comconsumo";
-    const incCust = document.getElementById("pvCust").checked;
-    setTimeout(() => imprimirPrevisao({ faixa, incCust }), 60);
+    setTimeout(() => imprimirPrevisao({
+      faixa, incEst: cont !== "pacientes", incCust: cont !== "estoque",
+    }), 60);
   }, "Gerar relatório");
+}
+
+// esconde a faixa de cobertura quando o relatório é só de pacientes
+function _pvAtualizaModal() {
+  const c = document.getElementById("pvConteudo");
+  const b = document.getElementById("pvBlocoFaixa");
+  if (c && b) b.style.display = c.value === "pacientes" ? "none" : "";
 }
 
 const _PV_FAIXAS = {
@@ -277,12 +290,14 @@ const _PV_FAIXAS = {
 
 /* ---- impressão da projeção ---- */
 function imprimirPrevisao(o) {
-  o = o || { faixa: "todos", incCust: true };
+  o = o || { faixa: "todos", incEst: true, incCust: true };
+  if (o.incEst === undefined) o.incEst = true;
   const fx = _PV_FAIXAS[o.faixa] || _PV_FAIXAS.todos;
   const est0 = _pvLinhasEstoque(), cus0 = _pvLinhasCustodia();
-  const est = est0.filter((r) => fx.ks.indexOf(r.st.k) !== -1);   // sem exclusão oculta
+  const est = o.incEst ? est0.filter((r) => fx.ks.indexOf(r.st.k) !== -1) : [];
   const cus = o.incCust ? cus0 : [];
-  if (!est.length) {
+  if (!o.incEst && !cus.length) { alert("Nenhuma medicação em custódia e nenhum item prescrito em falta."); return; }
+  if (o.incEst && !est.length) {
     const dist = ["crit", "zero", "aten", "ok", "sem"].map((k) => ({ k, n: est0.filter((r) => r.st.k === k).length })).filter((x) => x.n);
     const rot = { crit: "crítico", zero: "sem estoque", aten: "atenção", ok: "adequado", sem: "sem consumo previsto" };
     alert(`Nenhum item em "${fx.rot}".\n\nDistribuição atual:\n` +
@@ -314,17 +329,20 @@ function imprimirPrevisao(o) {
       .leg{font-size:9.5px;color:#6a736e;margin-bottom:8px}
       .recorte{background:#EEF2EC;border-left:3px solid #2C5F5A;padding:5px 9px;font-size:11px;margin-bottom:8px}
     </style>
-    <div class="recorte"><b>Recorte deste relatório:</b> ${_esc(fx.rot)} — ${est.length} de ${est0.length} item(ns).</div>
+    <div class="recorte"><b>Recorte deste relatório:</b> ${o.incEst ? `${_esc(fx.rot)} — ${est.length} de ${est0.length} item(ns)` : "medicação por paciente (custódia e reposição)"}${!o.incCust ? " · sem o quadro por paciente" : ""}${!o.incEst ? " · sem o quadro do estoque da clínica" : ""}.</div>
     <div class="leg">Consumo diário calculado a partir das prescrições ativas. Crítico: até ${_pvCfg.critico} dias · Atenção: até ${_pvCfg.atencao} dias · Sugestão de compra para ${_pvCfg.cobertura} dias de cobertura.</div>
-    <h2>Cobertura do estoque da clínica</h2>
+    ${o.incEst ? `<h2>Cobertura do estoque da clínica</h2>
     <table><thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Pac.</th><th class="c">Consumo/dia</th><th class="c">Estoque</th><th class="c">Cobertura</th><th class="c">Comprar</th></tr></thead>
-    <tbody>${est.map(tb).join("") || '<tr><td colspan="7" class="c">Sem dados</td></tr>'}</tbody></table>
+    <tbody>${est.map(tb).join("") || '<tr><td colspan="7" class="c">Sem dados</td></tr>'}</tbody></table>` : ""}
     ${o.incCust ? `<h2>Medicação por paciente — custódia e reposição</h2>
     <table><thead><tr><th class="c">Situação</th><th>Paciente</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
     <tbody>${cus.map(tc).join("") || '<tr><td colspan="6" class="c">Sem custódia com saldo</td></tr>'}</tbody></table>` : ""}`;
   const totalCompra = est.reduce((a, r) => a + (r.comprar || 0), 0);
-  imprimirRelatorio("Previsão de Cobertura e Compras",
-    `Projeção com base nas prescrições vigentes em ${fmtDate(HOJE)} · recorte: ${fx.rot} · ${est.length} item(ns)`,
+  const titulo = o.incEst ? "Previsão de Cobertura e Compras" : "Medicação por Paciente — Custódia e Reposição";
+  const sub = o.incEst
+    ? `Projeção com base nas prescrições vigentes em ${fmtDate(HOJE)} · recorte: ${fx.rot} · ${est.length} item(ns)`
+    : `Situação por paciente em ${fmtDate(HOJE)} · ${cus.length} item(ns) · ${cus.filter((r) => r.tipo === "faltante").length} sem estoque na clínica`;
+  imprimirRelatorio(titulo, sub,
     corpo.replace("<h2>Cobertura do estoque da clínica</h2>",
       `<h2>Cobertura do estoque da clínica — ${fx.rot}</h2>` +
       (totalCompra ? `<div class="leg" style="margin-bottom:6px"><b>${totalCompra}</b> unidade(s) a adquirir para ${_pvCfg.cobertura} dias de cobertura.</div>` : "")));
