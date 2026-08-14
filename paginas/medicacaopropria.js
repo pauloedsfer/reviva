@@ -167,6 +167,7 @@ function renderPage(){
         <div><div class="panel-title">Medicações em custódia</div><div class="panel-title-sub">${patientMeds.reduce((a,pm)=>a+pm.itens.length,0)} item(ns) registrado(s)</div></div>
         <div class="toolbar">
           <button class="btn ghost sm" onclick="abrirTermoCustodia()">🖶 Termo de Custódia</button>
+          <button class="btn ghost sm" onclick="abrirTransferenciaCustodia()">⇄ Transferir do estoque</button>
           <button class="btn sm" onclick="abrirFormCustodia()">+ Registrar medicação do paciente</button>
         </div>
       </div>
@@ -327,4 +328,90 @@ function abrirEditarCustodia(itemId) {
     const { error } = await window.SB.from("medicacao_propria_itens").update(dados).eq("id", itemId);
     if (error) throw error;
   }, "Salvar correção");
+}
+
+/* ============================================================
+   TRANSFERIR DO ESTOQUE PARA A CUSTÓDIA DO PACIENTE
+   Enquanto não há unitarização das doses, a farmácia separa uma
+   cartela inteira e a vincula ao paciente: sai do estoque geral,
+   passa a ser de uso exclusivo dele e o custo vai para o paciente.
+   ============================================================ */
+function abrirTransferenciaCustodia(pacId) {
+  const internados = patients.filter(pacInternado)
+    .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || ""), "pt-BR", { numeric: true }) || a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!internados.length) { alert("Nenhum paciente internado."); return; }
+  const optPac = internados.map((p) => `<option value="${p.id}"${p.id === pacId ? " selected" : ""}>${_esc(p.nome)}${p.leito ? " · leito " + _esc(p.leito) : ""}</option>`).join("");
+
+  abrirModal("Transferir do estoque para o paciente", `
+    <div class="note-box" style="margin-top:0">A quantidade sai do <b>estoque da clínica</b> e passa a ser de <b>uso exclusivo do paciente</b>, com o custo atribuído a ele. Use quando separar uma cartela inteira para o paciente, enquanto a dispensação não é unitarizada.</div>
+    <div class="ff"><label>Paciente *</label><select id="tcPac">${optPac}</select></div>
+    <div class="ff"><label>Lote do estoque *</label>
+      <select id="tcLote" onchange="_tcAtualiza()">${_tcOpcoesLote()}</select>
+      <div id="tcInfo" style="font-size:11.5px;color:var(--muted);margin-top:4px">Selecione o lote para ver o saldo.</div></div>
+    <div class="ff row2">
+      <div><label>Quantidade a transferir *</label><input id="tcQtd" type="number" min="0.01" step="0.01" oninput="_tcAtualiza()"></div>
+      <div><label>Data *</label><input id="tcData" type="date" value="${HOJE}"></div>
+    </div>
+    <div class="ff"><label>Observação</label><input id="tcObs" placeholder="Ex.: cartela de 25 comprimidos separada para uso do paciente"></div>
+    <div class="note-box" id="tcResumo" style="margin:0;display:none"></div>
+  `, async () => {
+    const pac = fv("tcPac"); if (!pac) throw new Error("Selecione o paciente.");
+    const lote = fv("tcLote"); if (!lote) throw new Error("Selecione o lote do estoque.");
+    const qtd = fvNum("tcQtd");
+    if (!(qtd > 0)) throw new Error("Informe a quantidade a transferir.");
+    const l = _tcLotesDisponiveis().find((x) => x.lote === lote);
+    if (!l) throw new Error("Lote não encontrado no estoque.");
+    const saldo = saldoLote(lote);
+    if (qtd > saldo) throw new Error(`Saldo insuficiente: o lote ${lote} tem ${saldo} unidade(s).`);
+    const data = fv("tcData") || HOJE;
+    const p = patById(pac);
+    // lote de destino: deriva do original, identificando o paciente
+    const sufixo = (p && p.leito ? "L" + p.leito : pac.slice(0, 4)).toUpperCase();
+    let destino = `${lote}/${sufixo}`;
+    let n = 2;
+    while (allLotes().some((x) => x.lote === destino)) destino = `${lote}/${sufixo}-${n++}`;
+
+    const { error } = await window.SB.from("transferencias_custodia").insert({
+      data, substancia_id: l.subId, paciente_id: pac,
+      lote_origem: lote, lote_destino: destino, validade: l.validade,
+      quantidade: qtd, custo_unit: l.custoUnit || 0,
+      observacao: fvOrNull("tcObs"), ...usuarioId(),
+    });
+    if (error) throw error;
+  }, "Transferir");
+  setTimeout(_tcAtualiza, 40);
+}
+
+// lotes do estoque geral com saldo (exclui custódia de outros pacientes)
+function _tcLotesDisponiveis() {
+  return allLotes()
+    .filter((l) => !l.restritoPaciente && saldoLote(l.lote) > 0)
+    .sort((a, b) => (subById(a.subId).nome || "").localeCompare(subById(b.subId).nome || "", "pt-BR") ||
+                    String(a.validade || "").localeCompare(String(b.validade || "")));
+}
+function _tcOpcoesLote() {
+  const ls = _tcLotesDisponiveis();
+  if (!ls.length) return `<option value="">— nenhum lote com saldo no estoque —</option>`;
+  return `<option value="">— selecione o lote —</option>` + ls.map((l) =>
+    `<option value="${_esc(l.lote)}">${_esc(subById(l.subId).nome)} · lote ${_esc(l.lote)} · saldo ${saldoLote(l.lote)}${l.validade ? " · val. " + fmtDate(l.validade) : ""}</option>`).join("");
+}
+function _tcAtualiza() {
+  const lote = (document.getElementById("tcLote") || {}).value || "";
+  const info = document.getElementById("tcInfo");
+  const res = document.getElementById("tcResumo");
+  if (!lote) { if (info) info.textContent = "Selecione o lote para ver o saldo."; if (res) res.style.display = "none"; return; }
+  const l = _tcLotesDisponiveis().find((x) => x.lote === lote);
+  if (!l) return;
+  const saldo = saldoLote(lote);
+  const q = parseFloat(String((document.getElementById("tcQtd") || {}).value || "").replace(",", ".")) || 0;
+  if (info) info.innerHTML = `<b>${_esc(subById(l.subId).nome)}</b> · saldo atual <b>${saldo}</b>${l.validade ? ` · validade ${fmtDate(l.validade)}` : ""} · custo unitário ${fmtBRL(l.custoUnit || 0)}`;
+  if (res && q > 0) {
+    const excede = q > saldo;
+    res.style.display = "block";
+    res.style.background = excede ? "#F7E3E1" : "#E7F0E3";
+    res.style.borderColor = excede ? "#e6b8b1" : "#c9dcc2";
+    res.innerHTML = excede
+      ? `<b>Quantidade maior que o saldo.</b> O lote tem ${saldo} unidade(s).`
+      : `Sairão <b>${fmtDose(q)}</b> do estoque · restam <b>${saldo - q}</b> no lote · custo transferido ao paciente: <b>${fmtBRL(q * (l.custoUnit || 0))}</b>`;
+  } else if (res) res.style.display = "none";
 }

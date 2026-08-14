@@ -64,7 +64,7 @@ function renderPage(){
         <table>
           <thead><tr><th>Paciente</th><th>Dias internado</th><th>Custo medicamentos</th><th>Custo médio/dia</th></tr></thead>
           <tbody>
-            ${patients.map(p=>{
+            ${pacientesInternados().map(p=>{
               const dias = diasInternado(p);
               const cm = custoMedicamentosPaciente(p.id);
               return `<tr>

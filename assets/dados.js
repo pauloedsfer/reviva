@@ -24,6 +24,7 @@ let initialInventory = [];   // inventário inicial (abertura do estoque)
 let returns = [];
 let ajustes = [];
 let dispensations = [];
+let transferenciasCustodia = [];
 let prescriptions = [];
 let prescritores = [];
 let fornecedores = [];
@@ -50,7 +51,7 @@ async function carregarConfig() {
 async function carregarDados() {
   const q = (sel) => window.SB.from(sel.t).select(sel.s || "*");
   const [
-    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns,
+    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns, transf,
   ] = await Promise.all([
     window.SB.from("substancias").select("*"),
     window.SB.from("pacientes").select("*, prescritores(nome,conselho,uf,numero)"),
@@ -67,6 +68,7 @@ async function carregarDados() {
     window.SB.from("carrinho_historico").select("*"),
     window.SB.from("prescritores").select("*"),
     window.SB.from("fornecedores").select("*"),
+    window.SB.from("transferencias_custodia").select("*"),
   ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
 
   substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
@@ -123,6 +125,12 @@ async function carregarDados() {
   initialInventory = inv.map((i) => ({
     subId: i.substancia_id, qtd: i.quantidade, lote: i.numero_lote, validade: i.validade,
     custoUnit: Number(i.custo_unit), data: i.data, obs: i.observacao,
+  }));
+
+  transferenciasCustodia = (transf && transf.data ? transf.data : (transf || [])).map((t) => ({
+    id: t.id, data: t.data, subId: t.substancia_id, paciente: t.paciente_id,
+    loteOrigem: t.lote_origem, loteDestino: t.lote_destino, validade: t.validade,
+    qtd: Number(t.quantidade), custoUnit: Number(t.custo_unit || 0), obs: t.observacao,
   }));
 
   dispensations = disp.map((d) => ({
@@ -207,6 +215,12 @@ function rtLinha() {
 /* ---------------- helpers (idênticos ao protótipo) ---------------- */
 const $ = (sel, el = document) => el.querySelector(sel);
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
+/* ---- Paciente internado ----
+   Paciente com alta continua no cadastro (histórico e escrituração), mas
+   não ocupa leito nem entra em contagem, seletor ou mapa. */
+function pacInternado(p) { return !!p && p.ativo !== false; }
+function pacientesInternados() { return patients.filter(pacInternado); }
+
 const patById = (id) => patients.find((p) => p.id === id) || { nome: "—", leito: "—" };
 const prescById = (id) => prescritores.find((p) => p.id === id) || null;
 
@@ -299,15 +313,18 @@ function lotesComSaldo(subId) {
 }
 // Lotes disponíveis (saldo > 0) com validade e saldo, ordenados por FEFO (validade mais próxima primeiro).
 function lotesDisponiveis(subId) {
-  // Estoque GERAL: exclui custódia de pacientes (não-integrada)
-  return allLotes().filter((l) => l.subId === subId && (l.origem !== "proprio" || l.integrado))
+  // Estoque GERAL: exclui todo lote restrito a paciente (trazido pela família
+  // ou transferido do estoque), pois não está mais disponível ao serviço.
+  return allLotes().filter((l) => l.subId === subId && !l.restritoPaciente)
     .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
     .filter((x) => x.saldo > 0)
     .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
 }
 // Lotes de CUSTÓDIA do próprio paciente para uma substância (com saldo)
+// Lotes de uso exclusivo do paciente: trazidos por ele (origem "proprio")
+// ou transferidos do estoque da clínica (origem "transferido").
 function lotesCustodiaDoPaciente(subId, pacienteId) {
-  return allLotes().filter((l) => l.subId === subId && l.origem === "proprio" && !l.integrado && l.restritoPaciente === pacienteId)
+  return allLotes().filter((l) => l.subId === subId && l.restritoPaciente === pacienteId && !l.integrado)
     .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
     .filter((x) => x.saldo > 0)
     .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
@@ -389,6 +406,15 @@ function allLotes() {
     subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: 0, valorEstimado: it.valorEstimado,
     origem: "doacao", fonte: `Doação — ${d.doador}`, data: d.data,
   })));
+  // Transferido do estoque da clínica: vira lote de custódia do paciente,
+  // preservando o custo (a clínica comprou — não é medicação da família).
+  transferenciasCustodia.forEach((t) => list.push({
+    subId: t.subId, lote: t.loteDestino, validade: t.validade, qtd: t.qtd,
+    custoUnit: t.custoUnit, origem: "transferido", restritoPaciente: t.paciente,
+    transferenciaId: t.id, loteOrigem: t.loteOrigem,
+    fonte: `Transferido do estoque — ${patById(t.paciente) ? patById(t.paciente).nome : ""} (lote ${t.loteOrigem})`,
+    data: t.data,
+  }));
   patientMeds.forEach((pm) => pm.itens.forEach((it) => {
     const integrado = itemIntegrado(it.id);
     list.push({
@@ -409,11 +435,18 @@ function saldoLote(lote) {
   const devolvido = returns.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
   const ajustado = ajustes.filter((x) => x.lote === lote).reduce((a, x) => a + x.delta, 0);
   const destinado = l.itemCustodiaId ? _saidaDestinos(l.itemCustodiaId) : 0; // devolução à família / descarte
-  return l.qtd - consumido + devolvido + ajustado - destinado;
+  // quantidade que saiu deste lote por transferência para a custódia de paciente
+  const transferido = transferenciasCustodia
+    .filter((t) => t.loteOrigem === lote).reduce((a, t) => a + t.qtd, 0);
+  return l.qtd - consumido + devolvido + ajustado - destinado - transferido;
 }
 
+// Saldo do ESTOQUE DA CLÍNICA: exclui custódia (trazida pela família ou
+// transferida para um paciente), pois deixou de estar disponível ao serviço.
 function saldo(subId) {
-  return allLotes().filter((l) => l.subId === subId && (l.origem !== "proprio" || l.integrado)).reduce((a, l) => a + saldoLote(l.lote), 0);
+  return allLotes()
+    .filter((l) => l.subId === subId && !l.restritoPaciente)
+    .reduce((a, l) => a + saldoLote(l.lote), 0);
 }
 
 function custoMedio(subId) {
@@ -517,6 +550,15 @@ function buildMovements() {
     data: l.data, tipo: "entrada", subId: l.subId, qtd: l.qtd, ref: l.fonte,
     paciente: l.restritoPaciente || null, lote: l.lote, custoUnit: l.custoUnit, origem: l.origem,
   }));
+  // saída do estoque geral correspondente a cada transferência
+  transferenciasCustodia.forEach((t) => {
+    const p = patById(t.paciente);
+    list.push({
+      data: t.data, tipo: "saida", subId: t.subId, qtd: t.qtd,
+      ref: `Transferência para custódia — ${p ? p.nome : ""}`,
+      paciente: t.paciente, lote: t.loteOrigem, custoUnit: t.custoUnit,
+    });
+  });
   dispensations.forEach((d) => {
     const lote = allLotes().find((l) => l.lote === d.lote);
     list.push({
@@ -554,8 +596,23 @@ function buildMovements() {
 }
 
 function diasInternado(p) { return diffDias(p.admissao, p.dataAlta && p.dataAlta < HOJE ? p.dataAlta : HOJE) + 1; }
+// lotes que nasceram de transferência do estoque para a custódia
+function _lotesTransferidos() {
+  const set = new Set();
+  transferenciasCustodia.forEach((t) => set.add(t.loteDestino));
+  return set;
+}
+/* Custo de medicamentos do paciente.
+   Na transferência do estoque para a custódia, o custo é atribuído ao
+   paciente NO MOMENTO DA TRANSFERÊNCIA. As doses administradas depois saem
+   desse lote e NÃO são cobradas outra vez — do contrário o mesmo comprimido
+   seria contado duas vezes. */
 function custoMedicamentosPaciente(patId) {
-  return movements.filter((m) => m.tipo === "saida" && m.paciente === patId).reduce((a, m) => a + m.qtd * (m.custoUnit || 0), 0);
+  const transf = _lotesTransferidos();
+  return movements
+    .filter((m) => m.tipo === "saida" && m.paciente === patId)
+    .filter((m) => !(transf.has(m.lote) && !/^Transferência para custódia/.test(m.ref || "")))
+    .reduce((a, m) => a + m.qtd * (m.custoUnit || 0), 0);
 }
 function custoDiariasPaciente(p) { return diasInternado(p) * DIARIA_INTERNACAO; }
 function custoTotalPaciente(p) { return custoDiariasPaciente(p) + custoMedicamentosPaciente(p.id); }

@@ -308,7 +308,7 @@ function renderPage() {
     </style>
 
     <div class="panel">
-      <div class="panel-head"><div><div class="panel-title">Configurar impressão</div><div class="panel-title-sub">${patients.length} paciente(s) com cadastro ativo entram no mapa</div></div></div>
+      <div class="panel-head"><div><div class="panel-title">Configurar impressão</div><div class="panel-title-sub">${pacientesInternados().length} paciente(s) internado(s) entram no mapa</div></div></div>
       <div class="panel-body">
         <div class="mapa-cfg">
           <div><label>Períodos</label>

@@ -124,7 +124,9 @@ function _optSubs(sel) {
 }
 function _optPats(sel) {
   return `<option value="">— selecione —</option>` +
-    patients.map((p) => `<option value="${p.id}"${p.id === sel ? " selected" : ""}>${p.nome} · ${p.leito || ""}</option>`).join("");
+    patients.filter((p) => pacInternado(p) || p.id === sel)   // com alta só aparece se já estiver selecionado
+      .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || ""), "pt-BR", { numeric: true }) || a.nome.localeCompare(b.nome, "pt-BR"))
+      .map((p) => `<option value="${p.id}"${p.id === sel ? " selected" : ""}>${p.nome}${p.leito ? " · " + p.leito : ""}${pacInternado(p) ? "" : " (alta)"}</option>`).join("");
 }
 function _optPresc(sel) {
   return `<option value="">— selecione —</option>` +
