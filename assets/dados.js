@@ -321,13 +321,38 @@ function lotesDisponiveis(subId) {
     .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
 }
 // Lotes de CUSTÓDIA do próprio paciente para uma substância (com saldo)
-// Lotes de uso exclusivo do paciente: trazidos por ele (origem "proprio")
-// ou transferidos do estoque da clínica (origem "transferido").
+// data da última administração de um lote (para saber se já está em uso)
+function ultimoUsoLote(lote) {
+  const ds = dispensations.filter((x) => x.lote === lote).map((x) => x.data).sort();
+  return ds.length ? ds[ds.length - 1] : null;
+}
+
+/* Lotes de uso exclusivo do paciente: trazidos por ele (origem "proprio")
+   ou transferidos do estoque da clínica (origem "transferido").
+
+   ORDEM DIFERENTE DO ESTOQUE GERAL — aqui NÃO se usa FEFO puro.
+   No estoque da clínica, começar pelo que vence antes evita perda para o
+   serviço. Na custódia o medicamento é do paciente e já foi pago: abrir uma
+   caixa nova enquanto restam poucos comprimidos na anterior gera sobra
+   fracionada, confunde a separação e tende a vencer nas mãos dele.
+   Por isso a preferência é: TERMINAR O LOTE JÁ EM USO; entre os não
+   iniciados, aí sim o que vence primeiro. */
 function lotesCustodiaDoPaciente(subId, pacienteId) {
   return allLotes().filter((l) => l.subId === subId && l.restritoPaciente === pacienteId && !l.integrado)
-    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
+    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
+                   qtd: l.qtd, ultimoUso: ultimoUsoLote(l.lote) }))
     .filter((x) => x.saldo > 0)
-    .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
+    .map((x) => ({ ...x, emUso: x.saldo < x.qtd }))
+    .sort((a, b) => {
+      if (a.emUso !== b.emUso) return a.emUso ? -1 : 1;          // aberto primeiro
+      if (a.emUso) return (b.ultimoUso || "").localeCompare(a.ultimoUso || ""); // o mais recente
+      return String(a.validade || "9999").localeCompare(String(b.validade || "9999")); // FEFO entre os fechados
+    });
+}
+// o lote de custódia que o sistema sugere por padrão
+function loteCustodiaSugerido(subId, pacienteId) {
+  const l = lotesCustodiaDoPaciente(subId, pacienteId);
+  return l.length ? l[0] : null;
 }
 function loteFEFO(subId) { const d = lotesDisponiveis(subId); return d[0] ? d[0].lote : ""; }
 // Quantidade a partir do texto da dose ("1 comp." -> 1, "2 comp" -> 2; padrão 1).

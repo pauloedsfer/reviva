@@ -134,15 +134,27 @@ window.printLabels = function (opts) {
 };
 
 /* -------- dispensação -------- */
+/* Aviso quando o lote sugerido (o que está aberto) vence DEPOIS de outro
+   lote fechado do mesmo paciente: terminar o aberto é o certo para não
+   fracionar, mas o RT precisa enxergar que há um lote vencendo antes. */
+function _avisoValidadeCustodia(cust) {
+  if (cust.length < 2) return "";
+  const sug = cust[0];
+  const anterior = cust.slice(1).filter((l) => l.validade && sug.validade && l.validade < sug.validade)
+    .sort((a, b) => String(a.validade).localeCompare(String(b.validade)))[0];
+  if (!anterior) return "";
+  return `<div style="font-size:10px;color:var(--warn);margin-top:2px">lote ${_esc(anterior.lote)} vence antes (${fmtDate(anterior.validade)})</div>`;
+}
+
 function _selLote(subId, pacienteId) {
   const cust = lotesCustodiaDoPaciente(subId, pacienteId);   // custódia DELE — preferência
   const geral = lotesDisponiveis(subId);                     // estoque geral — escolha manual
   if (!cust.length && !geral.length) return `<select class="disp-lote" disabled><option value="">sem saldo</option></select>`;
   const opts = [
-    ...cust.map((l, i) => `<option value="${l.lote}"${i === 0 ? " selected" : ""}>★ custódia do paciente · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}</option>`),
+    ...cust.map((l, i) => `<option value="${l.lote}"${i === 0 ? " selected" : ""}>★ custódia · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}${l.emUso ? " · EM USO" : " · fechado"}</option>`),
     ...geral.map((l, i) => `<option value="${l.lote}"${!cust.length && i === 0 ? " selected" : ""}>estoque · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}</option>`),
   ];
-  return `<select class="disp-lote">${opts.join("")}</select>`;
+  return `<select class="disp-lote">${opts.join("")}</select>${_avisoValidadeCustodia(cust)}`;
 }
 
 async function confirmarDispensacao() {
