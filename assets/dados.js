@@ -48,28 +48,63 @@ async function carregarConfig() {
   window.ESTAB = (est && est[0]) || null;
 }
 
+/* ------------------------------------------------------------------
+   sbFetchAll — leitura COMPLETA de uma tabela.
+
+   O PostgREST (camada REST do Supabase) devolve no máximo 1000 linhas
+   por requisição. Um `.select("*")` puro NÃO devolve a tabela inteira:
+   devolve a primeira página. Sem paginação, a partir da linha 1001 os
+   registros ficam invisíveis para o sistema — o INSERT grava, o banco
+   guarda, mas a tela nunca mais enxerga. Foi exatamente o que
+   aconteceu com `dispensacoes`.
+
+   Aqui a leitura é feita em blocos de 1000 via `.range()`, com ordem
+   estável por `id` (chave primária, sempre única) para que nenhuma
+   linha seja pulada nem repetida entre as páginas.
+   ------------------------------------------------------------------ */
+const SB_PAGINA = 1000;
+
+async function sbFetchAll(tabela, select) {
+  const out = [];
+  let ini = 0;
+  for (;;) {
+    const { data, error } = await window.SB
+      .from(tabela)
+      .select(select || "*")
+      .order("id", { ascending: true })
+      .range(ini, ini + SB_PAGINA - 1);
+    if (error) throw error;
+    const lote = data || [];
+    out.push(...lote);
+    if (lote.length < SB_PAGINA) break;   // última página
+    ini += SB_PAGINA;
+    if (ini > 500000) break;              // trava de segurança
+  }
+  return out;
+}
+
 async function carregarDados() {
-  const q = (sel) => window.SB.from(sel.t).select(sel.s || "*");
   const [
     subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns, transf,
   ] = await Promise.all([
-    window.SB.from("substancias").select("*"),
-    window.SB.from("pacientes").select("*, prescritores(nome,conselho,uf,numero)"),
-    window.SB.from("prescricoes").select("*"),
-    window.SB.from("notas_fiscais").select("*, fornecedores(nome), nota_fiscal_itens(*)"),
-    window.SB.from("doacoes").select("*, doacao_itens(*)"),
-    window.SB.from("medicacao_propria").select("*, medicacao_propria_itens(*)"),
-    window.SB.from("inventario_inicial").select("*"),
-    window.SB.from("dispensacoes").select("*"),
-    window.SB.from("devolucoes").select("*"),
-    window.SB.from("pops").select("*"),
-    window.SB.from("carrinho_emergencia").select("*").limit(1),
-    window.SB.from("carrinho_itens").select("*"),
-    window.SB.from("carrinho_historico").select("*"),
-    window.SB.from("prescritores").select("*"),
-    window.SB.from("fornecedores").select("*"),
-    window.SB.from("transferencias_custodia").select("*"),
-  ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
+    sbFetchAll("substancias"),
+    sbFetchAll("pacientes", "*, prescritores(nome,conselho,uf,numero)"),
+    sbFetchAll("prescricoes"),
+    sbFetchAll("notas_fiscais", "*, fornecedores(nome), nota_fiscal_itens(*)"),
+    sbFetchAll("doacoes", "*, doacao_itens(*)"),
+    sbFetchAll("medicacao_propria", "*, medicacao_propria_itens(*)"),
+    sbFetchAll("inventario_inicial"),
+    sbFetchAll("dispensacoes"),
+    sbFetchAll("devolucoes"),
+    sbFetchAll("pops"),
+    window.SB.from("carrinho_emergencia").select("*").limit(1)
+      .then((r) => { if (r.error) throw r.error; return r.data || []; }),
+    sbFetchAll("carrinho_itens"),
+    sbFetchAll("carrinho_historico"),
+    sbFetchAll("prescritores"),
+    sbFetchAll("fornecedores"),
+    sbFetchAll("transferencias_custodia"),
+  ]);
 
   substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
     principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma,
@@ -127,7 +162,7 @@ async function carregarDados() {
     custoUnit: Number(i.custo_unit), data: i.data, obs: i.observacao,
   }));
 
-  transferenciasCustodia = (transf && transf.data ? transf.data : (transf || [])).map((t) => ({
+  transferenciasCustodia = (transf || []).map((t) => ({
     id: t.id, data: t.data, subId: t.substancia_id, paciente: t.paciente_id,
     loteOrigem: t.lote_origem, loteDestino: t.lote_destino, validade: t.validade,
     qtd: Number(t.quantidade), custoUnit: Number(t.custo_unit || 0), obs: t.observacao,
@@ -164,8 +199,7 @@ async function carregarDados() {
   // Ajustes de inventário (tabela adicionada por migration_ajustes.sql).
   // Carrega de forma tolerante: se a migração ainda não rodou, segue sem ajustes.
   try {
-    const { data: ajs, error: eaj } = await window.SB.from("ajustes_estoque").select("*");
-    if (eaj) throw eaj;
+    const ajs = await sbFetchAll("ajustes_estoque");
     ajustes = (ajs || []).map((a) => ({
       id: a.id, data: a.data, subId: a.substancia_id, lote: a.numero_lote,
       delta: a.quantidade, saldoSistema: a.saldo_sistema, contagemFisica: a.contagem_fisica,
@@ -176,8 +210,7 @@ async function carregarDados() {
 
   // Destinos de custódia (migration_alta.sql). Carga tolerante.
   try {
-    const { data: cds, error: ecd } = await window.SB.from("custodia_destinos").select("*");
-    if (ecd) throw ecd;
+    const cds = await sbFetchAll("custodia_destinos");
     custodiaDestinos = (cds || []).map((d) => ({ id: d.id, data: d.data, itemId: d.medicacao_propria_item_id, tipo: d.tipo, qtd: d.quantidade, obs: d.obs }));
   } catch (e) { custodiaDestinos = []; }
 
@@ -185,8 +218,7 @@ async function carregarDados() {
 
   // Cotações (tabela adicionada por migration_cotacao.sql). Carga tolerante.
   try {
-    const { data: cots, error: ec } = await window.SB.from("cotacoes").select("*, cotacao_itens(*, cotacao_precos(*))");
-    if (ec) throw ec;
+    const cots = await sbFetchAll("cotacoes", "*, cotacao_itens(*, cotacao_precos(*))");
     cotacoes = (cots || []).map((c) => ({
       id: c.id, identificador: c.identificador, data: c.data, status: c.status, observacao: c.observacao,
       itens: (c.cotacao_itens || [])

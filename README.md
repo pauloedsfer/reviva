@@ -12,6 +12,14 @@ A cada nova versão entregue, este documento é atualizado junto. Ele substitui 
 
 ---
 
+## 0. Como trabalhar com este projeto
+
+Ao pedir alterações com apoio de IA, veja `COMO-ECONOMIZAR-TOKENS.md`: uma
+conversa por assunto, anexando este README e o arquivo da tela envolvida.
+O histórico longo é o que mais consome — não o tamanho do sistema.
+
+---
+
 ## 1. Arquitetura em uma frase
 
 Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/Postgres. **No Livro de Registro e no BMPO, a identidade do medicamento é princípio ativo + dosagem** — o nome comercial é conveniência clínica e é consolidado na escrituração. Login único (Supabase Auth). O **razão é derivado** — saldos e Livro são calculados a partir dos eventos atômicos, nunca digitados à mão. RT e estabelecimento são **dados editáveis** (Configurações), nunca fixos no código. Migrações são **aditivas** e ficam na pasta `db/`.
