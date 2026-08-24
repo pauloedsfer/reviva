@@ -7,7 +7,7 @@
 function renderPage(){
   const phases = [
     {
-      n: "1", status: "live", statusLabel: "Neste protótipo",
+      n: "1", status: "live", statusLabel: "Em operação",
       title: "Escrituração digital e Dose Unitária",
       desc: "Cadastro de pacientes, substâncias e prescrições; kits de dose unitária gerados por paciente/horário; Livro de Registro e Balanço Mensal calculados automaticamente a partir das movimentações — uso individual, em um único computador ou tablet da farmácia.",
     },
@@ -30,7 +30,7 @@ function renderPage(){
     },
   ];
   return `
-    <div class="note-box"><b>Como ler este roadmap.</b> A Fase 1 é o que você já está vendo funcionando neste protótipo. As fases seguintes são direções realistas de evolução, priorizadas conforme a necessidade da equipe — não promessas de prazo fechado, mas o caminho técnico já está mapeado.</div>
+    <div class="note-box"><b>Como ler este roadmap.</b> A Fase 1 é o que já está em operação na farmácia. As fases seguintes são direções realistas de evolução, priorizadas conforme a necessidade da equipe — não promessas de prazo fechado, mas o caminho técnico já está mapeado.</div>
     ${phases.map(p=>`
       <div class="phase">
         <div class="phase-num">${p.n}</div>

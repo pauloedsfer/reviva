@@ -2,7 +2,7 @@
    dados.js — Hospital Reviva | Sistema de Escrituração e Estoque
    Fonte de dados e funções de cálculo, compartilhada por todas
    as páginas. Os dados agora vêm do banco (Supabase); as funções
-   de cálculo e gráficos permanecem idênticas ao protótipo.
+   de cálculo e gráficos.
 
    Arquitetura (mantida): MOVIMENTAÇÕES são a fonte de verdade do
    estoque. Saldos, custos e relatórios são sempre DERIVADOS delas.
@@ -31,6 +31,8 @@ let fornecedores = [];
 let pops = [];
 let cotacoes = [];
 let custodiaDestinos = [];
+// cache das posições de estoque; zerado a cada recarga de dados
+let _cachePosicoes = null;
 let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
 let movements = [];
 
@@ -84,6 +86,7 @@ async function sbFetchAll(tabela, select) {
 }
 
 async function carregarDados() {
+  _cachePosicoes = null;
   const [
     subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns, transf,
   ] = await Promise.all([
@@ -214,6 +217,7 @@ async function carregarDados() {
     custodiaDestinos = (cds || []).map((d) => ({ id: d.id, data: d.data, itemId: d.medicacao_propria_item_id, tipo: d.tipo, qtd: d.quantidade, obs: d.obs }));
   } catch (e) { custodiaDestinos = []; }
 
+  _cachePosicoes = null;   // dados novos: recalcula as posições
   movements = buildMovements();
 
   // Cotações (tabela adicionada por migration_cotacao.sql). Carga tolerante.
@@ -244,7 +248,7 @@ function rtLinha() {
   return `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}`;
 }
 
-/* ---------------- helpers (idênticos ao protótipo) ---------------- */
+/* ---------------- helpers ---------------- */
 const $ = (sel, el = document) => el.querySelector(sel);
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
 /* ---- Paciente internado ----
@@ -347,8 +351,8 @@ function lotesComSaldo(subId) {
 function lotesDisponiveis(subId) {
   // Estoque GERAL: exclui todo lote restrito a paciente (trazido pela família
   // ou transferido do estoque), pois não está mais disponível ao serviço.
-  return allLotes().filter((l) => l.subId === subId && !l.restritoPaciente)
-    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
+  return allPosicoes().filter((p) => p.subId === subId && !p.restritoPaciente)
+    .map((p) => ({ lote: p.lote, validade: p.validade, saldo: saldoPosicao(p), chave: p.chave }))
     .filter((x) => x.saldo > 0)
     .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
 }
@@ -370,9 +374,9 @@ function ultimoUsoLote(lote) {
    Por isso a preferência é: TERMINAR O LOTE JÁ EM USO; entre os não
    iniciados, aí sim o que vence primeiro. */
 function lotesCustodiaDoPaciente(subId, pacienteId) {
-  return allLotes().filter((l) => l.subId === subId && l.restritoPaciente === pacienteId && !l.integrado)
-    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
-                   qtd: l.qtd, ultimoUso: ultimoUsoLote(l.lote) }))
+  return allPosicoes().filter((p) => p.subId === subId && p.restritoPaciente === pacienteId)
+    .map((p) => ({ lote: p.lote, validade: p.validade, saldo: saldoPosicao(p),
+                   qtd: p.qtd, chave: p.chave, ultimoUso: ultimoUsoLote(p.lote) }))
     .filter((x) => x.saldo > 0)
     .map((x) => ({ ...x, emUso: x.saldo < x.qtd }))
     .sort((a, b) => {
@@ -485,25 +489,158 @@ function allLotes() {
   return list;
 }
 
+/* ============================================================
+   POSIÇÕES DE ESTOQUE — a identidade correta de um saldo
+
+   Um número de lote NÃO identifica um saldo. O mesmo lote de
+   fábrica pode estar, ao mesmo tempo, na custódia do paciente A,
+   na custódia do paciente B e no estoque da clínica. São três
+   saldos independentes do mesmo objeto físico.
+
+   O que identifica um saldo é a POSIÇÃO:
+       substância + lote + validade + TITULAR
+   onde titular é um paciente ou a clínica.
+
+   Regra decorrente: mesmo titular, as entradas SOMAM (a família
+   trouxe mais do mesmo lote); titulares diferentes, os saldos
+   correm separados e o fim de um não bloqueia o outro.
+
+   Antes, `saldoLote` pegava a PRIMEIRA entrada com aquele número
+   (`.find`) e descontava TODAS as saídas daquele número
+   (`.filter`) — entrada de um, baixa de todos. Era isso que
+   zerava a custódia de um paciente quando outro terminava a dele.
+   ============================================================ */
+
+const TITULAR_CLINICA = "CLINICA";
+
+function _titularDe(l) { return l.restritoPaciente || TITULAR_CLINICA; }
+function chavePosicao(subId, lote, validade, titular) {
+  return [subId, lote, validade || "", titular || TITULAR_CLINICA].join("|");
+}
+function _chaveDoLote(l) { return chavePosicao(l.subId, l.lote, l.validade, _titularDe(l)); }
+
+/* Agrupa as entradas em posições. Entradas de mesma substância,
+   mesmo lote, mesma validade e mesmo titular viram UMA posição
+   com a quantidade somada. */
+function allPosicoes() {
+  if (_cachePosicoes) return _cachePosicoes;
+  const mapa = new Map();
+  allLotes().forEach((l) => {
+    const k = _chaveDoLote(l);
+    let p = mapa.get(k);
+    if (!p) {
+      p = { chave: k, subId: l.subId, lote: l.lote, validade: l.validade,
+            titular: _titularDe(l), restritoPaciente: l.restritoPaciente || null,
+            qtd: 0, custoTotal: 0, entradas: [], itensCustodia: [],
+            data: l.data, origem: l.origem, fonte: l.fonte };
+      mapa.set(k, p);
+    }
+    p.qtd += Number(l.qtd) || 0;
+    p.custoTotal += (Number(l.qtd) || 0) * (Number(l.custoUnit) || 0);
+    p.entradas.push(l);
+    if (l.itemCustodiaId) p.itensCustodia.push(l.itemCustodiaId);
+    if (l.data && (!p.data || l.data < p.data)) p.data = l.data;   // data da primeira entrada
+  });
+  _cachePosicoes = Array.from(mapa.values())
+    .map((p) => ({ ...p, custoUnit: p.qtd ? p.custoTotal / p.qtd : 0 }));
+  _alocarSaidas(_cachePosicoes);
+  return _cachePosicoes;
+}
+
+/* ------------------------------------------------------------
+   Alocação das saídas entre as posições de um mesmo lote.
+
+   Uma baixa registra o número do lote e o paciente, mas não de
+   qual titular saiu — a informação é reconstruída aqui, pela
+   regra que corresponde à prática da farmácia:
+
+     1. consome primeiro a custódia DO PRÓPRIO paciente;
+     2. esgotada a custódia, consome o estoque da clínica.
+
+   Uma posição só absorve saídas com data igual ou posterior à
+   sua entrada: assim uma baixa feita ANTES de a família trazer o
+   medicamento não é atribuída, retroativamente, à custódia.
+   ------------------------------------------------------------ */
+function _alocarSaidas(posicoes) {
+  posicoes.forEach((p) => { p.consumido = 0; p.devolvido = 0; p.ajustado = 0; p.transferido = 0; });
+
+  const porLote = new Map();
+  posicoes.forEach((p) => {
+    const k = p.subId + "|" + p.lote;
+    if (!porLote.has(k)) porLote.set(k, []);
+    porLote.get(k).push(p);
+  });
+
+  // candidatas a receber uma saída, na ordem de preferência
+  const candidatas = (subId, lote, pacienteId, data) => {
+    const ls = (porLote.get(subId + "|" + lote) || [])
+      .filter((p) => !p.data || !data || p.data <= data);
+    const doPaciente = ls.filter((p) => pacienteId && p.restritoPaciente === pacienteId);
+    const daClinica  = ls.filter((p) => !p.restritoPaciente);
+    const resto      = ls.filter((p) => p.restritoPaciente && p.restritoPaciente !== pacienteId);
+    return [...doPaciente, ...daClinica, ...resto];
+  };
+
+  // distribui `qtd` entre as candidatas, respeitando a capacidade de cada uma
+  const distribuir = (lista, qtd, campo) => {
+    let resta = qtd;
+    for (const p of lista) {
+      if (resta <= 0) break;
+      const capacidade = campo === "consumido" ? Math.max(0, p.qtd - p.consumido) : Infinity;
+      const usa = Math.min(resta, capacidade);
+      if (usa > 0) { p[campo] += usa; resta -= usa; }
+    }
+    // sobra sem posição compatível: joga na primeira, para o saldo ficar
+    // negativo e o erro aparecer no balanço em vez de sumir silenciosamente
+    if (resta > 0 && lista.length) lista[0][campo] += resta;
+  };
+
+  const ordenadas = (arr) => arr.slice().sort((a, b) => String(a.data || "").localeCompare(String(b.data || "")));
+
+  ordenadas(dispensations).forEach((x) => {
+    distribuir(candidatas(x.subId, x.lote, x.paciente, x.data), Number(x.qtd) || 0, "consumido");
+  });
+  ordenadas(returns).forEach((x) => {
+    const ls = candidatas(x.subId, x.lote, x.paciente, x.data);
+    if (ls.length) ls[0].devolvido += Number(x.qtd) || 0;
+  });
+  ajustes.forEach((x) => {
+    const ls = (porLote.get(x.subId + "|" + x.lote) || []);
+    // ajuste de inventário é do estoque da clínica, salvo se só houver custódia
+    const alvo = ls.find((p) => !p.restritoPaciente) || ls[0];
+    if (alvo) alvo.ajustado += Number(x.delta) || 0;
+  });
+  transferenciasCustodia.forEach((t) => {
+    const ls = (porLote.get(t.subId + "|" + t.loteOrigem) || []).filter((p) => !p.restritoPaciente);
+    if (ls.length) ls[0].transferido += Number(t.qtd) || 0;
+  });
+}
+
+// saldo de UMA posição (o número que importa para dispensar)
+function saldoPosicao(p) {
+  if (!p) return 0;
+  const destinado = (p.itensCustodia || []).reduce((a, id) => a + _saidaDestinos(id), 0);
+  return p.qtd - p.consumido + p.devolvido + p.ajustado - destinado - p.transferido;
+}
+
+function posicoesDoLote(subId, lote) {
+  return allPosicoes().filter((p) => p.lote === lote && (!subId || p.subId === subId));
+}
+
+/* Saldo FÍSICO de um número de lote — soma de todas as posições.
+   Mantido para as telas que raciocinam por lote (estoque,
+   escrituração, balanço): ali o que interessa é quanto daquele
+   lote existe na casa, não de quem é. */
 function saldoLote(lote) {
-  const l = allLotes().find((x) => x.lote === lote);
-  if (!l) return 0;
-  const consumido = dispensations.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
-  const devolvido = returns.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
-  const ajustado = ajustes.filter((x) => x.lote === lote).reduce((a, x) => a + x.delta, 0);
-  const destinado = l.itemCustodiaId ? _saidaDestinos(l.itemCustodiaId) : 0; // devolução à família / descarte
-  // quantidade que saiu deste lote por transferência para a custódia de paciente
-  const transferido = transferenciasCustodia
-    .filter((t) => t.loteOrigem === lote).reduce((a, t) => a + t.qtd, 0);
-  return l.qtd - consumido + devolvido + ajustado - destinado - transferido;
+  return allPosicoes().filter((p) => p.lote === lote).reduce((a, p) => a + saldoPosicao(p), 0);
 }
 
 // Saldo do ESTOQUE DA CLÍNICA: exclui custódia (trazida pela família ou
 // transferida para um paciente), pois deixou de estar disponível ao serviço.
 function saldo(subId) {
-  return allLotes()
-    .filter((l) => l.subId === subId && !l.restritoPaciente)
-    .reduce((a, l) => a + saldoLote(l.lote), 0);
+  return allPosicoes()
+    .filter((p) => p.subId === subId && !p.restritoPaciente)
+    .reduce((a, p) => a + saldoPosicao(p), 0);
 }
 
 function custoMedio(subId) {
