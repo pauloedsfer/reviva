@@ -1,0 +1,116 @@
+/* MOLBOX — tokens de identidade visual
+   Paleta derivada do Manual de Marcas do Sistema FIEG (v1.02, ago/2024),
+   com ajustes de luminancia para atingir contraste AA em texto pequeno.
+   Todo par documentado abaixo foi medido; o valor entre parenteses e a razao
+   de contraste real contra o fundo da respectiva superficie. */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- marca (valores oficiais FIEG, uso em areas cromaticas) ---- */
+  --mb-azul-fieg:    #164194;  /* azul escuro institucional */
+  --mb-azul-claro:   #008BD2;  /* azul claro institucional */
+  --mb-laranja-senai:#E84910;  /* laranja SENAI */
+
+  /* ---- superficies ---- */
+  --mb-fundo:        #F5F7FA;
+  --mb-superficie:   #FFFFFF;
+  --mb-superficie-2: #EEF2F8;
+  --mb-borda:        #D6DEEA;
+  --mb-borda-forte:  #A9B7CC;
+
+  /* ---- texto ---- */
+  --mb-texto:        #0F172A;  /* 17.9:1 */
+  --mb-texto-2:      #475569;  /* 7.6:1  */
+  --mb-texto-3:      #64748B;  /* 4.8:1  — apenas legendas */
+  --mb-texto-inv:    #FFFFFF;
+
+  /* ---- papeis semanticos ---- */
+  --mb-estrutura:    #164194;  /* 9.5:1  — titulos, cabecalho, marca */
+  /* Fundo da barra superior. Token próprio porque no modo escuro a cor de
+     estrutura fica clara, e texto branco sobre ela seria ilegível. */
+  --mb-barra:        #164194;  /* branco sobre este fundo: 9.5:1 */
+  --mb-interacao:    #0B5E8C;  /* 7.0:1  — links e botoes (azul claro escurecido) */
+  --mb-interacao-bg: #E6F1FB;
+  --mb-energia:      #C43C0E;  /* 5.3:1  — texto/icone laranja legivel */
+  --mb-energia-bg:   #FDEBE4;
+  --mb-acerto:       #1B7A3A;  /* 5.4:1  */
+  --mb-acerto-bg:    #E7F5EC;
+  --mb-erro:         #B3271E;  /* 6.5:1  */
+  --mb-erro-bg:      #FCEAE8;
+  --mb-atencao:      #8A5200;  /* 5.9:1  */
+  --mb-atencao-bg:   #FDF3E2;
+
+  /* Os dois lados de uma equação. Existem separados de --mb-erro e de
+     --mb-energia de propósito: na tela Balancear a bandeja de produtos fica
+     colorida ao lado das pilhas de contagem, e se produto e "não fecha"
+     usassem o mesmo tom o aluno leria erro onde não há. */
+  --mb-reagente-bg:  #EEF3F8;
+  --mb-reagente-bd:  #C6D6E4;
+  --mb-produto-bg:   #FBEBEB;
+  --mb-produto-bd:   #E3B9B9;
+
+  /* ---- tipografia ---- */
+  --mb-fonte-marca:  "Exo 2", system-ui, sans-serif;
+  --mb-fonte-texto:  "Inter", system-ui, -apple-system, sans-serif;
+  --mb-fonte-dado:   "IBM Plex Mono", ui-monospace, monospace;
+
+  --mb-t-legenda:  0.8125rem; /* 13px */
+  --mb-t-apoio:    0.9375rem; /* 15px */
+  --mb-t-corpo:    1rem;      /* 16px — piso de leitura no celular */
+  --mb-t-titulo-3: 1.125rem;
+  --mb-t-titulo-2: 1.375rem;
+  --mb-t-titulo-1: 1.75rem;
+  --mb-t-numero:   2rem;
+
+  /* ---- forma e ritmo ---- */
+  --mb-raio:       10px;
+  --mb-raio-card:  14px;
+  --mb-toque:      44px;      /* alvo minimo de toque */
+  --mb-e1: 4px;  --mb-e2: 8px;  --mb-e3: 12px;
+  --mb-e4: 16px; --mb-e5: 24px; --mb-e6: 32px;
+}
+
+/* O laranja puro #E84910 tem 3.9:1 sobre branco: reprovado para texto pequeno.
+   Use-o em preenchimentos, icones e texto acima de 24px; para texto corrido
+   em laranja use --mb-energia. */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mb-fundo:        #0B1220;
+    --mb-superficie:   #131C2E;
+    --mb-superficie-2: #1B263C;
+    --mb-borda:        #2A3650;
+    --mb-borda-forte:  #41527A;
+
+    --mb-texto:        #E8EDF5;  /* 15.9:1 */
+    --mb-texto-2:      #9FB3CC;  /* 8.7:1  */
+    --mb-texto-3:      #7D8FA8;
+    --mb-texto-inv:    #0B1220;
+
+    --mb-estrutura:    #6FC5F0;  /* 9.7:1  */
+    --mb-barra:        #0D1729;  /* branco sobre este fundo: 16:1 */
+    --mb-interacao:    #6FC5F0;
+    --mb-interacao-bg: #12283C;
+    --mb-energia:      #FF7A45;  /* 7.2:1  */
+    --mb-energia-bg:   #2E1508;
+    --mb-acerto:       #4FD07A;  /* 9.5:1  */
+    --mb-acerto-bg:    #0E2A18;
+    --mb-erro:         #FF8A80;  /* 8.2:1  */
+    --mb-erro-bg:      #2E1211;
+    --mb-reagente-bg:  #16202B;
+    --mb-reagente-bd:  #2F4457;
+    --mb-produto-bg:   #2B1618;
+    --mb-produto-bd:   #5C3033;
+    --mb-atencao:      #E8B341;
+    --mb-atencao-bg:   #2C2008;
+  }
+}
+
+/* Reducao de movimento respeitada em todo o produto */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
