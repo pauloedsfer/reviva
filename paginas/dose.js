@@ -75,7 +75,7 @@ function _sosLancados(pac, subId) {
    sai do estoque, e a medicação de custódia vem sinalizada. */
 function _gerarEtiquetas(opts) {
   opts = opts || {};
-  const d = dataRef();
+  const d = opts.data || dataRef();   // separação pode ser de um dia futuro
   const labels = [];
   const alvos = patients.filter((p) => _pacienteInternadoNaData(p, d))
     .filter((p) => !opts.pac || p.id === opts.pac)
@@ -97,6 +97,13 @@ function _gerarEtiquetas(opts) {
   });
   return labels;
 }
+function _fsAddDiasLocal(iso, n) {
+  const d = new Date(String(iso) + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function _sepAmanha() { return _fsAddDiasLocal(HOJE, 1); }
+
 const _DIA_SEM = ["DOMINGO","SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA","SÁBADO"];
 function _diaSemana(iso) {
   const d = new Date(String(iso) + "T12:00:00");
@@ -115,17 +122,20 @@ function loteSugeridoParaPaciente(subId, pacienteId) {
 }
 
 window.printLabels = function (opts) {
+  opts = opts || {};
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
-  const dataTxt = fmtDate(dataRef());
-  const labels = _gerarEtiquetas(opts);
-  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nessa data."); return; }
+  const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
+  // cada etiqueta carrega o dia a que pertence — o kit é exclusivo daquele dia
+  const labels = dias.flatMap((dia) =>
+    _gerarEtiquetas({ ...opts, data: dia }).map((l) => ({ ...l, dia })));
+  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nesse período."); return; }
   const cards = labels.map((l) => `
     <div class="lbl">
-      <div class="lbl-h">${hosp} — Dose Unitária · ${dataTxt}</div>
+      <div class="lbl-h">${hosp} — Dose Unitária · ${fmtDate(l.dia)}</div>
       <div class="lbl-p">${l.patient.nome}</div>
       <div class="lbl-b">${l.patient.leito || ""}</div>
-      <div class="lbl-t">${l.slot}${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(dataRef())}</span></div>
+      <div class="lbl-t"><b class="lbl-hora">${l.slot}</b>${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(l.dia)}</span></div>
       <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(it.sub.nome)}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>`).join("")}</div>
       <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.</div>
     </div>`).join("");
@@ -141,7 +151,8 @@ window.printLabels = function (opts) {
       .lbl-t{display:inline-block;align-self:flex-start;background:#1E2A28;color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin:5px 0;font-weight:600}
       .lbl-m{font-size:11px;line-height:1.35;flex:1}
       .lbl-f{font-size:8px;color:#B04A3F;border-top:1px dashed #ccc;padding-top:4px;margin-top:5px;font-weight:600;line-height:1.3}
-      .lbl-dia{margin-left:8px;font-size:12px;font-weight:800;letter-spacing:.06em}
+      .lbl-hora{font-size:13px;font-weight:800;letter-spacing:.03em}
+      .lbl-dia{margin-left:10px;font-size:13px;font-weight:800;letter-spacing:.06em}
       .lbl-m .mn{flex:1;min-width:0;overflow-wrap:anywhere}
       .lbl-m .mi{margin:2px 0;display:flex;gap:4px;align-items:baseline;flex-wrap:wrap}
       .lbl-m .mq{display:inline-block;min-width:22px;text-align:center;background:#EEF2EC;border:1px solid #cfd6cf;border-radius:4px;font-weight:700;font-size:10.5px;padding:0 3px}
@@ -421,7 +432,7 @@ function renderPage() {
         <div><div class="panel-title">Dispensação por data</div><div class="panel-title-sub">Selecione o dia para dar baixa — inclusive dias passados, a partir dos mapas preenchidos</div></div>
         <div class="toolbar">
           <label style="font-size:12px;color:var(--muted);align-self:center">Dia:</label>
-          <input type="date" value="${d}" max="${HOJE}" onchange="mudarDataDisp(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+          <input type="date" value="${d}" max="${HOJE}" onchange="mudarDataDisp(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit" title="A baixa no estoque é do dia ou retroativa. Para separar kits de dias futuros, use Separação da farmácia.">
           <button class="btn ghost sm" onclick="abrirSeparacao()">🖶 Separação da farmácia</button>
         </div>
       </div>
@@ -504,6 +515,10 @@ function abrirFormDevolucao() {
    quantidade de cada medicamento, para conferir enquanto separa.
    Etiquetas: um pacote por paciente e por horário.
    ============================================================ */
+/* A separação é ANTECIPADA por natureza: hoje se separa o que será
+   administrado amanhã e, nas sextas, o fim de semana inteiro, porque a
+   farmácia fecha. Por isso a separação tem período próprio, independente
+   da data de dispensação (que baixa estoque e só aceita hoje ou retroativo). */
 function abrirSeparacao() {
   const d = dataRef();
   const internados = patients.filter((p) => _pacienteInternadoNaData(p, d))
@@ -517,6 +532,18 @@ function abrirSeparacao() {
 
   abrirModal(`Separação da farmácia — ${fmtDate(d)}`, `
     <div class="note-box" style="margin-top:0">Gera o material para montar os kits do dia. O <b>checklist</b> é a folha de conferência da farmácia (uma por paciente); as <b>etiquetas</b> identificam cada pacote — um por paciente e por horário.</div>
+    <div class="ff row2">
+      <div><label>A partir de *</label><input id="sepIni" type="date" value="${_sepAmanha()}"></div>
+      <div><label>Quantos dias</label>
+        <select id="sepDias">
+          <option value="1">1 dia</option>
+          <option value="2">2 dias</option>
+          <option value="3" selected>3 dias (fim de semana)</option>
+          <option value="4">4 dias</option>
+          <option value="7">7 dias (semana)</option>
+        </select></div>
+    </div>
+    <div class="note-box" style="margin:0 0 12px">Separação é <b>antecipada</b>: normalmente se separa o dia seguinte, e nas sextas o fim de semana inteiro. Isto <b>não baixa estoque</b> — a baixa continua sendo feita no dia da administração, na tela de dispensação.</div>
     <div class="ff"><label>Paciente</label>
       <select id="sepPac">
         <option value="">★ TODOS os internados (${internados.length})</option>
@@ -538,7 +565,10 @@ function abrirSeparacao() {
     const incluirSOS = document.getElementById("sepSOS").checked;
     if (!horarios.length && !incluirSOS) throw new Error("Selecione ao menos um horário.");
     const tipo = fv("sepTipo");
-    const opts = { pac: pac || null, horarios, incluirSOS };
+    const ini = fv("sepIni") || _sepAmanha();
+    const nd = Math.max(1, Math.min(14, parseInt(fv("sepDias"), 10) || 1));
+    const dias = Array.from({ length: nd }, (_, i) => _fsAddDiasLocal(ini, i));
+    const opts = { pac: pac || null, horarios, incluirSOS, dias };
     setTimeout(() => {
       if (tipo === "check" || tipo === "ambos") imprimirChecklistSeparacao(opts);
       if (tipo === "etiq" || tipo === "ambos") setTimeout(() => window.printLabels(opts), 400);
@@ -547,14 +577,19 @@ function abrirSeparacao() {
 }
 
 function imprimirChecklistSeparacao(opts) {
-  const d = dataRef();
+  opts = opts || {};
+  const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
   const est = window.ESTAB || {};
-  const labels = _gerarEtiquetas(opts);
-  if (!labels.length) { alert("Nada a separar com os filtros escolhidos."); return; }
-
-  // agrupa por paciente
-  const porPac = {};
-  labels.forEach((l) => { (porPac[l.patient.id] = porPac[l.patient.id] || { p: l.patient, slots: [] }).slots.push(l); });
+  const d = dias[0];
+  // um conjunto de blocos por dia
+  const porDia = dias.map((dia) => {
+    const labels = _gerarEtiquetas({ ...opts, data: dia });
+    const porPac = {};
+    labels.forEach((l) => { (porPac[l.patient.id] = porPac[l.patient.id] || { p: l.patient, slots: [] }).slots.push(l); });
+    return { dia, pacs: Object.values(porPac) };
+  }).filter((x) => x.pacs.length);
+  if (!porDia.length) { alert("Nada a separar com os filtros escolhidos."); return; }
+  const porPac = {};   // compatibilidade com o template abaixo (primeiro dia)
 
   const folha = (g) => {
     const totalItens = g.slots.reduce((a, s) => a + s.items.length, 0);
@@ -617,12 +652,13 @@ function imprimirChecklistSeparacao(opts) {
   @media print{.btn{display:none}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
-  <div class="cab">
-    <div class="cab-nome">${_esc(est.nome_fantasia || est.razao_social || "Clínica Reviva")}</div>
-    <div class="cab-tit">CHECKLIST DE SEPARAÇÃO — DOSE UNITÁRIA</div>
-    <div class="cab-dt">${_diaSemana(d)} · ${fmtDate(d)}</div>
-  </div>
-  ${Object.values(porPac).map(folha).join("")}
+  ${porDia.map((g, i) => `
+    <div class="cab"${i ? ' style="page-break-before:always"' : ""}>
+      <div class="cab-nome">${_esc(est.nome_fantasia || est.razao_social || "Clínica Reviva")}</div>
+      <div class="cab-tit">CHECKLIST DE SEPARAÇÃO — DOSE UNITÁRIA</div>
+      <div class="cab-dt"><b>${_diaSemana(g.dia)}</b> · ${fmtDate(g.dia)}</div>
+    </div>
+    ${g.pacs.map(folha).join("")}`).join("")}
   <div class="rod">Conferir medicamento, dose e paciente antes de fechar o pacote. Dose fracionada: separar a unidade inteira indicada. ★ custódia = medicamento do próprio paciente. O <b>lote sugerido</b> é o próximo a ser liberado — se separar outro, anote ao lado.</div>
   </body></html>`;
   const win = window.open("", "_blank");
