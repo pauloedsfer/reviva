@@ -1,7 +1,7 @@
 # Hospital Reviva — Sistema de Gestão da Farmácia
 
 > Memorial de atualizações, estado do sistema e roadmap. Este é o documento de referência único do projeto.
-**Documento vivo · última atualização: 30/07/2026**
+**Documento vivo · última atualização: 29/08/2026**
 
 Este é o documento de referência único do sistema. Ele cumpre três papéis:
 1. **Memorial de atualizações** — o que já foi construído, em ordem (seção 2).
@@ -67,6 +67,9 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 
 ### Versão atual
 _As entradas abaixo acompanham a data no topo deste documento._
+
+- **Checklist de separação: vários pacientes por folha e lote sugerido.** O checklist saía **uma folha por paciente**, gastando muito papel — agora os pacientes fluem na mesma folha, cada bloco apenas evitando ser partido, com cabeçalho e rodapé únicos no documento e layout compactado. A coluna *Lote separado* (em branco) virou **Lote sugerido**, já preenchida com o **próximo lote a ser liberado** daquele medicamento para aquele paciente — custódia dele primeiro (terminando o lote aberto), depois o estoque geral por FEFO —, com a validade abaixo e *“sem saldo”* quando não há lote disponível. É o mesmo critério da dispensação, então o que a farmácia separa coincide com o que o sistema vai baixar.
+- **Etiquetas de kit: quebra corrigida e dia da semana.** As etiquetas tinham **altura fixa de 46 mm em 3 colunas**, e horários com muitas medicações estouravam o quadro, cortando o texto. Passaram a **2 colunas com altura automática**, crescendo conforme o conteúdo. Ao lado do horário aparece agora o **DIA DA SEMANA em maiúsculas e negrito**, e o rodapé traz o aviso de que o kit é exclusivo daquele dia, não deve ser aberto em outro e precisa voltar à farmácia se não usado. A marcação de custódia foi retirada das etiquetas (permanece no checklist, que é o documento da farmácia).
 
 - **Folha Semanal: saída sem paciente passa a ter motivo.** Saídas por **ajuste de inventário** deixavam o campo Paciente em branco. Agora esse campo recebe o motivo da saída — **“Ajuste de inventário”** e, quando aplicável, *Perda / avaria*, *Descarte*, *Devolução à família* ou *Vencimento* —, em itálico para distinguir de nome de paciente. Essas saídas são agrupadas por motivo e lote, e aparecem **depois** dos pacientes na ordenação. O campo nunca mais sai em branco, o que a transcrição para o livro físico exige.
 

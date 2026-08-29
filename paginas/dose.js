@@ -97,6 +97,23 @@ function _gerarEtiquetas(opts) {
   });
   return labels;
 }
+const _DIA_SEM = ["DOMINGO","SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA","SÁBADO"];
+function _diaSemana(iso) {
+  const d = new Date(String(iso) + "T12:00:00");
+  return isNaN(d) ? "" : _DIA_SEM[d.getDay()];
+}
+
+/* Próximo lote a ser liberado daquele medicamento para aquele paciente:
+   custódia dele primeiro (terminando o que está aberto), depois o estoque
+   geral por FEFO. É o mesmo critério usado na dispensação. */
+function loteSugeridoParaPaciente(subId, pacienteId) {
+  const c = lotesCustodiaDoPaciente(subId, pacienteId);
+  if (c.length) return { lote: c[0].lote, validade: c[0].validade, custodia: true };
+  const g = lotesDisponiveis(subId);
+  if (g.length) return { lote: g[0].lote, validade: g[0].validade, custodia: false };
+  return null;
+}
+
 window.printLabels = function (opts) {
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
@@ -108,18 +125,24 @@ window.printLabels = function (opts) {
       <div class="lbl-h">${hosp} — Dose Unitária · ${dataTxt}</div>
       <div class="lbl-p">${l.patient.nome}</div>
       <div class="lbl-b">${l.patient.leito || ""}</div>
-      <div class="lbl-t">${l.slot}${l.slot === "SOS" ? " — se necessário" : ""}</div>
-      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> ${_esc(it.sub.nome)}${it.custodia ? ' <span class="cust">★ custódia</span>' : ""}${it.descarte ? `<span class="dsc">separar ${fmtDose(it.qtd)}</span>` : ""}</div>`).join("")}</div>
-      <div class="lbl-f">Separou: __________ &nbsp; Conferiu: __________</div>
+      <div class="lbl-t">${l.slot}${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(dataRef())}</span></div>
+      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(it.sub.nome)}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>`).join("")}</div>
+      <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.</div>
     </div>`).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas — Dose Unitária</title>
     <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;margin:0}
-      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6mm}
-      .lbl{border:1px solid #333;border-radius:6px;padding:8px 10px;height:46mm;display:flex;flex-direction:column;page-break-inside:avoid}
+      /* 2 colunas e altura AUTOMÁTICA: com 3 colunas e altura fixa de 46mm,
+         horários com muitas medicações estouravam a etiqueta e o texto
+         era cortado. Agora a etiqueta cresce conforme o conteúdo. */
+      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:5mm;align-items:start}
+      .lbl{border:1px solid #333;border-radius:6px;padding:8px 10px;min-height:40mm;display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
       .lbl-p{font-weight:700;font-size:13px;margin-top:5px}.lbl-b{font-size:11px;color:#333}
       .lbl-t{display:inline-block;align-self:flex-start;background:#1E2A28;color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin:5px 0;font-weight:600}
-      .lbl-m{font-size:11px;line-height:1.3;flex:1}.lbl-f{font-size:8.5px;color:#555;border-top:1px dashed #ccc;padding-top:4px}
+      .lbl-m{font-size:11px;line-height:1.35;flex:1}
+      .lbl-f{font-size:8px;color:#B04A3F;border-top:1px dashed #ccc;padding-top:4px;margin-top:5px;font-weight:600;line-height:1.3}
+      .lbl-dia{margin-left:8px;font-size:12px;font-weight:800;letter-spacing:.06em}
+      .lbl-m .mn{flex:1;min-width:0;overflow-wrap:anywhere}
       .lbl-m .mi{margin:2px 0;display:flex;gap:4px;align-items:baseline;flex-wrap:wrap}
       .lbl-m .mq{display:inline-block;min-width:22px;text-align:center;background:#EEF2EC;border:1px solid #cfd6cf;border-radius:4px;font-weight:700;font-size:10.5px;padding:0 3px}
       .lbl-m .cust{font-size:8.5px;color:#B07A2F;font-weight:600}
@@ -538,30 +561,26 @@ function imprimirChecklistSeparacao(opts) {
     const blocos = g.slots.map((s) => `
       <div class="hor">
         <div class="hor-h">${_esc(s.slot)}${_ehSOSHor(s.slot) ? " — se necessário" : ""}<span class="hor-n">${s.items.length} item(ns)</span></div>
-        <table><thead><tr><th class="ck">✓</th><th class="qt">Qtd.</th><th>Medicamento</th><th class="lt">Lote separado</th></tr></thead>
-        <tbody>${s.items.map((it) => `<tr>
+        <table><thead><tr><th class="ck">✓</th><th class="qt">Qtd.</th><th>Medicamento</th><th class="lt">Lote sugerido</th></tr></thead>
+        <tbody>${s.items.map((it) => {
+          const sug = loteSugeridoParaPaciente(it.pr.subId, g.p.id);
+          return `<tr>
           <td class="ck"></td>
           <td class="qt mono"><b>${fmtDose(it.qtdAdm)}</b>${it.descarte ? `<div class="sep">separar ${fmtDose(it.qtd)}</div>` : ""}</td>
-          <td>${_esc(it.sub.nome)}${it.custodia ? ' <span class="cust">★ custódia do paciente</span>' : ""}</td>
-          <td class="lt"></td></tr>`).join("")}</tbody></table>
+          <td>${_esc(it.sub.nome)}${it.custodia ? ' <span class="cust">★ custódia</span>' : ""}</td>
+          <td class="lt">${sug
+            ? `<span class="mono">${_esc(sug.lote)}</span>${sug.validade ? `<div class="lv">val. ${fmtDate(sug.validade)}</div>` : ""}`
+            : `<span class="semlote">sem saldo</span>`}</td></tr>`;
+        }).join("")}</tbody></table>
       </div>`).join("");
-    return `<section class="folha">
-      <div class="cab">
-        <div class="cab-nome">${_esc(est.nome_fantasia || est.razao_social || "Clínica Reviva")}</div>
-        <div class="cab-tit">CHECKLIST DE SEPARAÇÃO — DOSE UNITÁRIA</div>
-        <div class="cab-dt">${fmtDate(d)}</div>
-      </div>
+    return `<section class="pacbloco">
       <div class="pac">
         <div><span class="rot">Paciente:</span> <b>${_esc(g.p.nome)}</b></div>
         <div><span class="rot">Leito:</span> ${_esc(g.p.leito || "—")} &nbsp; <span class="rot">Prontuário:</span> ${_esc(g.p.prontuario || "—")}</div>
         <div><span class="rot">Kits:</span> ${g.slots.length} pacote(s) · ${totalItens} item(ns)</div>
       </div>
       ${blocos}
-      <div class="assin">
-        <div class="l">Separado por (farmácia)<br>_______________________ &nbsp; ___/___/____</div>
-        <div class="l">Conferido por<br>_______________________ &nbsp; ___/___/____</div>
-      </div>
-      <div class="rod">Conferir medicamento, dose e paciente antes de fechar o pacote. Dose fracionada: separar a unidade inteira indicada. ★ custódia = usar o medicamento do próprio paciente.</div>
+      <div class="assinp"><span>Separado: ____________</span><span>Conferido: ____________</span></div>
     </section>`;
   };
 
@@ -569,30 +588,42 @@ function imprimirChecklistSeparacao(opts) {
   <style>
   @page{size:A4 portrait;margin:11mm 11mm}
   *{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
-  .folha{page-break-after:always}.folha:last-child{page-break-after:auto}
-  .cab{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #1E2A28;padding-bottom:5px;margin-bottom:7px}
+  /* Vários pacientes por folha: cada bloco apenas evita ser partido.
+     Antes era uma folha por paciente, o que gastava muito papel. */
+  .pacbloco{border:1px solid #1E2A28;border-radius:5px;padding:6px 9px;margin-bottom:7px;
+            break-inside:avoid;page-break-inside:avoid}
+  .assinp{display:flex;justify-content:flex-end;gap:26px;margin-top:5px;font-size:9px;color:#4a544f}
+  .cab{display:flex;align-items:baseline;gap:10px;border-bottom:2px solid #1E2A28;padding-bottom:5px;margin-bottom:8px}
   .cab-nome{font-size:12px;font-weight:700}.cab-tit{flex:1;text-align:center;font-size:12.5px;font-weight:700;letter-spacing:.05em}
   .cab-dt{font-size:12px;font-weight:700}
-  .pac{border:1px solid #1E2A28;border-radius:5px;padding:6px 10px;margin-bottom:9px;display:flex;gap:22px;flex-wrap:wrap;font-size:12px}
+  .pac{background:#EEF2EC;border-radius:4px;padding:3px 8px;margin-bottom:5px;display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;align-items:baseline}
   .pac .rot{font-size:9px;text-transform:uppercase;color:#6a736e;font-weight:600}
-  .hor{margin-bottom:9px;break-inside:avoid;page-break-inside:avoid}
-  .hor-h{background:#1E2A28;color:#fff;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:4px 4px 0 0;letter-spacing:.04em}
+  .hor{margin-bottom:5px;break-inside:avoid;page-break-inside:avoid}
+  .hor-h{background:#1E2A28;color:#fff;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:3px 3px 0 0;letter-spacing:.04em}
   .hor-h .hor-n{float:right;font-weight:400;opacity:.85;font-size:10px}
   table{width:100%;border-collapse:collapse}
-  th,td{border:1px solid #cfd6cf;padding:4px 6px;font-size:11px;height:22px}
+  th,td{border:1px solid #cfd6cf;padding:2px 5px;font-size:10.5px;height:17px}
   th{background:#EEF2EC;font-size:8.5px;text-transform:uppercase;font-weight:700}
   .ck{width:26px;text-align:center}.qt{width:62px;text-align:center}.lt{width:110px}
   .mono{font-family:"IBM Plex Mono",monospace}
   .sep{font-size:8.5px;color:#777;font-family:"Public Sans",Arial,sans-serif;font-weight:400}
   .cust{font-size:9px;color:#B07A2F;font-weight:600}
-  .assin{display:flex;gap:26px;margin-top:16px}
+  .assin{display:none}
   .assin .l{flex:1;border-top:1px solid #1E2A28;padding-top:5px;font-size:9.5px;color:#4a544f;text-align:center}
-  .rod{margin-top:8px;font-size:8.5px;color:#8a938d;text-align:center;border-top:1px solid #e2e7e1;padding-top:5px}
+  .rod{margin-top:8px;font-size:8.5px;color:#6a736e;border-top:1px solid #e2e7e1;padding-top:5px}
+  .lt .lv{font-size:8px;color:#6a736e}
+  .lt .semlote{font-size:9px;color:#B04A3F;font-style:italic}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
   @media print{.btn{display:none}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <div class="cab">
+    <div class="cab-nome">${_esc(est.nome_fantasia || est.razao_social || "Clínica Reviva")}</div>
+    <div class="cab-tit">CHECKLIST DE SEPARAÇÃO — DOSE UNITÁRIA</div>
+    <div class="cab-dt">${_diaSemana(d)} · ${fmtDate(d)}</div>
+  </div>
   ${Object.values(porPac).map(folha).join("")}
+  <div class="rod">Conferir medicamento, dose e paciente antes de fechar o pacote. Dose fracionada: separar a unidade inteira indicada. ★ custódia = medicamento do próprio paciente. O <b>lote sugerido</b> é o próximo a ser liberado — se separar outro, anote ao lado.</div>
   </body></html>`;
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
