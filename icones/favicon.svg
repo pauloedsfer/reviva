@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="MOLBOX">
-    <title>MOLBOX</title>
-    <rect width="48" height="48" rx="11" fill="#164194"/>
-    <rect x="10" y="14" width="28" height="22" rx="4.5" fill="none" stroke="#FFFFFF" stroke-width="2.6"/>
-    <path d="M10.7 20.6 H37.3" stroke="#FFFFFF" stroke-width="2.2"/>
-    <circle cx="17.5" cy="28.6" r="2.2" fill="#6FC5F0"/>
-    <circle cx="24" cy="28.6" r="3.2" fill="#E84910"/>
-    <circle cx="30.5" cy="28.6" r="2.2" fill="#6FC5F0"/>
-</svg>
