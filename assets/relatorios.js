@@ -42,15 +42,20 @@ function imprimirRelatorio(titulo, subtitulo, corpoHTML) {
     .mono { font-family:"IBM Plex Mono", monospace; }
     .rl-assinatura { margin-top:40px; page-break-inside:avoid; }
     .rl-assinatura .linha { border-top:1px solid #1E2A28; width:320px; margin-top:34px; padding-top:5px; font-size:10.5px; }
+    /* Rodapé ESTÁTICO, uma única vez ao final do documento.
+       Era position:fixed para repetir em todas as páginas, mas em impressão
+       o navegador reposiciona o elemento fixo e ele acabava sobrepondo o
+       conteúdo — no alto das páginas seguintes. Como a assinatura do RT já
+       fecha o documento, o rodapé único resolve sem risco de quebra. */
     .rl-footer {
-      position:fixed; bottom:6mm; left:0; right:0; font-size:9px; color:#4a544f;
+      margin-top:18px; font-size:9px; color:#4a544f;
       border-top:1px solid #cfd6cf; padding-top:4px; display:flex; justify-content:space-between; gap:12px;
+      page-break-inside:avoid; break-inside:avoid;
     }
     .rl-footer .assina { white-space:nowrap; }
     @media screen {
       body { background:#f0efe8; }
       .sheet { background:#fff; max-width:800px; margin:20px auto; padding:24px; box-shadow:0 2px 16px rgba(0,0,0,.1); }
-      .rl-footer { position:static; margin-top:24px; }
       .rl-print-btn { position:fixed; top:16px; right:16px; background:#2C5F5A; color:#fff; border:none;
         padding:10px 16px; border-radius:8px; font-size:13px; cursor:pointer; font-family:inherit; }
     }
@@ -62,7 +67,6 @@ function imprimirRelatorio(titulo, subtitulo, corpoHTML) {
          cai por cima das últimas linhas da tabela. O deslocamento negativo
          o joga para dentro da margem inferior reservada no @page,
          liberando a área útil inteira para o conteúdo. */
-      .rl-footer { bottom:-20mm; }
       /* nenhuma linha é partida entre páginas */
       tr, td, th { break-inside:avoid; page-break-inside:avoid; }
       /* o cabeçalho da tabela se repete no alto de cada página */

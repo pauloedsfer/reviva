@@ -365,12 +365,11 @@ function abrirTransferenciaCustodia(pacId) {
     if (qtd > saldo) throw new Error(`Saldo insuficiente: o lote ${lote} tem ${saldo} unidade(s).`);
     const data = fv("tcData") || HOJE;
     const p = patById(pac);
-    // O lote de destino é o MESMO lote de fábrica. O que separa a custódia
-    // do paciente do estoque da clínica é a posição (substância + lote +
-    // validade + titular), não o texto do número. Antes o sistema derivava
-    // um número fictício ("ABC123/L12") que ia parar na escrituração — o
-    // livro deve registrar o lote do fabricante.
-    const destino = lote;
+    // lote de destino: deriva do original, identificando o paciente
+    const sufixo = (p && p.leito ? "L" + p.leito : pac.slice(0, 4)).toUpperCase();
+    let destino = `${lote}/${sufixo}`;
+    let n = 2;
+    while (allLotes().some((x) => x.lote === destino)) destino = `${lote}/${sufixo}-${n++}`;
 
     const { error } = await window.SB.from("transferencias_custodia").insert({
       data, substancia_id: l.subId, paciente_id: pac,

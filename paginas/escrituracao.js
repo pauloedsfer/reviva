@@ -231,13 +231,21 @@ function _folhaSemanalDados() {
     else if (pacs.length > 1) quem = (patById(pacs[0]) ? patById(pacs[0]).nome : "—") + " e outros";
     return { g, ini, fim, anterior, entradas, saidas, totEnt, totSai, quem, nPacs: pacs.length, final: anterior + totEnt - totSai };
   });
-  // só blocos com movimento na semana OU com saldo (para conferência)
-  return { ini, fim, blocos: blocos.filter((b) => b.entradas.length || b.saidas.length || b.anterior !== 0) };
+  // Com movimento no período → bloco completo.
+  // Sem movimento mas com saldo → lista resumida ao final (estoque por lote).
+  const comMov = blocos.filter((b) => b.entradas.length || b.saidas.length);
+  const semMov = blocos.filter((b) => !b.entradas.length && !b.saidas.length && b.final !== 0)
+    .map((b) => ({ ...b, lotes: allLotes()
+      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && saldoLote(l.lote) > 0)
+      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
+                     paciente: l.restritoPaciente ? (patById(l.restritoPaciente) || {}).nome : null }))
+      .sort((a, b2) => String(a.validade || "9999").localeCompare(String(b2.validade || "9999"))) }));
+  return { ini, fim, blocos: comMov, semMov };
 }
 
 function imprimirFolhaSemanal() {
-  const { ini, fim, blocos } = _folhaSemanalDados();
-  if (!blocos.length) { alert("Nenhuma movimentação ou saldo no período selecionado."); return; }
+  const { ini, fim, blocos, semMov } = _folhaSemanalDados();
+  if (!blocos.length && !semMov.length) { alert("Nenhuma movimentação ou saldo no período selecionado."); return; }
 
   const bloco = (b) => {
     const linhasEnt = b.entradas.length
@@ -248,11 +256,26 @@ function imprimirFolhaSemanal() {
           <td>${_esc(m.ref || "—")}</td>
           <td class="num mono">${m.qtd}</td></tr>`).join("")
       : `<tr><td colspan="5" class="vazio">Sem entradas no período</td></tr>`;
-    const linhaSai = b.saidas.length
-      ? `<tr><td class="mono">${fmtDate(b.ini)} a ${fmtDate(b.fim)}</td>
-           <td colspan="3">${_esc(b.quem)}${b.nPacs > 1 ? ` <span class="obs">(${b.nPacs} pacientes)</span>` : ""}</td>
-           <td class="num mono">${b.totSai}</td></tr>`
-      : `<tr><td colspan="5" class="vazio">Sem saídas no período</td></tr>`;
+    // Saídas consolidadas por paciente + lote (uma linha por combinação),
+    // preservando lote e validade, que o Livro exige para rastreabilidade.
+    const linhaSai = (() => {
+      if (!b.saidas.length) return `<tr><td colspan="5" class="vazio">Sem saídas no período</td></tr>`;
+      const mapa = {};
+      b.saidas.forEach((m) => {
+        const k = (m.paciente || "-") + "|" + (m.lote || "-");
+        if (!mapa[k]) mapa[k] = { paciente: m.paciente, lote: m.lote, qtd: 0 };
+        mapa[k].qtd += m.qtd;
+      });
+      return Object.values(mapa)
+        .sort((x, y) => String((patById(x.paciente) || {}).nome || "").localeCompare(String((patById(y.paciente) || {}).nome || ""), "pt-BR")
+                     || String(x.lote || "").localeCompare(String(y.lote || "")))
+        .map((r) => `<tr>
+          <td class="mono">${fmtDate(b.ini)} a ${fmtDate(b.fim)}</td>
+          <td>${_esc((patById(r.paciente) || {}).nome || "—")}</td>
+          <td class="mono">${_esc(r.lote || "—")}</td>
+          <td class="mono">${r.lote ? fmtDate(_validadeLote(r.lote)) : "—"}</td>
+          <td class="num mono">${r.qtd}</td></tr>`).join("");
+    })();
     return `
       <section class="grupo">
         <div class="g-head">
@@ -267,11 +290,11 @@ function imprimirFolhaSemanal() {
           ${linhasEnt}
           ${b.entradas.length > 1 ? `<tr class="tot"><td colspan="4">Total de entradas</td><td class="num mono">${b.totEnt}</td></tr>` : ""}
           <tr class="sec"><td colspan="5">SAÍDAS</td></tr>
-          <tr class="th"><td>Período</td><td colspan="3">Paciente</td><td class="num">Qtd.</td></tr>
+          <tr class="th"><td>Período</td><td>Paciente</td><td>Lote</td><td>Validade</td><td class="num">Qtd.</td></tr>
           ${linhaSai}
+          ${b.saidas.length > 1 ? `<tr class="tot"><td colspan="4">Total de saídas</td><td class="num mono">${b.totSai}</td></tr>` : ""}
           <tr class="saldo final"><td colspan="4">Saldo final em ${fmtDate(b.fim)}</td><td class="num mono">${b.final}</td></tr>
         </table>
-        <div class="conf">Transcrito no livro em ____/____/______ &nbsp;&nbsp; Rubrica: ____________</div>
       </section>`;
   };
 
@@ -291,12 +314,39 @@ function imprimirFolhaSemanal() {
       .grupo tr.tot td{font-weight:700}
       .grupo td.num{text-align:right;width:62px}.grupo .mono{font-family:"IBM Plex Mono",monospace}
       .grupo td.vazio{color:#8a938d;font-style:italic;text-align:center}
+      .nada{color:#8a938d;font-style:italic;padding:10px 0}
+      .semmov{border:1px solid #b9c1ba;border-radius:5px;padding:8px 10px;margin-top:14px;break-inside:avoid;page-break-inside:avoid}
+      .sm-tit{font-size:12px;font-weight:700;border-bottom:1.5px solid #1E2A28;padding-bottom:4px;margin-bottom:3px}
+      .sm-sub{font-size:9.5px;color:#6a736e;margin-bottom:6px}
+      .semmov table{width:100%;border-collapse:collapse}
+      .semmov td{border:1px solid #cfd6cf;padding:3px 6px;font-size:10.5px}
+      .semmov tr.th td{background:#EEF2EC;font-size:8.5px;text-transform:uppercase;font-weight:700}
+      .semmov tr.sm-tot td{background:#F4F6F3;font-weight:700}
+      .semmov td.num{text-align:right;width:62px}.semmov .mono{font-family:"IBM Plex Mono",monospace}
+      .semmov .obs{color:#B07A2F;font-size:9px}
+      .sm-nota{font-size:9px;color:#6a736e;margin-top:4px}
       .obs{color:#6a736e;font-size:9.5px}
       .conf{margin-top:5px;font-size:9.5px;color:#6a736e;text-align:right}
       .aviso{font-size:10px;color:#4a544f;border-left:3px solid #2C5F5A;padding:4px 8px;margin-bottom:10px;background:#F4F6F3}
     </style>
     <div class="aviso">Agrupamento por <b>princípio ativo + dosagem</b> — identidade do medicamento para o Livro de Registro e o BMPO. Nomes comerciais distintos de mesmo princípio e dosagem são consolidados num único item. Entradas discriminadas por lote; saídas consolidadas no período.</div>
-    ${blocos.map(bloco).join("")}`;
+    ${blocos.length ? blocos.map(bloco).join("") : `<div class="nada">Nenhuma substância teve entrada ou saída no período.</div>`}
+    ${semMov.length ? `
+      <section class="semmov">
+        <div class="sm-tit">Substâncias sem movimentação no período</div>
+        <div class="sm-sub">Sem entradas e sem saídas entre ${fmtDate(ini)} e ${fmtDate(fim)}. Saldo em estoque, por lote, para conferência.</div>
+        <table>
+          <tr class="th"><td>Substância</td><td>Lista</td><td>Lote</td><td>Validade</td><td class="num">Saldo</td></tr>
+          ${semMov.map((b) => b.lotes.map((l, i) => `<tr>
+            <td>${i === 0 ? `<b>${_esc(b.g.label)}</b>` : ""}</td>
+            <td>${i === 0 ? (b.g.lista ? _esc(b.g.lista) : "—") : ""}</td>
+            <td class="mono">${_esc(l.lote)}${l.paciente ? ` <span class="obs">★ ${_esc(l.paciente)}</span>` : ""}</td>
+            <td class="mono">${l.validade ? fmtDate(l.validade) : "—"}</td>
+            <td class="num mono">${l.saldo}</td></tr>`).join("") +
+            (b.lotes.length > 1 ? `<tr class="sm-tot"><td colspan="4">Total — ${_esc(b.g.label)}</td><td class="num mono">${b.final}</td></tr>` : "")).join("")}
+        </table>
+        <div class="sm-nota">★ = lote de uso exclusivo do paciente indicado (custódia).</div>
+      </section>` : ""}`;
 
   imprimirRelatorio("Folha de Registro Semanal",
     `Período de ${fmtDate(ini)} a ${fmtDate(fim)} · ${blocos.length} item(ns) · para transcrição ao livro físico`,

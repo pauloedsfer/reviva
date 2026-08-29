@@ -131,19 +131,7 @@ function wireChrome() {
   if (closeBtn) closeBtn.addEventListener("click", close);
   if (backdropEl) backdropEl.addEventListener("click", close);
   const logout = document.getElementById("btnLogout");
-  if (logout) {
-    logout.addEventListener("click", sair);
-    // botão de troca de senha ao lado do Sair, para qualquer perfil
-    if (typeof abrirTrocaSenha === "function" && !document.getElementById("btnSenha")) {
-      const b = document.createElement("button");
-      b.id = "btnSenha";
-      b.type = "button";
-      b.className = logout.className;
-      b.textContent = "Alterar senha";
-      b.addEventListener("click", abrirTrocaSenha);
-      logout.parentNode.insertBefore(b, logout);
-    }
-  }
+  if (logout) logout.addEventListener("click", sair);
   if (window.matchMedia("(max-width:820px)").matches) open();
 }
 
@@ -156,13 +144,6 @@ async function initLayout() {
   // 1) trava de login (redireciona se não houver sessão)
   const logado = await exigirLogin();
   if (!logado) return;
-
-  // 1b) perfil de acesso: define se este login pode gravar.
-  // A trava real está na RLS; aqui é só para a tela se comportar.
-  if (typeof carregarPerfil === "function") {
-    await carregarPerfil();
-    aplicarTravaLeitura();
-  }
 
   const page = document.body.dataset.page;
   renderNav(page);
@@ -189,8 +170,6 @@ async function initLayout() {
     document.getElementById("viewport").innerHTML = renderPage();
   }
   if (typeof afterRender === "function") afterRender();
-
-  if (typeof marcarModoLeitura === "function") marcarModoLeitura();
 
   wireChrome();
 }

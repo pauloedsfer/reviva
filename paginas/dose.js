@@ -195,25 +195,9 @@ async function confirmarDispensacao() {
   const btn = document.getElementById("btnDispensar");
   if (btn) { btn.disabled = true; btn.textContent = "Dispensando…"; }
   try {
-    // .select() devolve as linhas gravadas: confirma no ato que o banco
-    // aceitou todas, em vez de assumir que "sem erro" significa "gravou".
-    const { data: gravadas, error } = await window.SB
-      .from("dispensacoes").insert(rows).select("id");
+    const { error } = await window.SB.from("dispensacoes").insert(rows);
     if (error) throw error;
-    const n = (gravadas || []).length;
-    if (n !== rows.length) {
-      throw new Error(`O banco gravou ${n} de ${rows.length} dose(s). Confira a aba Dispensados antes de repetir o lançamento.`);
-    }
     await recarregarTela();
-
-    // Conferência final: as doses gravadas voltaram na leitura da tela?
-    // Se não voltarem, o lançamento existe no banco mas está invisível —
-    // e o farmacêutico precisa saber disso ANTES de lançar de novo.
-    const sumiram = rows.filter((r) => !dispensations.some((x) => x.id && gravadas.some((g) => g.id === x.id)));
-    if (sumiram.length === rows.length && rows.length) {
-      alert("Atenção: as doses foram gravadas no banco, mas não apareceram na tela.\n\n" +
-            "NÃO lance novamente — isso geraria baixa em duplicidade. Confira a aba Dispensados e avise o suporte técnico.");
-    }
   } catch (e) {
     alert("Erro ao dispensar: " + (e.message || e));
     if (btn) { btn.disabled = false; btn.textContent = "Confirmar dispensação"; }

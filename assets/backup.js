@@ -45,13 +45,9 @@ async function exportarBackup() {
   try {
     const tabelas = {};
     for (const t of _BK_TABELAS) {
-      // Paginado: sem isto o backup parava nas primeiras 1000 linhas de
-      // cada tabela e saía incompleto sem avisar. Ver sbFetchAll em dados.js.
-      try {
-        tabelas[t] = await sbFetchAll(t);
-      } catch (error) {
-        throw new Error(`Tabela ${t}: ${error.message || error}`);
-      }
+      const { data, error } = await window.SB.from(t).select("*");
+      if (error) throw new Error(`Tabela ${t}: ${error.message}`);
+      tabelas[t] = data || [];
     }
     const est = window.ESTAB || {};
     const backup = {
