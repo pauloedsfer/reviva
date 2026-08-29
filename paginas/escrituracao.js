@@ -207,6 +207,19 @@ function _fsSet(campo, valor) {
 }
 
 // dados da folha: um bloco por grupo (princípio + dosagem)
+/* Rótulo do campo "Paciente" quando a saída não tem paciente vinculado.
+   O Livro não pode ter o campo em branco — a saída precisa dizer para onde
+   o medicamento foi. */
+function _fsMotivoSaida(m) {
+  const ref = String(m.ref || "");
+  if (m.tipo === "ajuste_saida" || /^Ajuste de invent/i.test(ref)) return "Ajuste de inventário";
+  if (/perda|quebra|avaria/i.test(ref)) return "Perda / avaria";
+  if (/descarte|inutiliz/i.test(ref)) return "Descarte";
+  if (/devolu.*fam/i.test(ref)) return "Devolução à família";
+  if (/vencid/i.test(ref)) return "Vencimento";
+  return ref ? ref.split("—")[0].trim() : "Saída sem paciente";
+}
+
 function _folhaSemanalDados() {
   const ini = _fsSemana.ini || _fsSegunda(HOJE);
   const fim = _fsAddDias(ini, 6);
@@ -262,16 +275,24 @@ function imprimirFolhaSemanal() {
       if (!b.saidas.length) return `<tr><td colspan="5" class="vazio">Sem saídas no período</td></tr>`;
       const mapa = {};
       b.saidas.forEach((m) => {
-        const k = (m.paciente || "-") + "|" + (m.lote || "-");
-        if (!mapa[k]) mapa[k] = { paciente: m.paciente, lote: m.lote, qtd: 0 };
+        // Saída sem paciente (ajuste de inventário, perda, descarte) é
+        // agrupada pelo motivo, para o campo nunca sair em branco no Livro.
+        const semPac = !m.paciente ? _fsMotivoSaida(m) : null;
+        const k = (m.paciente || semPac) + "|" + (m.lote || "-");
+        if (!mapa[k]) mapa[k] = { paciente: m.paciente, motivo: semPac, lote: m.lote, qtd: 0 };
         mapa[k].qtd += m.qtd;
       });
       return Object.values(mapa)
-        .sort((x, y) => String((patById(x.paciente) || {}).nome || "").localeCompare(String((patById(y.paciente) || {}).nome || ""), "pt-BR")
-                     || String(x.lote || "").localeCompare(String(y.lote || "")))
+        .sort((x, y) => {
+          // pacientes primeiro, depois as saídas sem paciente
+          if (!!x.paciente !== !!y.paciente) return x.paciente ? -1 : 1;
+          const rx = x.paciente ? ((patById(x.paciente) || {}).nome || "") : x.motivo;
+          const ry = y.paciente ? ((patById(y.paciente) || {}).nome || "") : y.motivo;
+          return String(rx).localeCompare(String(ry), "pt-BR") || String(x.lote || "").localeCompare(String(y.lote || ""));
+        })
         .map((r) => `<tr>
           <td class="mono">${fmtDate(b.ini)} a ${fmtDate(b.fim)}</td>
-          <td>${_esc((patById(r.paciente) || {}).nome || "—")}</td>
+          <td>${r.paciente ? _esc((patById(r.paciente) || {}).nome || "—") : `<span class="motivo">${_esc(r.motivo)}</span>`}</td>
           <td class="mono">${_esc(r.lote || "—")}</td>
           <td class="mono">${r.lote ? fmtDate(_validadeLote(r.lote)) : "—"}</td>
           <td class="num mono">${r.qtd}</td></tr>`).join("");
@@ -314,6 +335,7 @@ function imprimirFolhaSemanal() {
       .grupo tr.tot td{font-weight:700}
       .grupo td.num{text-align:right;width:62px}.grupo .mono{font-family:"IBM Plex Mono",monospace}
       .grupo td.vazio{color:#8a938d;font-style:italic;text-align:center}
+      .grupo .motivo{font-style:italic;color:#4a544f}
       .nada{color:#8a938d;font-style:italic;padding:10px 0}
       .semmov{border:1px solid #b9c1ba;border-radius:5px;padding:8px 10px;margin-top:14px;break-inside:avoid;page-break-inside:avoid}
       .sm-tit{font-size:12px;font-weight:700;border-bottom:1.5px solid #1E2A28;padding-bottom:4px;margin-bottom:3px}

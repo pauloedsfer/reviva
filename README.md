@@ -68,6 +68,8 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 ### Versão atual
 _As entradas abaixo acompanham a data no topo deste documento._
 
+- **Folha Semanal: saída sem paciente passa a ter motivo.** Saídas por **ajuste de inventário** deixavam o campo Paciente em branco. Agora esse campo recebe o motivo da saída — **“Ajuste de inventário”** e, quando aplicável, *Perda / avaria*, *Descarte*, *Devolução à família* ou *Vencimento* —, em itálico para distinguir de nome de paciente. Essas saídas são agrupadas por motivo e lote, e aparecem **depois** dos pacientes na ordenação. O campo nunca mais sai em branco, o que a transcrição para o livro físico exige.
+
 - **Folha de Registro Semanal reformulada.** Removido o campo *“Transcrito no livro em ___ Rubrica ___”*. As **saídas** deixaram de ser uma linha consolidada (“FULANO e outros”) e passaram a detalhar **Período · Paciente · Lote · Validade · Qtd.**, com uma linha por paciente e lote e o total ao final — preservando a rastreabilidade por lote que o Livro exige. Substâncias **sem entradas e sem saídas no período** saíram dos blocos individuais e passaram a uma **lista única ao final**, mostrando o saldo por **lote e validade**, com marcação ★ para lotes de custódia do paciente.
 - **Correção — rodapé quebrado a partir da 2ª página (todos os relatórios).** O rodapé usava `position:fixed` para se repetir em cada página, mas na impressão o navegador o reposicionava e ele aparecia cortado sobre o conteúdo. Passou a ser **estático, uma única vez ao final do documento**, logo abaixo da assinatura do RT.
 
