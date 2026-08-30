@@ -11,7 +11,14 @@
    ============================================================ */
 
 const CAPACIDADE_TOTAL = 35;
-const HOJE = new Date().toISOString().slice(0, 10); // data real de hoje
+/* Data de hoje no fuso LOCAL. toISOString() devolve UTC: em Goiás (UTC-3),
+   das 21h em diante ele já retorna o dia seguinte, o que fazia a tela abrir
+   no dia errado e marcar lançamentos de hoje como "retroativos". */
+function _hojeLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const HOJE = _hojeLocal();
 const DIARIA_INTERNACAO = 180; // parâmetro configurável — hospedagem/estrutura, sem medicamentos
 
 /* ---- estado carregado do banco (preenchido por carregarDados) ---- */
@@ -48,28 +55,49 @@ async function carregarConfig() {
   window.ESTAB = (est && est[0]) || null;
 }
 
+/* Busca TODAS as linhas de uma tabela.
+   O Supabase limita a resposta a 1.000 linhas por requisição e não avisa —
+   simplesmente devolve menos. Com a operação em curso, `dispensacoes` passou
+   desse volume e as datas mais recentes deixaram de ser carregadas: o saldo
+   dos lotes ficava alto demais e as doses já baixadas voltavam a aparecer
+   como pendentes. Aqui a leitura é paginada até acabar. */
+async function _buscarTudo(tabela, select) {
+  const PAG = 1000;
+  let saida = [], de = 0;
+  for (let i = 0; i < 200; i++) {          // teto de segurança: 200 mil linhas
+    const { data, error } = await window.SB.from(tabela)
+      .select(select || "*").range(de, de + PAG - 1);
+    if (error) throw error;
+    const bloco = data || [];
+    saida = saida.concat(bloco);
+    if (bloco.length < PAG) break;
+    de += PAG;
+  }
+  return saida;
+}
+
 async function carregarDados() {
   const q = (sel) => window.SB.from(sel.t).select(sel.s || "*");
   const [
     subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns, transf,
   ] = await Promise.all([
-    window.SB.from("substancias").select("*"),
-    window.SB.from("pacientes").select("*, prescritores(nome,conselho,uf,numero)"),
-    window.SB.from("prescricoes").select("*"),
-    window.SB.from("notas_fiscais").select("*, fornecedores(nome), nota_fiscal_itens(*)"),
-    window.SB.from("doacoes").select("*, doacao_itens(*)"),
-    window.SB.from("medicacao_propria").select("*, medicacao_propria_itens(*)"),
-    window.SB.from("inventario_inicial").select("*"),
-    window.SB.from("dispensacoes").select("*"),
-    window.SB.from("devolucoes").select("*"),
-    window.SB.from("pops").select("*"),
-    window.SB.from("carrinho_emergencia").select("*").limit(1),
-    window.SB.from("carrinho_itens").select("*"),
-    window.SB.from("carrinho_historico").select("*"),
-    window.SB.from("prescritores").select("*"),
-    window.SB.from("fornecedores").select("*"),
-    window.SB.from("transferencias_custodia").select("*"),
-  ]).then((rs) => rs.map((r) => { if (r.error) throw r.error; return r.data || []; }));
+    _buscarTudo("substancias"),
+    _buscarTudo("pacientes", "*, prescritores(nome,conselho,uf,numero)"),
+    _buscarTudo("prescricoes"),
+    _buscarTudo("notas_fiscais", "*, fornecedores(nome), nota_fiscal_itens(*)"),
+    _buscarTudo("doacoes", "*, doacao_itens(*)"),
+    _buscarTudo("medicacao_propria", "*, medicacao_propria_itens(*)"),
+    _buscarTudo("inventario_inicial"),
+    _buscarTudo("dispensacoes"),
+    _buscarTudo("devolucoes"),
+    _buscarTudo("pops"),
+    window.SB.from("carrinho_emergencia").select("*").limit(1).then((r) => { if (r.error) throw r.error; return r.data || []; }),
+    _buscarTudo("carrinho_itens"),
+    _buscarTudo("carrinho_historico"),
+    _buscarTudo("prescritores"),
+    _buscarTudo("fornecedores"),
+    _buscarTudo("transferencias_custodia"),
+  ]);
 
   substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
     principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma,
@@ -164,7 +192,7 @@ async function carregarDados() {
   // Ajustes de inventário (tabela adicionada por migration_ajustes.sql).
   // Carrega de forma tolerante: se a migração ainda não rodou, segue sem ajustes.
   try {
-    const { data: ajs, error: eaj } = await window.SB.from("ajustes_estoque").select("*");
+    const ajs = await _buscarTudo("ajustes_estoque"); const eaj = null;
     if (eaj) throw eaj;
     ajustes = (ajs || []).map((a) => ({
       id: a.id, data: a.data, subId: a.substancia_id, lote: a.numero_lote,
@@ -176,7 +204,7 @@ async function carregarDados() {
 
   // Destinos de custódia (migration_alta.sql). Carga tolerante.
   try {
-    const { data: cds, error: ecd } = await window.SB.from("custodia_destinos").select("*");
+    const cds = await _buscarTudo("custodia_destinos"); const ecd = null;
     if (ecd) throw ecd;
     custodiaDestinos = (cds || []).map((d) => ({ id: d.id, data: d.data, itemId: d.medicacao_propria_item_id, tipo: d.tipo, qtd: d.quantidade, obs: d.obs }));
   } catch (e) { custodiaDestinos = []; }
@@ -185,7 +213,7 @@ async function carregarDados() {
 
   // Cotações (tabela adicionada por migration_cotacao.sql). Carga tolerante.
   try {
-    const { data: cots, error: ec } = await window.SB.from("cotacoes").select("*, cotacao_itens(*, cotacao_precos(*))");
+    const cots = await _buscarTudo("cotacoes", "*, cotacao_itens(*, cotacao_precos(*))"); const ec = null;
     if (ec) throw ec;
     cotacoes = (cots || []).map((c) => ({
       id: c.id, identificador: c.identificador, data: c.data, status: c.status, observacao: c.observacao,
