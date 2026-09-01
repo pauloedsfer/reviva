@@ -220,6 +220,42 @@ function _fsMotivoSaida(m) {
   return ref ? ref.split("—")[0].trim() : "Saída sem paciente";
 }
 
+/* Ordem das listas da Portaria SVS/MS 344/98.
+   Cada lista tem livro próprio, então a folha sai agrupada nessa sequência:
+   entorpecentes (A), psicotrópicos (A3/B), e depois as demais.
+   Substâncias sem controle especial ("—") vão para o fim. */
+const _ORDEM_LISTA = ["A1","A2","A3","B1","B2","C1","C2","C3","C4","C5","D1","D2"];
+function _ordemLista(l) {
+  const k = String(l || "").trim().toUpperCase();
+  const i = _ORDEM_LISTA.indexOf(k);
+  return i >= 0 ? i : 900;          // "—" e não classificados ao final
+}
+function _rotuloLista(l) {
+  const k = String(l || "").trim().toUpperCase();
+  const nomes = {
+    A1: "Lista A1 — Entorpecentes",
+    A2: "Lista A2 — Entorpecentes de uso permitido em concentrações especiais",
+    A3: "Lista A3 — Psicotrópicos",
+    B1: "Lista B1 — Psicotrópicos",
+    B2: "Lista B2 — Psicotrópicos anorexígenos",
+    C1: "Lista C1 — Outras substâncias sujeitas a controle especial",
+    C2: "Lista C2 — Retinoicas",
+    C3: "Lista C3 — Imunossupressoras",
+    C4: "Lista C4 — Antirretrovirais",
+    C5: "Lista C5 — Anabolizantes",
+    D1: "Lista D1 — Adjuvantes",
+    D2: "Lista D2 — Precursores",
+  };
+  return nomes[k] || "Sem controle especial";
+}
+function _livroDaLista(l) {
+  const k = String(l || "").trim().toUpperCase();
+  if (/^A/.test(k)) return "Livro de Entorpecentes";
+  if (/^B/.test(k)) return "Livro de Psicotrópicos";
+  if (/^C/.test(k)) return "Livro de Controle Especial";
+  return "Sem escrituração em livro próprio";
+}
+
 function _folhaSemanalDados() {
   const ini = _fsSemana.ini || _fsSegunda(HOJE);
   const fim = _fsAddDias(ini, 6);
@@ -246,8 +282,11 @@ function _folhaSemanalDados() {
   });
   // Com movimento no período → bloco completo.
   // Sem movimento mas com saldo → lista resumida ao final (estoque por lote).
-  const comMov = blocos.filter((b) => b.entradas.length || b.saidas.length);
-  const semMov = blocos.filter((b) => !b.entradas.length && !b.saidas.length && b.final !== 0)
+  const porLista = (x, y) =>
+    _ordemLista(x.g.lista) - _ordemLista(y.g.lista) ||
+    String(x.g.label).localeCompare(String(y.g.label), "pt-BR");
+  const comMov = blocos.filter((b) => b.entradas.length || b.saidas.length).sort(porLista);
+  const semMov = blocos.filter((b) => !b.entradas.length && !b.saidas.length && b.final !== 0).sort(porLista)
     .map((b) => ({ ...b, lotes: allLotes()
       .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && saldoLote(l.lote) > 0)
       .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
@@ -337,6 +376,11 @@ function imprimirFolhaSemanal() {
       .grupo td.vazio{color:#8a938d;font-style:italic;text-align:center}
       .grupo .motivo{font-style:italic;color:#4a544f}
       .nada{color:#8a938d;font-style:italic;padding:10px 0}
+      .lista-cab{background:#1E2A28;color:#fff;border-radius:4px;padding:5px 10px;margin:14px 0 7px;break-after:avoid;page-break-after:avoid}
+      .lista-cab:first-of-type{margin-top:4px}
+      .lc-t{font-size:12px;font-weight:700;letter-spacing:.04em}
+      .lc-s{font-size:9px;opacity:.85;margin-top:1px}
+      .semmov tr.sm-lista td{background:#DFE8DC;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
       .semmov{border:1px solid #b9c1ba;border-radius:5px;padding:8px 10px;margin-top:14px;break-inside:avoid;page-break-inside:avoid}
       .sm-tit{font-size:12px;font-weight:700;border-bottom:1.5px solid #1E2A28;padding-bottom:4px;margin-bottom:3px}
       .sm-sub{font-size:9.5px;color:#6a736e;margin-bottom:6px}
@@ -352,20 +396,43 @@ function imprimirFolhaSemanal() {
       .aviso{font-size:10px;color:#4a544f;border-left:3px solid #2C5F5A;padding:4px 8px;margin-bottom:10px;background:#F4F6F3}
     </style>
     <div class="aviso">Agrupamento por <b>princípio ativo + dosagem</b> — identidade do medicamento para o Livro de Registro e o BMPO. Nomes comerciais distintos de mesmo princípio e dosagem são consolidados num único item. Entradas discriminadas por lote; saídas consolidadas no período.</div>
-    ${blocos.length ? blocos.map(bloco).join("") : `<div class="nada">Nenhuma substância teve entrada ou saída no período.</div>`}
+    ${blocos.length ? (() => {
+      // insere um cabeçalho a cada mudança de lista, para transcrever um
+      // livro de cada vez sem precisar procurar as substâncias na folha
+      let atual = null;
+      return blocos.map((b) => {
+        const l = String(b.g.lista || "").trim().toUpperCase();
+        let cab = "";
+        if (l !== atual) {
+          atual = l;
+          const n = blocos.filter((x) => String(x.g.lista || "").trim().toUpperCase() === l).length;
+          cab = `<div class="lista-cab">
+            <div class="lc-t">${_esc(_rotuloLista(l))}</div>
+            <div class="lc-s">${_esc(_livroDaLista(l))} · ${n} substância(s) nesta folha</div>
+          </div>`;
+        }
+        return cab + bloco(b);
+      }).join("");
+    })() : `<div class="nada">Nenhuma substância teve entrada ou saída no período.</div>`}
     ${semMov.length ? `
       <section class="semmov">
         <div class="sm-tit">Substâncias sem movimentação no período</div>
         <div class="sm-sub">Sem entradas e sem saídas entre ${fmtDate(ini)} e ${fmtDate(fim)}. Saldo em estoque, por lote, para conferência.</div>
         <table>
           <tr class="th"><td>Substância</td><td>Lista</td><td>Lote</td><td>Validade</td><td class="num">Saldo</td></tr>
-          ${semMov.map((b) => b.lotes.map((l, i) => `<tr>
+          ${(() => { let at = null; return semMov.map((b) => {
+            const lst = String(b.g.lista || "").trim().toUpperCase();
+            let cab = "";
+            if (lst !== at) { at = lst;
+              cab = `<tr class="sm-lista"><td colspan="5">${_esc(_rotuloLista(lst))}</td></tr>`; }
+            return cab + b.lotes.map((l, i) => `<tr>
             <td>${i === 0 ? `<b>${_esc(b.g.label)}</b>` : ""}</td>
             <td>${i === 0 ? (b.g.lista ? _esc(b.g.lista) : "—") : ""}</td>
             <td class="mono">${_esc(l.lote)}${l.paciente ? ` <span class="obs">★ ${_esc(l.paciente)}</span>` : ""}</td>
             <td class="mono">${l.validade ? fmtDate(l.validade) : "—"}</td>
             <td class="num mono">${l.saldo}</td></tr>`).join("") +
-            (b.lotes.length > 1 ? `<tr class="sm-tot"><td colspan="4">Total — ${_esc(b.g.label)}</td><td class="num mono">${b.final}</td></tr>` : "")).join("")}
+            (b.lotes.length > 1 ? `<tr class="sm-tot"><td colspan="4">Total — ${_esc(b.g.label)}</td><td class="num mono">${b.final}</td></tr>` : "");
+          }).join(""); })()}
         </table>
         <div class="sm-nota">★ = lote de uso exclusivo do paciente indicado (custódia).</div>
       </section>` : ""}`;
