@@ -1,7 +1,17 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 02/09/2026
 
+  assets/dados.js
+  assets/forms.js
+  paginas/estoque.js
+  paginas/mapa.js
+  paginas/dose.js
+  paginas/prescricoes.js
   paginas/ajustes.js
+  db/migration_sinonimos_e_gotas.sql
+  db/unificar_substancias_duplicadas.sql
+  db/varredura_substancias_duplicadas.sql
+  README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
 O zip completo (reviva-app.zip) continua disponivel, caso prefira.

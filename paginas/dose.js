@@ -136,7 +136,7 @@ window.printLabels = function (opts) {
       <div class="lbl-p">${l.patient.nome}</div>
       <div class="lbl-b">${l.patient.leito || ""}</div>
       <div class="lbl-t"><b class="lbl-hora">${l.slot}</b>${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(l.dia)}</span></div>
-      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(it.sub.nome)}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>`).join("")}</div>
+      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>`).join("")}</div>
       <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.</div>
     </div>`).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas — Dose Unitária</title>
@@ -377,7 +377,7 @@ function renderPage() {
       <td><input type="checkbox" class="disp-check" ${semSaldo ? "disabled" : ""}
            data-pac="${x.pac}" data-sub="${x.subId}" data-hor="${x.horario}" data-qtd="${x.qtd}" data-sos="${sos ? 1 : 0}" data-nome="${x.nomePac.replace(/"/g,'&quot;')}"></td>
       <td><b>${x.nomePac}</b> <span style="color:var(--muted)">· ${x.leito}</span></td>
-      <td>${subById(x.subId).nome}
+      <td>${subNomeExibicao(x.subId)}
         ${sos ? (() => { const j = _sosLancados(x.pac, x.subId);
           return j.n ? `<div style="font-size:11px;color:var(--warn);margin-top:2px">já lançado ${j.n}× hoje · total ${fmtDose(j.total)}</div>` : ""; })() : ""}
         ${sos ? `<input type="text" class="disp-obs" maxlength="180" placeholder="Observação / justificativa do uso (opcional)"
@@ -418,7 +418,7 @@ function renderPage() {
         ${dispensadasData.map((x) => `<tr>
           <td><b>${x.paciente ? patById(x.paciente).nome : "—"}</b></td>
           <td>${x.ref.indexOf("SOS") === 0 ? `<span class="tag" style="background:#FBF3E3;color:#B07A2F">SOS</span> ${_esc(x.ref.replace(/^SOS\s*—?\s*/, "")) || "<span style=\"color:var(--muted)\">sem observação</span>"}` : _esc(x.ref)}</td>
-          <td>${subById(x.subId).nome}</td>
+          <td>${subNomeExibicao(x.subId)}</td>
           <td><span class="folio">${x.lote}</span></td>
           <td class="num mono">−${x.qtd}</td>
           <td><button class="btn ghost sm" onclick="estornarDispensacao('${x.id}')">Estornar</button></td>
@@ -602,7 +602,7 @@ function imprimirChecklistSeparacao(opts) {
           return `<tr>
           <td class="ck"></td>
           <td class="qt mono"><b>${fmtDose(it.qtdAdm)}</b>${it.descarte ? `<div class="sep">separar ${fmtDose(it.qtd)}</div>` : ""}</td>
-          <td>${_esc(it.sub.nome)}${it.custodia ? ' <span class="cust">★ custódia</span>' : ""}</td>
+          <td>${_esc(subNomeExibicao(it.sub))}${it.custodia ? ' <span class="cust">★ custódia</span>' : ""}</td>
           <td class="lt">${sug
             ? `<span class="mono">${_esc(sug.lote)}</span>${sug.validade ? `<div class="lv">val. ${fmtDate(sug.validade)}</div>` : ""}`
             : `<span class="semlote">sem saldo</span>`}</td></tr>`;

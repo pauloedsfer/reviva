@@ -521,7 +521,7 @@ function abrirImpressaoPrescricoes(pacId) {
       const d = _medDescricao(pr);
       return `<label style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;font-size:13px">
         <input type="checkbox" class="pri-med" data-pac="${p.id}" data-pr="${pr.id}" checked style="margin-top:3px">
-        <span style="flex:1">${_esc(s.nome)}
+        <span style="flex:1">${_esc(subNomeExibicao(s))}
           ${ctrl ? `<span class="tag ${listaTagClass(lista)}">${_esc(lista)}</span>` : ""}
           ${notif ? '<span class="tag" style="background:#F7E3E1;color:#B04A3F" title="Exige Notificação de Receita própria">exige Notificação</span>' : ""}
           <div style="font-size:11.5px;color:var(--muted)">${_esc(d.posologia || "sem posologia registrada")}</div></span></label>`;

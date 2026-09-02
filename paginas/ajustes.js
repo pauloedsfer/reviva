@@ -245,10 +245,17 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     n++;
     return cab + `<tr class="${cls}">
       <td class="num">${n}</td>
-      <td>${subById(x.subId).nome}</td>
+      <td>${subNomeExibicao(x.subId)}</td>
       <td class="mono">${x.lote}</td>
       <td class="c mono">${fmtDate(x.validade)}${marca ? ` <span class="mk">${marca}</span>` : ""}</td>
-      <td class="c mono">${x.saldo}${x.saldo < 0 ? ' <span class="mk">NEGATIVO</span>' : ""}</td>
+      <td class="c mono">${(() => {
+        const sb = subById(x.subId);
+        if (!temUnidadeCompra(sb)) return x.saldo;
+        // líquidos: mostra a base e o equivalente em frascos, que é como se conta
+        const inteiros = Math.floor(x.saldo / sb.fatorUnidade);
+        const resto = x.saldo - inteiros * sb.fatorUnidade;
+        return `${x.saldo}<div class="conv">${inteiros} ${_esc(sb.unidadeCompra)}${inteiros === 1 ? "" : "s"}${resto ? ` + ${resto}` : ""}</div>`;
+      })()}${x.saldo < 0 ? ' <span class="mk">NEGATIVO</span>' : ""}</td>
       <td class="fis"></td>
       <td class="fis"></td>
     </tr>`;
@@ -277,6 +284,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   tr.sec.cust td{background:#B07A2F}
   tr.sec .sq{font-weight:400;opacity:.9;font-size:9px;margin-left:8px;letter-spacing:0}
   tr.neg td{background:#F7E3E1}tr.neg .mk{background:#B04A3F}
+  .conv{font-size:8px;color:#6a736e;font-family:"Public Sans",Arial,sans-serif}
   .alerta{background:#F7E3E1;border-left:3px solid #B04A3F;padding:5px 9px;font-size:10px;margin:6px 0}
   .foot{margin-top:18px;font-size:10.5px;display:flex;justify-content:space-between;gap:30px}
   .foot .l{border-top:1px solid #1E2A28;padding-top:5px;text-align:center;flex:1}

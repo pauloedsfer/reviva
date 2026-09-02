@@ -141,6 +141,22 @@ function _optForn(sel) {
 
 /* ---------------- linhas de itens (NF, doação, custódia) ---------------- */
 // tipo: 'nf' (custo_unit) | 'doacao' (valor_estimado) | 'custodia' (obs)
+/* Atualiza o rótulo da quantidade conforme a substância escolhida:
+   itens em gotas passam a pedir FRASCOS, com a conversão exibida. */
+function _itemAtualizaUnidade(el) {
+  const row = el.closest(".item-row");
+  if (!row) return;
+  const s = subById(row.querySelector(".i-sub").value);
+  const dica = row.querySelector(".i-unid");
+  if (!dica) return;
+  if (temUnidadeCompra(s)) {
+    const q = Number(row.querySelector(".i-qtd").value) || 0;
+    dica.innerHTML = `em <b>${_esc(s.unidadeCompra)}s</b>` +
+      (q ? ` = ${paraBase(s, q)} ${_esc(s.unidade || "un")}` : ` · 1 = ${s.fatorUnidade} ${_esc(s.unidade || "un")}`);
+    dica.style.display = "block";
+  } else { dica.style.display = "none"; }
+}
+
 function addItemRow(containerId, tipo) {
   const cont = document.getElementById(containerId);
   const row = document.createElement("div");
@@ -153,8 +169,9 @@ function addItemRow(containerId, tipo) {
     ? `<div><input type="number" step="0.0001" min="0" class="i-extra" placeholder="Valor merc."></div>`
     : "";
   row.innerHTML = `
-    <div><select class="i-sub">${_optSubs()}</select></div>
-    <div><input type="number" min="1" class="i-qtd" placeholder="Qtd."></div>
+    <div><select class="i-sub" onchange="_itemAtualizaUnidade(this)">${_optSubs()}</select></div>
+    <div><input type="number" min="0.01" step="0.01" class="i-qtd" placeholder="Qtd." oninput="_itemAtualizaUnidade(this)">
+      <div class="i-unid" style="display:none;font-size:10.5px;color:var(--muted);margin-top:2px"></div></div>
     <div><input type="text" class="i-lote" placeholder="Lote"></div>
     <div><input type="date" class="i-val"></div>
     ${extra}
@@ -165,7 +182,11 @@ function coletarItens(containerId, tipo) {
   const rows = Array.from(document.querySelectorAll(`#${containerId} .item-row`));
   const itens = rows.map((r) => {
     const sub = r.querySelector(".i-sub").value;
-    const qtd = Number(r.querySelector(".i-qtd").value);
+    // Itens com unidade de compra (líquidos em gotas) são digitados em
+    // FRASCOS e convertidos para a unidade base, que é a movimentada.
+    const sObj = sub ? subById(sub) : null;
+    const digitado = Number(r.querySelector(".i-qtd").value);
+    const qtd = temUnidadeCompra(sObj) ? paraBase(sObj, digitado) : digitado;
     const lote = r.querySelector(".i-lote").value.trim();
     const val = r.querySelector(".i-val").value || null;
     const extraEl = r.querySelector(".i-extra");

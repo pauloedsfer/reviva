@@ -99,7 +99,9 @@ async function carregarDados() {
     _buscarTudo("transferencias_custodia"),
   ]);
 
-  substances = subs.map((s) => ({ id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
+  substances = subs.map((s) => ({
+    nomeComercial: s.nome_comercial, unidadeCompra: s.unidade_compra,
+    fatorUnidade: s.fator_unidade == null ? null : Number(s.fator_unidade), id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
     principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma,
     categoria: s.categoria || "NAO CLASSIFICADO", padronizado: s.padronizado !== false }));
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
@@ -242,6 +244,37 @@ function rtLinha() {
 
 /* ---------------- helpers (idênticos ao protótipo) ---------------- */
 const $ = (sel, el = document) => el.querySelector(sel);
+/* Nome para exibição: princípio ativo com a(s) marca(s) ao lado, para a
+   enfermagem reconhecer a caixa sem duplicar o cadastro. */
+function subNomeExibicao(subId) {
+  const s = typeof subId === "object" ? subId : subById(subId);
+  if (!s) return "";
+  return s.nome + (s.nomeComercial ? ` (${s.nomeComercial})` : "");
+}
+
+/* ---- Unidade de compra (frascos, caixas) ----
+   A unidade BASE é a menor movimentada — a gota, no caso dos líquidos —
+   porque a dose é lançada nela. A unidade de COMPRA existe só para entrada
+   e contagem física: 1 frasco de 20 mL = 400 gotas (20 gotas/mL). */
+function temUnidadeCompra(s) {
+  return !!(s && s.unidadeCompra && s.fatorUnidade > 0);
+}
+function paraBase(s, qtdCompra) {
+  return temUnidadeCompra(s) ? Number(qtdCompra) * s.fatorUnidade : Number(qtdCompra);
+}
+// "1.150 gotas · 2 frascos e 350 gotas"
+function fmtQtdComCompra(subId, qtd) {
+  const s = typeof subId === "object" ? subId : subById(subId);
+  const n = Number(qtd) || 0;
+  if (!temUnidadeCompra(s)) return String(fmtDose(n));
+  const inteiros = Math.floor(n / s.fatorUnidade);
+  const resto = n - inteiros * s.fatorUnidade;
+  const un = s.unidade || "un";
+  if (!inteiros) return `${fmtDose(n)} ${un}`;
+  return `${fmtDose(n)} ${un} · ${inteiros} ${s.unidadeCompra}${inteiros > 1 ? "s" : ""}` +
+         (resto ? ` e ${fmtDose(resto)} ${un}` : "");
+}
+
 const subById = (id) => substances.find((s) => s.id === id) || { nome: "—", lista: "—", unidade: "" };
 /* ---- Paciente internado ----
    Paciente com alta continua no cadastro (histórico e escrituração), mas

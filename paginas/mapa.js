@@ -93,7 +93,7 @@ function _tabelaPaciente(p, periodos, blankRows, dISO) {
     // o mapa mostra a DOSE ADMINISTRADA (pode ser fracionada, ex.: ½ comprimido)
     const nq = qtdPorHorario(pr);
     const marca = nq === 1 ? "" : ` (${fmtDose(nq)}${formaSolida(subById(pr.subId)) ? " comp." : ""}/dose)`;
-    const nome = subById(pr.subId).nome + (pr.dose ? " — " + pr.dose : "") + marca + (sos ? " (SOS)" : "");
+    const nome = subNomeExibicao(pr.subId) + (pr.dose ? " — " + pr.dose : "") + marca + (sos ? " (SOS)" : "");
     const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
     return `<tr><td class="med">${nome}</td>${tds}</tr>`;
   }).join("");

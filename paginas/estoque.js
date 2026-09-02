@@ -39,6 +39,9 @@ function abrirFormSubstancia(id) {
     const dados = {
       nome, principio_ativo: fvOrNull("sPa"), concentracao: fvOrNull("sConc"),
       forma: fvOrNull("sForma"), lista: fv("sLista") || "—", unidade: fv("sUnid") || "comp.",
+      nome_comercial: fvOrNull("sMarca"),
+      unidade_compra: fvOrNull("sUnidCompra"),
+      fator_unidade: fv("sFator") ? fvNum("sFator") : null,
       categoria: fv("sCat") || "NAO CLASSIFICADO", padronizado: fv("sPadr") !== "0",
     };
     if (id) {
