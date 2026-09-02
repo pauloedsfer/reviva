@@ -188,7 +188,14 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "____________________";
 
   // um registro por lote, com saldo e status de validade
-  let linhas = allLotes().map((l) => ({ subId: l.subId, lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }));
+  let linhas = allLotes().map((l) => ({
+    subId: l.subId, lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
+    // custódia: lote de uso exclusivo de um paciente (trazido por ele ou
+    // transferido do estoque). A contagem física é feita em separado —
+    // fica em outro local e não pode ser somada ao estoque da clínica.
+    pacId: l.restritoPaciente || null,
+    pacNome: l.restritoPaciente ? ((patById(l.restritoPaciente) || {}).nome || "—") : null,
+  }));
 
   if (subId) linhas = linhas.filter((x) => x.subId === subId);
   if (ocultarZerados) linhas = linhas.filter((x) => x.saldo > 0);
@@ -208,20 +215,36 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     return st.dias >= 0 && st.dias <= lim;
   });
 
-  linhas.sort((a, b) => subById(a.subId).nome.localeCompare(subById(b.subId).nome) || (a.validade < b.validade ? -1 : 1));
+  linhas.sort((a, b) =>
+    (a.pacId ? 1 : 0) - (b.pacId ? 1 : 0) ||                                   // geral antes da custódia
+    String(a.pacNome || "").localeCompare(String(b.pacNome || ""), "pt-BR") || // custódia agrupada por paciente
+    subById(a.subId).nome.localeCompare(subById(b.subId).nome) ||
+    (String(a.validade || "") < String(b.validade || "") ? -1 : 1));
 
   if (!linhas.length) { alert("Nenhum lote atende aos filtros escolhidos."); return; }
 
-  const corpo = linhas.map((x, i) => {
+  let secao = "__inicio__", n = 0;
+  const corpo = linhas.map((x) => {
     const st = validadeStatus(x.validade);
-    const cls = st.dias < 0 ? "venc" : st.dias <= 90 ? "crit" : "";
+    const cls = [st.dias < 0 ? "venc" : st.dias <= 90 ? "crit" : "", x.saldo < 0 ? "neg" : ""].filter(Boolean).join(" ");
     const marca = st.dias < 0 ? "VENCIDO" : st.dias <= 90 ? `${st.dias}d` : "";
-    return `<tr class="${cls}">
-      <td class="num">${i + 1}</td>
+    // cabeçalho ao mudar de seção (estoque da clínica → cada paciente)
+    const chave = x.pacId ? "P:" + x.pacId : "GERAL";
+    let cab = "";
+    if (chave !== secao) {
+      secao = chave; n = 0;
+      const qtd = linhas.filter((y) => (y.pacId ? "P:" + y.pacId : "GERAL") === chave).length;
+      cab = x.pacId
+        ? `<tr class="sec cust"><td colspan="7">CUSTÓDIA — ${_esc(x.pacNome)} <span class="sq">${qtd} lote(s) · contar em separado, não somar ao estoque da clínica</span></td></tr>`
+        : `<tr class="sec"><td colspan="7">ESTOQUE DA CLÍNICA <span class="sq">${qtd} lote(s)</span></td></tr>`;
+    }
+    n++;
+    return cab + `<tr class="${cls}">
+      <td class="num">${n}</td>
       <td>${subById(x.subId).nome}</td>
       <td class="mono">${x.lote}</td>
       <td class="c mono">${fmtDate(x.validade)}${marca ? ` <span class="mk">${marca}</span>` : ""}</td>
-      <td class="c mono">${x.saldo}</td>
+      <td class="c mono">${x.saldo}${x.saldo < 0 ? ' <span class="mk">NEGATIVO</span>' : ""}</td>
       <td class="fis"></td>
       <td class="fis"></td>
     </tr>`;
@@ -246,6 +269,10 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   .mono{font-family:"IBM Plex Mono",monospace}td.fis{background:#FCFBF6;min-width:70px}th.fis{background:#EEF2EC}
   tr.crit td{background:#FBF3E3}tr.venc td{background:#F7E3E1}.mk{font-size:8px;background:#2C5F5A;color:#fff;padding:1px 3px;border-radius:3px;vertical-align:middle}
   tr.venc .mk{background:#B04A3F}tr.crit .mk{background:#B07A2F}
+  tr.sec td{background:#1E2A28;color:#fff;font-weight:700;font-size:10px;letter-spacing:.05em;padding:4px 8px}
+  tr.sec.cust td{background:#B07A2F}
+  tr.sec .sq{font-weight:400;opacity:.9;font-size:9px;margin-left:8px;letter-spacing:0}
+  tr.neg td{background:#F7E3E1}tr.neg .mk{background:#B04A3F}
   .foot{margin-top:18px;font-size:10.5px;display:flex;justify-content:space-between;gap:30px}
   .foot .l{border-top:1px solid #1E2A28;padding-top:5px;text-align:center;flex:1}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}@media print{.btn{display:none}}</style></head><body>

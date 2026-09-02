@@ -1,7 +1,8 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 01/09/2026
+Data: 02/09/2026
 
-  paginas/escrituracao.js
+  paginas/ajustes.js
+  db/diagnostico_saldo_negativo.sql
   README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
