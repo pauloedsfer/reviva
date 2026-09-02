@@ -298,3 +298,7 @@
   .cart-seal{font-size:26px;line-height:1;}
   .cart-status-title{font-weight:700;font-size:15px;}
   .cart-status-sub{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+
+/* dicas de preenchimento nos formulários */
+.ff .dica{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.35}
+.ff .opc{font-weight:400;color:var(--muted)}

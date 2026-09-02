@@ -17,7 +17,19 @@ function _formSubstancia(s) {
     <div class="ff row3">
       <div><label>Forma</label><input id="sForma" value="${s.forma || ""}" placeholder="comprimido"></div>
       <div><label>Lista (Portaria 344/98) *</label><select id="sLista">${opts}</select></div>
-      <div><label>Unidade *</label><input id="sUnid" value="${s.unidade || "comp."}"></div>
+      <div><label>Unidade *</label><input id="sUnid" value="${s.unidade || "comp."}">
+        <div class="dica">A menor unidade movimentada: comp., ampola, <b>gota</b>.</div></div>
+    </div>
+    <div class="ff"><label>Nome comercial <span class="opc">— marcas conhecidas, separadas por vírgula</span></label>
+      <input id="sMarca" value="${(s.nomeComercial || "").replace(/"/g, "&quot;")}" placeholder="Ex.: Neozine®, Levozine®">
+      <div class="dica">Aparece ao lado do princípio ativo no mapa, na dispensação e nos kits, para a enfermagem reconhecer a caixa — sem precisar cadastrar a marca como outra substância.</div></div>
+    <div class="ff row2">
+      <div><label>Unidade de compra <span class="opc">— opcional</span></label>
+        <input id="sUnidCompra" value="${(s.unidadeCompra || "").replace(/"/g, "&quot;")}" placeholder="Ex.: frasco">
+        <div class="dica">Como o item é comprado e contado.</div></div>
+      <div><label>Equivale a quantas unidades</label>
+        <input id="sFator" type="number" min="1" step="1" value="${s.fatorUnidade || ""}" placeholder="400">
+        <div class="dica">Gotas: 20 por mL — frasco de 20 mL = <b>400</b>; 10 mL = 200; 30 mL = 600.</div></div>
     </div>
     <div class="ff row2">
       <div><label>Categoria</label>
