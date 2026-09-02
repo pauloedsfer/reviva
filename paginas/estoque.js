@@ -117,7 +117,7 @@ function renderPage(){
           <tbody>
             ${lotes.map(l=>{
               const vs = validadeStatus(l.validade);
-              const bal = saldoLote(l.lote);
+              const bal = saldoLoteChave(l.chave);
               const statusTag = vs.key==='vencido' ? `<span class="pill low">● ${vs.label}</span>`
                 : vs.key==='critico' ? `<span class="pill warn">● ${vs.label}</span>`
                 : `<span class="pill">● ${vs.label}</span>`;

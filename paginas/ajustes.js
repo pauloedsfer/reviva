@@ -16,7 +16,7 @@ function _optLotesAjuste() {
   return `<option value="">— selecione o lote —</option>` +
     subs.map((id) => `<optgroup label="${subById(id).nome}">` +
       porSub[id].sort((a, b) => (a.validade < b.validade ? -1 : 1))
-        .map((l) => `<option value="${l.lote}">${l.lote} · val. ${fmtDate(l.validade)} (sistema: ${saldoLote(l.lote)})</option>`).join("") +
+        .map((l) => `<option value="${l.chave}">${l.lote} · val. ${fmtDate(l.validade)}${l.restritoPaciente ? " · custódia " + _esc((patById(l.restritoPaciente)||{}).nome||"") : ""} (sistema: ${saldoLoteChave(l.chave)})</option>`).join("") +
       `</optgroup>`).join("");
 }
 
@@ -25,7 +25,7 @@ function _recalcAjuste() {
   const el = document.getElementById("ajDiff");
   if (!el) return;
   if (!lote) { el.innerHTML = ""; return; }
-  const sis = saldoLote(lote);
+  const sis = saldoLoteChave(lote);
   const fisEl = document.getElementById("ajFisico");
   const fis = fisEl && fisEl.value !== "" ? Number(fisEl.value) : null;
   if (fis === null) { el.innerHTML = `Saldo no sistema: <b>${sis}</b>`; return; }
@@ -51,14 +51,14 @@ function abrirFormAjuste() {
     if (!data) throw new Error("Informe a data.");
     if (!lote) throw new Error("Selecione o lote conferido.");
     if (fis === null || fis < 0) throw new Error("Informe a contagem física.");
-    const l = allLotes().find((x) => x.lote === lote);
+    const l = allLotes().find((x) => x.chave === lote);
     if (!l) throw new Error("Lote inválido.");
-    const sis = saldoLote(lote);
+    const sis = saldoLoteChave(lote);
     const delta = fis - sis;
     if (delta === 0) throw new Error("A contagem confere com o sistema — não há ajuste a registrar.");
     if (!just) throw new Error("A justificativa é obrigatória.");
     const { error } = await window.SB.from("ajustes_estoque").insert({
-      data, substancia_id: l.subId, numero_lote: lote, saldo_sistema: sis,
+      data, substancia_id: l.subId, numero_lote: l.lote, saldo_sistema: sis,
       contagem_fisica: fis, quantidade: delta, justificativa: just, ...usuarioId(),
     });
     if (error) throw error;
@@ -87,7 +87,7 @@ function _ajRecalcLinha(el) {
   const lote = row.querySelector(".a-lote").value;
   const info = row.querySelector(".a-info");
   if (!lote) { info.textContent = "—"; _ajResumo(); return; }
-  const sis = saldoLote(lote);
+  const sis = saldoLoteChave(lote);
   const v = row.querySelector(".a-fis").value;
   if (v === "") { info.innerHTML = `sistema: <b>${sis}</b>`; _ajResumo(); return; }
   const d = Number(v) - sis;
@@ -108,10 +108,10 @@ function _ajColeta(parcial) {
     const lote = r.querySelector(".a-lote").value;
     const v = r.querySelector(".a-fis").value;
     if (!lote || v === "") return null;
-    const l = allLotes().find((x) => x.lote === lote);
+    const l = allLotes().find((x) => x.chave === lote);
     if (!l) return null;
-    const sis = saldoLote(lote), fis = Number(v);
-    return { lote, subId: l.subId, nome: subById(l.subId).nome, sis, fis, delta: fis - sis };
+    const sis = saldoLoteChave(lote), fis = Number(v);
+    return { lote: l.lote, chave: lote, subId: l.subId, nome: subById(l.subId).nome, sis, fis, delta: fis - sis };
   }).filter(Boolean);
 }
 function abrirFormAjusteMultiplo() {
@@ -189,7 +189,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
 
   // um registro por lote, com saldo e status de validade
   let linhas = allLotes().map((l) => ({
-    subId: l.subId, lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
+    subId: l.subId, lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave),
     // custódia: lote de uso exclusivo de um paciente (trazido por ele ou
     // transferido do estoque). A contagem física é feita em separado —
     // fica em outro local e não pode ser somada ao estoque da clínica.

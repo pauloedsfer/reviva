@@ -377,7 +377,7 @@ function lotesDisponiveis(subId) {
   // Estoque GERAL: exclui todo lote restrito a paciente (trazido pela família
   // ou transferido do estoque), pois não está mais disponível ao serviço.
   return allLotes().filter((l) => l.subId === subId && !l.restritoPaciente)
-    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote) }))
+    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave), chave: l.chave }))
     .filter((x) => x.saldo > 0)
     .sort((a, b) => ((a.validade || "9999") < (b.validade || "9999") ? -1 : 1));
 }
@@ -400,8 +400,8 @@ function ultimoUsoLote(lote) {
    iniciados, aí sim o que vence primeiro. */
 function lotesCustodiaDoPaciente(subId, pacienteId) {
   return allLotes().filter((l) => l.subId === subId && l.restritoPaciente === pacienteId && !l.integrado)
-    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
-                   qtd: l.qtd, ultimoUso: ultimoUsoLote(l.lote) }))
+    .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave),
+                   chave: l.chave, qtd: l.qtd, ultimoUso: ultimoUsoLote(l.lote) }))
     .filter((x) => x.saldo > 0)
     .map((x) => ({ ...x, emUso: x.saldo < x.qtd }))
     .sort((a, b) => {
@@ -478,7 +478,9 @@ const fmtDate = (d) => { if (!d) return "—"; const [y, m, dd] = d.split("-"); 
 const fmtBRL = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const diffDias = (d1, d2) => Math.round((new Date(d2) - new Date(d1)) / 86400000);
 
-function allLotes() {
+/* Entradas BRUTAS, uma por registro de entrada. Não use direto para saldo:
+   o mesmo lote pode ter várias entradas. Use allLotes(), que agrupa. */
+function _entradasBrutas() {
   const list = [];
   initialInventory.forEach((it) => list.push({
     subId: it.subId, lote: it.lote, validade: it.validade, qtd: it.qtd, custoUnit: it.custoUnit,
@@ -514,17 +516,92 @@ function allLotes() {
   return list;
 }
 
-function saldoLote(lote) {
-  const l = allLotes().find((x) => x.lote === lote);
+/* Lotes efetivos: um por substância + lote + dono, com as entradas somadas.
+   É o que as telas e o saldo devem usar. */
+function allLotes() {
+  const m = _lotesAgrupados();
+  return Object.keys(m).map((k) => m[k]);
+}
+
+/* ============================================================
+   IDENTIDADE DO LOTE
+
+   O número do lote NÃO é único. O mesmo número pode aparecer:
+     · em várias entregas para o mesmo paciente (a família traz mais
+       comprimidos da mesma caixa);
+     · na custódia de pacientes diferentes (mesmo lote de fábrica);
+     · na custódia de um paciente E no estoque da clínica.
+
+   Tratar o número isoladamente fazia o saldo somar o consumo de todos
+   e descontá-lo de uma única entrada, gerando negativos.
+
+   A identidade correta é a tripla SUBSTÂNCIA + LOTE + DONO,
+   onde dono = paciente (custódia) ou vazio (estoque da clínica).
+   Entradas repetidas dessa mesma tripla se SOMAM num único saldo.
+   ============================================================ */
+function loteChave(subId, lote, dono) {
+  return String(subId) + "|" + String(lote) + "|" + (dono || "");
+}
+function loteChaveDe(l) { return loteChave(l.subId, l.lote, l.restritoPaciente); }
+
+// A qual saldo uma saída pertence: à custódia do paciente, se ele tiver
+// esse lote em custódia; caso contrário, ao estoque da clínica.
+function _chaveDaSaida(subId, lote, pacienteId) {
+  const buckets = _lotesAgrupados();
+  const kCust = loteChave(subId, lote, pacienteId);
+  if (pacienteId && buckets[kCust]) return kCust;
+  return loteChave(subId, lote, null);
+}
+
+// Agrupa as entradas por substância + lote + dono, somando as quantidades.
+let _cacheBuckets = null, _cacheSelo = null;
+function _lotesAgrupados() {
+  const selo = (invoices.length + donations.length + patientMeds.length +
+                initialInventory.length + transferenciasCustodia.length +
+                dispensations.length + returns.length + ajustes.length);
+  if (_cacheBuckets && _cacheSelo === selo) return _cacheBuckets;
+  const m = {};
+  _entradasBrutas().forEach((l) => {
+    const k = loteChaveDe(l);
+    if (!m[k]) m[k] = { ...l, chave: k, qtd: 0, itensCustodia: [] };
+    m[k].qtd += l.qtd;
+    if (l.itemCustodiaId) m[k].itensCustodia.push(l.itemCustodiaId);
+    // conserva a validade mais próxima entre as entregas do mesmo lote
+    if (l.validade && (!m[k].validade || l.validade < m[k].validade)) m[k].validade = l.validade;
+  });
+  _cacheBuckets = m; _cacheSelo = selo;
+  return m;
+}
+
+function saldoLoteChave(chave) {
+  const l = _lotesAgrupados()[chave];
   if (!l) return 0;
-  const consumido = dispensations.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
-  const devolvido = returns.filter((x) => x.lote === lote).reduce((a, x) => a + x.qtd, 0);
-  const ajustado = ajustes.filter((x) => x.lote === lote).reduce((a, x) => a + x.delta, 0);
-  const destinado = l.itemCustodiaId ? _saidaDestinos(l.itemCustodiaId) : 0; // devolução à família / descarte
-  // quantidade que saiu deste lote por transferência para a custódia de paciente
+  const consumido = dispensations
+    .filter((x) => _chaveDaSaida(x.subId, x.lote, x.paciente) === chave)
+    .reduce((a, x) => a + x.qtd, 0);
+  const devolvido = returns
+    .filter((x) => _chaveDaSaida(x.subId, x.lote, x.paciente) === chave)
+    .reduce((a, x) => a + x.qtd, 0);
+  // ajuste não guarda paciente: aplica-se ao saldo do mesmo lote e substância
+  const ajustado = ajustes
+    .filter((x) => _chaveDaSaida(x.subId, x.lote, null) === chave)
+    .reduce((a, x) => a + x.delta, 0);
+  const destinado = (l.itensCustodia || []).reduce((a, id) => a + _saidaDestinos(id), 0);
   const transferido = transferenciasCustodia
-    .filter((t) => t.loteOrigem === lote).reduce((a, t) => a + t.qtd, 0);
+    .filter((t) => loteChave(t.subId, t.loteOrigem, null) === chave)
+    .reduce((a, t) => a + t.qtd, 0);
   return l.qtd - consumido + devolvido + ajustado - destinado - transferido;
+}
+
+/* Compatibilidade: saldoLote(lote) sem contexto. Quando o número existe em
+   mais de um saldo (clínica + custódias), soma todos — que é o total físico
+   daquele lote na casa. Prefira saldoLoteChave() quando souber o dono. */
+function saldoLote(lote, subId, dono) {
+  if (subId !== undefined) return saldoLoteChave(loteChave(subId, lote, dono));
+  const buckets = _lotesAgrupados();
+  return Object.keys(buckets)
+    .filter((k) => buckets[k].lote === lote)
+    .reduce((a, k) => a + saldoLoteChave(k), 0);
 }
 
 // Saldo do ESTOQUE DA CLÍNICA: exclui custódia (trazida pela família ou
@@ -532,7 +609,7 @@ function saldoLote(lote) {
 function saldo(subId) {
   return allLotes()
     .filter((l) => l.subId === subId && !l.restritoPaciente)
-    .reduce((a, l) => a + saldoLote(l.lote), 0);
+    .reduce((a, l) => a + saldoLoteChave(l.chave), 0);
 }
 
 function custoMedio(subId) {

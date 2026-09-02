@@ -176,7 +176,7 @@ function renderPage(){
           <thead><tr><th>Paciente</th><th>Substância</th><th>Lote</th><th>Validade</th><th>Recebido</th><th>Saldo</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             ${patientMeds.flatMap(pm => pm.itens.map(it=>{
-              const bal = saldoLote(it.lote);
+              const bal = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
               const st = statusCustodia(pm, it);
               const stTag = st === "aguardando" ? '<span class="pill warn">● aguardando retirada</span>'
                 : st === "devolvido" ? '<span class="pill">● devolvido à família</span>'
@@ -215,7 +215,7 @@ function _acharItemCustodia(itemId) {
 
 function abrirDevolucaoFamilia(itemId) {
   const f = _acharItemCustodia(itemId); if (!f) return;
-  const saldoAtual = saldoLote(f.it.lote);
+  const saldoAtual = saldoLoteChave(loteChave(f.it.subId, f.it.lote, f.pm.paciente));
   const corpo = `
     <div class="ff row2">
       <div><label>Data *</label><input id="dfData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
@@ -239,7 +239,7 @@ function abrirDevolucaoFamilia(itemId) {
 
 async function integrarAoEstoque(itemId) {
   const f = _acharItemCustodia(itemId); if (!f) return;
-  const saldoAtual = saldoLote(f.it.lote);
+  const saldoAtual = saldoLoteChave(loteChave(f.it.subId, f.it.lote, f.pm.paciente));
   if (!confirm(`Integrar ao estoque geral o saldo de ${saldoAtual} de ${subById(f.it.subId).nome} (lote ${f.it.lote})?\n\nA medicação deixa de ser restrita ao paciente e passa a contar no estoque do hospital (entra no BMPO).`)) return;
   const { error } = await window.SB.from("custodia_destinos").insert({
     data: new Date().toISOString().slice(0, 10), medicacao_propria_item_id: itemId,
@@ -302,7 +302,7 @@ function abrirEditarCustodia(itemId) {
 
   abrirModal(`Corrigir item de custódia — ${pac ? pac.nome : ""}`, `
     <div class="note-box" style="margin-top:0">
-      <b>${_esc(subById(it.subId).nome)}</b> · quantidade recebida: <b>${it.qtd}</b> · saldo atual: <b>${saldoLote(it.lote)}</b>
+      <b>${_esc(subById(it.subId).nome)}</b> · quantidade recebida: <b>${it.qtd}</b> · saldo atual: <b>${saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente))}</b>
       ${usos ? `<div style="margin-top:6px">Já houve <b>${usos} administração(ões)</b> deste lote (${dispQtd} unidade(s)). O número do lote fica bloqueado para preservar a rastreabilidade.</div>` : ""}
     </div>
     <div class="ff row2">
@@ -359,21 +359,21 @@ function abrirTransferenciaCustodia(pacId) {
     const lote = fv("tcLote"); if (!lote) throw new Error("Selecione o lote do estoque.");
     const qtd = fvNum("tcQtd");
     if (!(qtd > 0)) throw new Error("Informe a quantidade a transferir.");
-    const l = _tcLotesDisponiveis().find((x) => x.lote === lote);
+    const l = _tcLotesDisponiveis().find((x) => x.chave === lote);
     if (!l) throw new Error("Lote não encontrado no estoque.");
-    const saldo = saldoLote(lote);
+    const saldo = saldoLoteChave(lote);
     if (qtd > saldo) throw new Error(`Saldo insuficiente: o lote ${lote} tem ${saldo} unidade(s).`);
     const data = fv("tcData") || HOJE;
     const p = patById(pac);
     // lote de destino: deriva do original, identificando o paciente
     const sufixo = (p && p.leito ? "L" + p.leito : pac.slice(0, 4)).toUpperCase();
-    let destino = `${lote}/${sufixo}`;
+    let destino = `${l.lote}/${sufixo}`;
     let n = 2;
-    while (allLotes().some((x) => x.lote === destino)) destino = `${lote}/${sufixo}-${n++}`;
+    while (allLotes().some((x) => x.lote === destino)) destino = `${l.lote}/${sufixo}-${n++}`;
 
     const { error } = await window.SB.from("transferencias_custodia").insert({
       data, substancia_id: l.subId, paciente_id: pac,
-      lote_origem: lote, lote_destino: destino, validade: l.validade,
+      lote_origem: l.lote, lote_destino: destino, validade: l.validade,
       quantidade: qtd, custo_unit: l.custoUnit || 0,
       observacao: fvOrNull("tcObs"), ...usuarioId(),
     });
@@ -385,7 +385,7 @@ function abrirTransferenciaCustodia(pacId) {
 // lotes do estoque geral com saldo (exclui custódia de outros pacientes)
 function _tcLotesDisponiveis() {
   return allLotes()
-    .filter((l) => !l.restritoPaciente && saldoLote(l.lote) > 0)
+    .filter((l) => !l.restritoPaciente && saldoLoteChave(l.chave) > 0)
     .sort((a, b) => (subById(a.subId).nome || "").localeCompare(subById(b.subId).nome || "", "pt-BR") ||
                     String(a.validade || "").localeCompare(String(b.validade || "")));
 }
@@ -393,16 +393,16 @@ function _tcOpcoesLote() {
   const ls = _tcLotesDisponiveis();
   if (!ls.length) return `<option value="">— nenhum lote com saldo no estoque —</option>`;
   return `<option value="">— selecione o lote —</option>` + ls.map((l) =>
-    `<option value="${_esc(l.lote)}">${_esc(subById(l.subId).nome)} · lote ${_esc(l.lote)} · saldo ${saldoLote(l.lote)}${l.validade ? " · val. " + fmtDate(l.validade) : ""}</option>`).join("");
+    `<option value="${_esc(l.chave)}">${_esc(subById(l.subId).nome)} · lote ${_esc(l.lote)} · saldo ${saldoLoteChave(l.chave)}${l.validade ? " · val. " + fmtDate(l.validade) : ""}</option>`).join("");
 }
 function _tcAtualiza() {
   const lote = (document.getElementById("tcLote") || {}).value || "";
   const info = document.getElementById("tcInfo");
   const res = document.getElementById("tcResumo");
   if (!lote) { if (info) info.textContent = "Selecione o lote para ver o saldo."; if (res) res.style.display = "none"; return; }
-  const l = _tcLotesDisponiveis().find((x) => x.lote === lote);
+  const l = _tcLotesDisponiveis().find((x) => x.chave === lote);
   if (!l) return;
-  const saldo = saldoLote(lote);
+  const saldo = saldoLoteChave(lote);
   const q = parseFloat(String((document.getElementById("tcQtd") || {}).value || "").replace(",", ".")) || 0;
   if (info) info.innerHTML = `<b>${_esc(subById(l.subId).nome)}</b> · saldo atual <b>${saldo}</b>${l.validade ? ` · validade ${fmtDate(l.validade)}` : ""} · custo unitário ${fmtBRL(l.custoUnit || 0)}`;
   if (res && q > 0) {

@@ -288,8 +288,8 @@ function _folhaSemanalDados() {
   const comMov = blocos.filter((b) => b.entradas.length || b.saidas.length).sort(porLista);
   const semMov = blocos.filter((b) => !b.entradas.length && !b.saidas.length && b.final !== 0).sort(porLista)
     .map((b) => ({ ...b, lotes: allLotes()
-      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && saldoLote(l.lote) > 0)
-      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLote(l.lote),
+      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && saldoLoteChave(l.chave) > 0)
+      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave),
                      paciente: l.restritoPaciente ? (patById(l.restritoPaciente) || {}).nome : null }))
       .sort((a, b2) => String(a.validade || "9999").localeCompare(String(b2.validade || "9999"))) }));
   return { ini, fim, blocos: comMov, semMov };

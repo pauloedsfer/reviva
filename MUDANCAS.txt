@@ -1,8 +1,12 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 02/09/2026
 
+  assets/dados.js
+  paginas/ajustes.js
+  paginas/medicacaopropria.js
+  paginas/escrituracao.js
   paginas/estoque.js
-  assets/estilos.css
+  README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
 O zip completo (reviva-app.zip) continua disponivel, caso prefira.
