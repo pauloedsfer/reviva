@@ -198,7 +198,10 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   }));
 
   if (subId) linhas = linhas.filter((x) => x.subId === subId);
-  if (ocultarZerados) linhas = linhas.filter((x) => x.saldo > 0);
+  // "ocultar zerados" esconde apenas o que está exatamente em zero.
+  // Saldo NEGATIVO nunca é ocultado: é inconsistência que precisa de
+  // contagem física e ajuste, justamente o que a folha existe para apurar.
+  if (ocultarZerados) linhas = linhas.filter((x) => x.saldo !== 0);
 
   // faixa de vencimento
   linhas = linhas.filter((x) => {
@@ -222,6 +225,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     (String(a.validade || "") < String(b.validade || "") ? -1 : 1));
 
   if (!linhas.length) { alert("Nenhum lote atende aos filtros escolhidos."); return; }
+  const nNeg = linhas.filter((x) => x.saldo < 0).length;
 
   let secao = "__inicio__", n = 0;
   const corpo = linhas.map((x) => {
@@ -273,6 +277,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   tr.sec.cust td{background:#B07A2F}
   tr.sec .sq{font-weight:400;opacity:.9;font-size:9px;margin-left:8px;letter-spacing:0}
   tr.neg td{background:#F7E3E1}tr.neg .mk{background:#B04A3F}
+  .alerta{background:#F7E3E1;border-left:3px solid #B04A3F;padding:5px 9px;font-size:10px;margin:6px 0}
   .foot{margin-top:18px;font-size:10.5px;display:flex;justify-content:space-between;gap:30px}
   .foot .l{border-top:1px solid #1E2A28;padding-top:5px;text-align:center;flex:1}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}@media print{.btn{display:none}}</style></head><body>
@@ -281,6 +286,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   <h1>Folha de Contagem de Estoque — Inventário</h1>
   <div class="sub">Data da contagem: ____ / ____ / ______ &nbsp;·&nbsp; Conferente: ________________________ &nbsp;·&nbsp; ${linhas.length} lote(s)</div>
   <div class="filtros">Filtros — ${filtroTxt.join(" · ")}</div>
+  ${nNeg ? `<div class="alerta"><b>${nNeg} lote(s) com saldo negativo.</b> Saldo negativo indica saída lançada além do que entrou — conte fisicamente e registre o ajuste com justificativa.</div>` : ""}
   <table><thead><tr><th class="num">#</th><th>Substância</th><th>Lote</th><th class="c">Validade</th><th class="c">Saldo sistema</th><th class="c fis">Contagem física</th><th class="c fis">Diferença</th></tr></thead>
   <tbody>${corpo}</tbody></table>
   <div class="foot"><div class="l">Conferente (assinatura)</div><div class="l">${rtTxt}<br>Farmacêutico(a) Responsável Técnico</div></div>

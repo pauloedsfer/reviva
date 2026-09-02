@@ -2,8 +2,6 @@ ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 02/09/2026
 
   paginas/ajustes.js
-  db/diagnostico_saldo_negativo.sql
-  README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
 O zip completo (reviva-app.zip) continua disponivel, caso prefira.
