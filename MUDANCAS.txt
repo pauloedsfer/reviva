@@ -1,11 +1,9 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 02/09/2026
+Data: 03/09/2026
 
   assets/dados.js
   paginas/ajustes.js
-  paginas/medicacaopropria.js
-  paginas/escrituracao.js
-  paginas/estoque.js
+  db/migration_ajuste_paciente.sql
   README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.

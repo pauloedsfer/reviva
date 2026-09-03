@@ -58,7 +58,7 @@ function abrirFormAjuste() {
     if (delta === 0) throw new Error("A contagem confere com o sistema — não há ajuste a registrar.");
     if (!just) throw new Error("A justificativa é obrigatória.");
     const { error } = await window.SB.from("ajustes_estoque").insert({
-      data, substancia_id: l.subId, numero_lote: l.lote, saldo_sistema: sis,
+      data, substancia_id: l.subId, numero_lote: l.lote, paciente_id: l.restritoPaciente || null, saldo_sistema: sis,
       contagem_fisica: fis, quantidade: delta, justificativa: just, ...usuarioId(),
     });
     if (error) throw error;
@@ -111,7 +111,9 @@ function _ajColeta(parcial) {
     const l = allLotes().find((x) => x.chave === lote);
     if (!l) return null;
     const sis = saldoLoteChave(lote), fis = Number(v);
-    return { lote: l.lote, chave: lote, subId: l.subId, nome: subById(l.subId).nome, sis, fis, delta: fis - sis };
+    return { lote: l.lote, chave: lote, subId: l.subId, dono: l.restritoPaciente || null,
+             nome: subById(l.subId).nome + (l.restritoPaciente ? " · custódia " + ((patById(l.restritoPaciente)||{}).nome||"") : ""),
+             sis, fis, delta: fis - sis };
   }).filter(Boolean);
 }
 function abrirFormAjusteMultiplo() {
@@ -137,7 +139,7 @@ function abrirFormAjusteMultiplo() {
     if (!just) throw new Error("A justificativa é obrigatória.");
     const { error } = await window.SB.from("ajustes_estoque").insert(
       comDif.map((l) => ({
-        data, substancia_id: l.subId, numero_lote: l.lote, saldo_sistema: l.sis,
+        data, substancia_id: l.subId, numero_lote: l.lote, paciente_id: l.dono || null, saldo_sistema: l.sis,
         contagem_fisica: l.fis, quantidade: l.delta, justificativa: just, ...usuarioId(),
       })));
     if (error) throw error;

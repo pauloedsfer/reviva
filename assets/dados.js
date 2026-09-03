@@ -199,7 +199,7 @@ async function carregarDados() {
     ajustes = (ajs || []).map((a) => ({
       id: a.id, data: a.data, subId: a.substancia_id, lote: a.numero_lote,
       delta: a.quantidade, saldoSistema: a.saldo_sistema, contagemFisica: a.contagem_fisica,
-      justificativa: a.justificativa,
+      justificativa: a.justificativa, paciente: a.paciente_id || null,
     }));
   } catch (e) { ajustes = []; }
 
@@ -573,6 +573,24 @@ function _lotesAgrupados() {
   return m;
 }
 
+/* A qual saldo pertence um AJUSTE de inventário.
+   O ajuste registra substância e lote, mas historicamente não guardava o
+   paciente — então não dá para presumir que seja do estoque da clínica.
+   Regra: se existir um único saldo para aquela substância+lote, é ele;
+   havendo vários, usa o paciente gravado no ajuste e, na falta dele,
+   o estoque da clínica. */
+function _chaveDoAjuste(a) {
+  const b = _lotesAgrupados();
+  if (a.paciente) {
+    const k = loteChave(a.subId, a.lote, a.paciente);
+    if (b[k]) return k;
+  }
+  const cands = Object.keys(b).filter((k) => b[k].subId === a.subId && b[k].lote === a.lote);
+  if (cands.length === 1) return cands[0];
+  const kClin = loteChave(a.subId, a.lote, null);
+  return b[kClin] ? kClin : (cands[0] || kClin);
+}
+
 function saldoLoteChave(chave) {
   const l = _lotesAgrupados()[chave];
   if (!l) return 0;
@@ -584,7 +602,7 @@ function saldoLoteChave(chave) {
     .reduce((a, x) => a + x.qtd, 0);
   // ajuste não guarda paciente: aplica-se ao saldo do mesmo lote e substância
   const ajustado = ajustes
-    .filter((x) => _chaveDaSaida(x.subId, x.lote, null) === chave)
+    .filter((x) => _chaveDoAjuste(x) === chave)
     .reduce((a, x) => a + x.delta, 0);
   const destinado = (l.itensCustodia || []).reduce((a, id) => a + _saidaDestinos(id), 0);
   const transferido = transferenciasCustodia
