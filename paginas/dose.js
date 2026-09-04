@@ -196,6 +196,7 @@ async function confirmarDispensacao() {
   const checks = Array.from(document.querySelectorAll(".disp-check:checked"));
   if (!checks.length) { alert("Selecione ao menos uma dose para dispensar."); return; }
   const rows = [];
+  const divididos = [];
   for (const c of checks) {
     const tr = c.closest("tr");
     const sel = tr.querySelector(".disp-lote");
@@ -216,19 +217,60 @@ async function confirmarDispensacao() {
       const obs = obsEl ? obsEl.value.trim() : "";
       ref = "SOS" + (obs ? " — " + obs : "");
     }
-    rows.push({ data: d, substancia_id: c.dataset.sub, numero_lote: lote,
-      quantidade: qtd, referencia: ref,
-      paciente_id: c.dataset.pac, ...usuarioId() });
+    // período fechado não aceita lançamento
+    try { validarPeriodoAberto(d); } catch (e) { alert(e.message); return; }
+
+    // A dose pode não caber num lote só: aloca entre os lotes disponíveis,
+    // começando pelo escolhido. Cada lote vira um lançamento próprio, para
+    // o Livro manter a rastreabilidade por lote.
+    const alloc = alocarLotes(c.dataset.sub, c.dataset.pac, qtd, lote);
+    if (!alloc.usados.length) {
+      alert(`Sem saldo para ${c.dataset.nome} — ${subNomeExibicao(c.dataset.sub)}.\n\nDê entrada de estoque antes de dispensar.`);
+      return;
+    }
+    if (alloc.faltando > 0) {
+      const parcial = confirm(
+        `Saldo insuficiente para ${c.dataset.nome} — ${subNomeExibicao(c.dataset.sub)}.\n\n` +
+        `Necessário: ${fmtDose(qtd)}\nDisponível: ${fmtDose(qtd - alloc.faltando)}\n` +
+        `Faltam: ${fmtDose(alloc.faltando)}\n\n` +
+        `Dispensar o que existe (zerando o lote) e deixar o restante pendente até chegar medicação?`);
+      if (!parcial) return;
+    }
+    alloc.usados.forEach((u, i) => {
+      rows.push({ data: d, substancia_id: c.dataset.sub, numero_lote: u.lote,
+        quantidade: u.qtd,
+        // referência única por lote: a trava de dose única impede repetir a
+        // mesma chave, e o Livro precisa distinguir as parcelas
+        referencia: alloc.usados.length > 1 ? `${ref} (lote ${i + 1}/${alloc.usados.length})` : ref,
+        paciente_id: c.dataset.pac, ...usuarioId() });
+    });
+    if (alloc.usados.length > 1 || alloc.faltando > 0) {
+      divididos.push({ nome: c.dataset.nome, sub: subNomeExibicao(c.dataset.sub),
+                       usados: alloc.usados, faltando: alloc.faltando });
+    }
   }
   const msgData = d === HOJE ? "" : ` na data ${fmtDate(d)} (baixa retroativa)`;
   const nSOS = rows.filter((r) => String(r.referencia).indexOf("SOS") === 0);
   const resumoSOS = nSOS.length
     ? `\n\nSOS (quantidade digitada):\n` + nSOS.map((r) => `  ${fmtDose(r.quantidade)} — ${subById(r.substancia_id).nome}`).join("\n")
     : "";
-  if (!confirm(`Confirmar a dispensação de ${rows.length} dose(s)${msgData}? Isso dará baixa no estoque.${resumoSOS}`)) return;
+  const resumoDiv = divididos.length
+    ? "\n\nDoses atendidas por mais de um lote:\n" + divididos.map((x) =>
+        `  ${x.nome} — ${x.sub}\n    ` +
+        x.usados.map((u) => `${fmtDose(u.qtd)} do lote ${u.lote}${u.custodia ? " (custódia)" : ""}`).join(" + ") +
+        (x.faltando ? `\n    faltando ${fmtDose(x.faltando)} — pendente` : "")).join("\n")
+    : "";
+  if (!confirm(`Confirmar a dispensação de ${rows.length} lançamento(s)${msgData}? Isso dará baixa no estoque.${resumoSOS}${resumoDiv}`)) return;
   const btn = document.getElementById("btnDispensar");
   if (btn) { btn.disabled = true; btn.textContent = "Dispensando…"; }
   try {
+    // confere saldo de cada lote antes de gravar (trava de negativo)
+    const porChave = {};
+    rows.forEach((r) => {
+      const k = _chaveDaSaida(r.substancia_id, r.numero_lote, r.paciente_id);
+      porChave[k] = (porChave[k] || 0) + r.quantidade;
+    });
+    for (const k of Object.keys(porChave)) validarSaidaLote(k, porChave[k]);
     const { error } = await window.SB.from("dispensacoes").insert(rows);
     if (error) throw error;
     await recarregarTela();
@@ -497,6 +539,7 @@ function abrirFormDevolucao() {
   `;
   abrirModal("Registrar devolução ao estoque", corpo, async () => {
     const data = fv("dvData"); const sub = fv("dvSub"); const lote = fv("dvLote"); const qtd = fvNum("dvQtd");
+    validarPeriodoAberto(data);
     if (!data) throw new Error("Informe a data.");
     if (!sub) throw new Error("Selecione a substância.");
     if (!lote) throw new Error("Selecione o lote de origem.");

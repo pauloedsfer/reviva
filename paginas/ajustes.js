@@ -132,6 +132,7 @@ function abrirFormAjusteMultiplo() {
   abrirModal("Ajuste de vários lotes (mesma justificativa)", corpo, async () => {
     const data = fv("ajmData"), just = fv("ajmJust");
     if (!data) throw new Error("Informe a data da conferência.");
+    validarPeriodoAberto(data);
     const linhas = _ajColeta();
     if (!linhas.length) throw new Error("Adicione ao menos um lote com a contagem física.");
     const comDif = linhas.filter((l) => l.delta !== 0);

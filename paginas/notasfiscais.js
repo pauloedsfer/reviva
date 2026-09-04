@@ -21,6 +21,7 @@ function abrirFormNF() {
   `;
   abrirModal("Lançar nova Nota Fiscal", corpo, async () => {
     const numero = fv("nfNum"); const dataE = fv("nfData");
+    validarPeriodoAberto(dataE);
     if (!numero) throw new Error("Informe o número da NF.");
     if (!dataE) throw new Error("Informe a data de emissão.");
     const fornId = await resolveFornecedor("nfForn");
@@ -125,6 +126,7 @@ function abrirEditarNF(nfId) {
   `, async () => {
     const numero = fv("enNum"); if (!numero) throw new Error("Informe o número da nota.");
     const data = fv("enData"); if (!data) throw new Error("Informe a data de emissão.");
+    validarPeriodoAberto(data);
     // cabeçalho
     const { error: e1 } = await window.SB.from("notas_fiscais").update({
       numero, data_emissao: data, fornecedor_id: fvOrNull("enForn"),
@@ -206,6 +208,7 @@ function abrirImportarNF() {
     const cab = _impNF.cab;
     const fid = fv("infForn") || cab.fornecedorId || null;
     if (!cab.numero) throw new Error("O bloco não traz o número da nota (linha NF).");
+    validarPeriodoAberto(cab.data);
     const { data, error } = await window.SB.from("notas_fiscais").insert({
       numero: cab.numero, serie: cab.serie || null, data_emissao: cab.data,
       fornecedor_id: fid, canal: "distribuidora", valor_total: cab.valorTotal,

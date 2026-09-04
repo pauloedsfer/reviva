@@ -16,6 +16,7 @@ function abrirFormDoacao() {
   `;
   abrirModal("Lançar nova Doação", corpo, async () => {
     const doador = fv("doDoador"); const data = fv("doData");
+    validarPeriodoAberto(data);
     if (!doador) throw new Error("Informe o doador.");
     if (!data) throw new Error("Informe a data.");
     const itens = coletarItens("doItens", "doacao");
