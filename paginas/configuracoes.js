@@ -78,6 +78,24 @@ function renderPage() {
       @media (max-width:720px){ .cfg-grid{ grid-template-columns:1fr; } }
     </style>
 
+    ${(() => {
+      const f = (window.ESTAB || {}).fechamento_ate;
+      return `<div class="panel">
+        <div class="panel-head"><div>
+          <div class="panel-title">Fechamento da escrituração</div>
+          <div class="panel-title-sub">Trava lançamentos no período já escriturado e transmitido</div></div></div>
+        <div class="panel-body">
+          <div class="note-box" style="margin-top:0">Depois de fechar o BMPO do mês, trave o período: lançamentos com data até o fechamento deixam de ser aceitos, preservando o que já foi escriturado. Correções passam a ser feitas no mês aberto.</div>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Fechado até</label>
+              <input id="cfgFech" type="date" value="${f || ""}" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
+            <button class="btn sm" onclick="salvarFechamento()">Salvar fechamento</button>
+            ${f ? `<button class="btn ghost sm" onclick="salvarFechamento(true)">Reabrir período</button>` : ""}
+          </div>
+          ${f ? `<div class="note-box" style="margin-bottom:0;background:#FBF3E3;border-color:#e8d9b0">Período fechado até <b>${fmtDate(f)}</b>. Lançamentos até essa data estão bloqueados.</div>` : ""}
+        </div>
+      </div>`;
+    })()}
     <div class="panel">
       <div class="panel-head"><div><div class="panel-title">Responsável Técnico</div><div class="panel-title-sub">Identificação usada nas assinaturas e rodapés</div></div></div>
       <div class="panel-body">
@@ -125,4 +143,18 @@ function renderPage() {
       </div>
     </div>
   `;
+}
+
+
+/* Fechamento da escrituração: trava o período já transmitido. */
+async function salvarFechamento(reabrir) {
+  const v = reabrir ? null : (fv("cfgFech") || null);
+  if (!reabrir && !v) { alert("Informe a data até a qual a escrituração está fechada."); return; }
+  if (reabrir && !confirm("Reabrir o período?\n\nLançamentos retroativos voltam a ser aceitos. Faça isso apenas se o BMPO ainda não foi transmitido.")) return;
+  const est = window.ESTAB || {};
+  if (!est.id) { alert("Configure os dados do estabelecimento antes."); return; }
+  const { error } = await window.SB.from("estabelecimento").update({ fechamento_ate: v }).eq("id", est.id);
+  if (error) { alert("Erro: " + error.message); return; }
+  window.ESTAB.fechamento_ate = v;
+  await recarregarTela();
 }

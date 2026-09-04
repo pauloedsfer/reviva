@@ -134,6 +134,49 @@ function imprimirBMPO() {
   imprimirRelatorio("Balanço de Substâncias Psicotrópicas e Entorpecentes (BMPO)", "Referência: " + _nomeMes(mes), corpo);
 }
 
+/* Fechamento do mês, na própria tela do BMPO — é aqui que o RT conclui a
+   escrituração, então é aqui que ele fecha o período. O mesmo controle
+   existe em Configurações. */
+function _painelFechamentoBMPO(mes) {
+  const f = (window.ESTAB || {}).fechamento_ate;
+  const ultimoDia = (() => {
+    const [a, m] = mes.split("-").map(Number);
+    return `${a}-${String(m).padStart(2, "0")}-${String(new Date(a, m, 0).getDate()).padStart(2, "0")}`;
+  })();
+  const jaFechado = f && f >= ultimoDia;
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Fechamento da escrituração</div>
+          <div class="panel-title-sub">Trava lançamentos no período já escriturado e transmitido</div></div>
+      </div>
+      <div class="panel-body">
+        ${jaFechado
+          ? `<div class="note-box" style="margin-top:0;background:#E7F0E3;border-color:#c9dcc2">
+               <b>Período fechado até ${fmtDate(f)}.</b> Lançamentos com data até aí estão bloqueados.
+               <button class="btn ghost sm" style="margin-left:10px" onclick="fecharMesBMPO(null)">Reabrir período</button>
+             </div>`
+          : `<div class="note-box" style="margin-top:0">Confira o balanço acima e a Folha de Registro Semanal antes de fechar. Depois de fechado, lançamentos com data até <b>${fmtDate(ultimoDia)}</b> deixam de ser aceitos — correções passam a ser feitas no mês aberto.</div>
+             <button class="btn sm" onclick="fecharMesBMPO('${ultimoDia}')">🔒 Fechar ${_nomeMes(mes)}</button>
+             ${f ? `<div style="font-size:12px;color:var(--muted);margin-top:8px">Atualmente fechado até ${fmtDate(f)}.</div>` : ""}`}
+      </div>
+    </div>`;
+}
+
+async function fecharMesBMPO(ate) {
+  const est = window.ESTAB || {};
+  if (!est.id) { alert("Configure os dados do estabelecimento antes de fechar o período."); return; }
+  if (ate) {
+    if (!confirm(`Fechar a escrituração até ${fmtDate(ate)}?\n\nLançamentos com data até essa data deixam de ser aceitos. Faça isso depois de conferir o BMPO e a Folha de Registro Semanal.`)) return;
+  } else {
+    if (!confirm("Reabrir o período?\n\nLançamentos retroativos voltam a ser aceitos. Faça isso apenas se o BMPO ainda não foi transmitido.")) return;
+  }
+  const { error } = await window.SB.from("estabelecimento").update({ fechamento_ate: ate }).eq("id", est.id);
+  if (error) { alert("Erro ao gravar o fechamento: " + error.message); return; }
+  window.ESTAB.fechamento_ate = ate;
+  await recarregarTela();
+}
+
 function renderPage() {
   const mes = _mesRef();
   const opts = _mesesDisponiveis().map((m) => `<option value="${m}"${m === mes ? " selected" : ""}>${_nomeMes(m)}</option>`).join("");
@@ -168,5 +211,6 @@ function renderPage() {
         </div>
       </div>
     </div>
+    ${_painelFechamentoBMPO(mes)}
   `;
 }

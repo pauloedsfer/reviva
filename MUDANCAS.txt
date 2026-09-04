@@ -1,7 +1,9 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 03/09/2026
+Data: 04/09/2026
 
   paginas/balanco.js
+  paginas/configuracoes.js
+  db/migration_fechamento_mensal.sql
   README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
