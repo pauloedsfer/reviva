@@ -132,7 +132,7 @@ function abrirFormAjusteMultiplo() {
   abrirModal("Ajuste de vários lotes (mesma justificativa)", corpo, async () => {
     const data = fv("ajmData"), just = fv("ajmJust");
     if (!data) throw new Error("Informe a data da conferência.");
-    validarPeriodoAberto(data);
+    _periodoOk(data);
     const linhas = _ajColeta();
     if (!linhas.length) throw new Error("Adicione ao menos um lote com a contagem física.");
     const comDif = linhas.filter((l) => l.delta !== 0);
@@ -341,4 +341,13 @@ function renderPage() {
       </div>
     </div>
   `;
+}
+
+
+/* Trava de período — tolerante a versão desatualizada do assets/dados.js.
+   Se a função central não estiver carregada, o lançamento segue e a trava
+   do banco continua valendo; assim uma atualização parcial não quebra a tela. */
+function _periodoOk(data) {
+  if (typeof validarPeriodoAberto === "function") return validarPeriodoAberto(data);
+  return true;
 }

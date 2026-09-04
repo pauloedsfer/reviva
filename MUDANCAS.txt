@@ -1,11 +1,14 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 04/09/2026
 
+  assets/dados.js
+  paginas/dose.js
   paginas/ajustes.js
   paginas/notasfiscais.js
   paginas/doacoes.js
-  paginas/dose.js
-  db/trava_periodo_fechado.sql
+  paginas/medicacaopropria.js
+  paginas/balanco.js
+  paginas/configuracoes.js
   README.md
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.

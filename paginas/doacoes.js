@@ -16,7 +16,7 @@ function abrirFormDoacao() {
   `;
   abrirModal("Lançar nova Doação", corpo, async () => {
     const doador = fv("doDoador"); const data = fv("doData");
-    validarPeriodoAberto(data);
+    _periodoOk(data);
     if (!doador) throw new Error("Informe o doador.");
     if (!data) throw new Error("Informe a data.");
     const itens = coletarItens("doItens", "doacao");
@@ -68,4 +68,13 @@ function renderPage(){
       </div>
     `;}).join('') : `<div class="note-box" style="text-align:center">Nenhuma doação lançada ainda.</div>`}
   `;
+}
+
+
+/* Trava de período — tolerante a versão desatualizada do assets/dados.js.
+   Se a função central não estiver carregada, o lançamento segue e a trava
+   do banco continua valendo; assim uma atualização parcial não quebra a tela. */
+function _periodoOk(data) {
+  if (typeof validarPeriodoAberto === "function") return validarPeriodoAberto(data);
+  return true;
 }

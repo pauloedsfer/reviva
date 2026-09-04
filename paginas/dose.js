@@ -218,7 +218,7 @@ async function confirmarDispensacao() {
       ref = "SOS" + (obs ? " — " + obs : "");
     }
     // período fechado não aceita lançamento
-    try { validarPeriodoAberto(d); } catch (e) { alert(e.message); return; }
+    try { _periodoOk(d); } catch (e) { alert(e.message); return; }
 
     // A dose pode não caber num lote só: aloca entre os lotes disponíveis,
     // começando pelo escolhido. Cada lote vira um lançamento próprio, para
@@ -539,7 +539,7 @@ function abrirFormDevolucao() {
   `;
   abrirModal("Registrar devolução ao estoque", corpo, async () => {
     const data = fv("dvData"); const sub = fv("dvSub"); const lote = fv("dvLote"); const qtd = fvNum("dvQtd");
-    validarPeriodoAberto(data);
+    _periodoOk(data);
     if (!data) throw new Error("Informe a data.");
     if (!sub) throw new Error("Selecione a substância.");
     if (!lote) throw new Error("Selecione o lote de origem.");
@@ -707,4 +707,13 @@ function imprimirChecklistSeparacao(opts) {
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
   win.document.open(); win.document.write(html); win.document.close();
+}
+
+
+/* Trava de período — tolerante a versão desatualizada do assets/dados.js.
+   Se a função central não estiver carregada, o lançamento segue e a trava
+   do banco continua valendo; assim uma atualização parcial não quebra a tela. */
+function _periodoOk(data) {
+  if (typeof validarPeriodoAberto === "function") return validarPeriodoAberto(data);
+  return true;
 }

@@ -160,6 +160,7 @@ async function carregarDados() {
   transferenciasCustodia = (transf && transf.data ? transf.data : (transf || [])).map((t) => ({
     id: t.id, data: t.data, subId: t.substancia_id, paciente: t.paciente_id,
     loteOrigem: t.lote_origem, loteDestino: t.lote_destino, validade: t.validade,
+    pacienteOrigem: t.paciente_origem_id || null, anuencia: t.anuencia,
     qtd: Number(t.quantidade), custoUnit: Number(t.custo_unit || 0), obs: t.observacao,
   }));
 
@@ -498,7 +499,7 @@ function _entradasBrutas() {
   // preservando o custo (a clínica comprou — não é medicação da família).
   transferenciasCustodia.forEach((t) => list.push({
     subId: t.subId, lote: t.loteDestino, validade: t.validade, qtd: t.qtd,
-    custoUnit: t.custoUnit, origem: "transferido", restritoPaciente: t.paciente,
+    custoUnit: t.custoUnit, origem: "transferido", restritoPaciente: t.paciente || null,
     transferenciaId: t.id, loteOrigem: t.loteOrigem,
     fonte: `Transferido do estoque — ${patById(t.paciente) ? patById(t.paciente).nome : ""} (lote ${t.loteOrigem})`,
     data: t.data,
@@ -557,8 +558,7 @@ function _chaveDaSaida(subId, lote, pacienteId) {
 let _cacheBuckets = null, _cacheSelo = null;
 function _lotesAgrupados() {
   const selo = (invoices.length + donations.length + patientMeds.length +
-                initialInventory.length + transferenciasCustodia.length +
-                dispensations.length + returns.length + ajustes.length);
+                initialInventory.length + transferenciasCustodia.length);
   if (_cacheBuckets && _cacheSelo === selo) return _cacheBuckets;
   const m = {};
   _entradasBrutas().forEach((l) => {
@@ -591,25 +591,118 @@ function _chaveDoAjuste(a) {
   return b[kClin] ? kClin : (cands[0] || kClin);
 }
 
-function saldoLoteChave(chave) {
-  const l = _lotesAgrupados()[chave];
-  if (!l) return 0;
-  const consumido = dispensations
-    .filter((x) => _chaveDaSaida(x.subId, x.lote, x.paciente) === chave)
-    .reduce((a, x) => a + x.qtd, 0);
-  const devolvido = returns
-    .filter((x) => _chaveDaSaida(x.subId, x.lote, x.paciente) === chave)
-    .reduce((a, x) => a + x.qtd, 0);
-  // ajuste não guarda paciente: aplica-se ao saldo do mesmo lote e substância
-  const ajustado = ajustes
-    .filter((x) => _chaveDoAjuste(x) === chave)
-    .reduce((a, x) => a + x.delta, 0);
-  const destinado = (l.itensCustodia || []).reduce((a, id) => a + _saidaDestinos(id), 0);
-  const transferido = transferenciasCustodia
-    .filter((t) => loteChave(t.subId, t.loteOrigem, null) === chave)
-    .reduce((a, t) => a + t.qtd, 0);
-  return l.qtd - consumido + devolvido + ajustado - destinado - transferido;
+/* ---- Saldos pré-calculados ----
+   Antes, cada consulta de saldo percorria TODAS as movimentações. Com 130
+   lotes e milhares de dispensações isso era centenas de milhares de
+   operações por tela — a causa da lentidão conforme o banco cresce.
+   Agora as movimentações são percorridas UMA vez, acumulando em cada saldo. */
+let _cacheSaldos = null, _seloSaldos = null;
+function _selo() {
+  return [invoices, donations, patientMeds, initialInventory, transferenciasCustodia,
+          dispensations, returns, ajustes, custodiaDestinos].map((a) => (a || []).length).join(",");
 }
+function _mapaSaldos() {
+  const selo = _selo();
+  if (_cacheSaldos && _seloSaldos === selo) return _cacheSaldos;
+  const buckets = _lotesAgrupados();
+  const m = {};
+  Object.keys(buckets).forEach((k) => (m[k] = buckets[k].qtd));
+
+  dispensations.forEach((x) => {
+    const k = _chaveDaSaida(x.subId, x.lote, x.paciente);
+    if (m[k] !== undefined) m[k] -= x.qtd; else m[k] = -x.qtd;
+  });
+  returns.forEach((x) => {
+    const k = _chaveDaSaida(x.subId, x.lote, x.paciente);
+    if (m[k] !== undefined) m[k] += x.qtd; else m[k] = x.qtd;
+  });
+  ajustes.forEach((x) => {
+    const k = _chaveDoAjuste(x);
+    if (m[k] !== undefined) m[k] += x.delta; else m[k] = x.delta;
+  });
+  transferenciasCustodia.forEach((t) => {
+    const k = loteChave(t.subId, t.loteOrigem, t.pacienteOrigem || null);
+    if (m[k] !== undefined) m[k] -= t.qtd;
+  });
+  Object.keys(buckets).forEach((k) => {
+    const d = (buckets[k].itensCustodia || []).reduce((a, id) => a + _saidaDestinos(id), 0);
+    if (d) m[k] -= d;
+  });
+  _cacheSaldos = m; _seloSaldos = selo;
+  return m;
+}
+function saldoLoteChave(chave) {
+  const v = _mapaSaldos()[chave];
+  return v === undefined ? 0 : v;
+}
+// invalida os caches após gravar algo
+/* ---- Alocação em vários lotes ----
+   Uma dose pode não caber num lote só: se restam 1 comprimido no lote antigo
+   e são necessários 2, o paciente toma 1 de cada lote. E se não houver mais
+   nenhum, sai o que existe e o lote zera — o restante fica pendente até
+   chegar medicação, em vez de gerar saldo negativo.
+
+   Ordem: o lote escolhido primeiro, depois a custódia do paciente (terminando
+   o que está aberto) e por fim o estoque geral por FEFO. */
+function alocarLotes(subId, pacienteId, qtd, chavePreferida) {
+  const restante = { v: qtd };
+  const usados = [];
+  const tenta = (chave) => {
+    if (restante.v <= 0 || !chave) return;
+    if (usados.some((u) => u.chave === chave)) return;
+    const disp = saldoLoteChave(chave);
+    if (disp <= 0) return;
+    const l = _lotesAgrupados()[chave];
+    const leva = Math.min(disp, restante.v);
+    usados.push({ chave, lote: l.lote, validade: l.validade, qtd: leva,
+                  custodia: !!l.restritoPaciente });
+    restante.v -= leva;
+  };
+  tenta(chavePreferida);
+  lotesCustodiaDoPaciente(subId, pacienteId).forEach((l) => tenta(l.chave));
+  lotesDisponiveis(subId).forEach((l) => tenta(l.chave));
+  return { usados, faltando: Math.max(0, restante.v) };
+}
+
+/* ---- Trava de saldo negativo ----
+   Nenhuma saída pode deixar um lote abaixo de zero: significaria ter
+   dispensado o que não existe, o que a escrituração de controlados não
+   admite. A diferença real entre físico e sistema deve entrar como ajuste
+   de inventário com justificativa, não como saída a descoberto. */
+function validarSaidaLote(chave, qtd, rotulo) {
+  const disp = saldoLoteChave(chave);
+  if (qtd > disp) {
+    const l = _lotesAgrupados()[chave];
+    const nome = l ? subNomeExibicao(l.subId) : (rotulo || "o item");
+    throw new Error(
+      `Saldo insuficiente em ${nome}, lote ${l ? l.lote : "?"}: ` +
+      `disponível ${fmtDose(disp)}, solicitado ${fmtDose(qtd)}.\n\n` +
+      `Se a contagem física diverge, registre um ajuste de inventário com ` +
+      `justificativa antes de dispensar.`);
+  }
+  return true;
+}
+
+/* ---- Fechamento mensal ----
+   Após o fechamento do BMPO o período não aceita mais lançamentos: qualquer
+   correção passa a ser feita no mês aberto, preservando o que já foi
+   escriturado e transmitido. */
+function mesFechado(data) {
+  const f = (window.ESTAB && window.ESTAB.fechamento_ate) || null;
+  return !!(f && String(data) <= String(f));
+}
+function validarPeriodoAberto(data) {
+  if (mesFechado(data)) {
+    throw new Error(
+      `Período fechado. O BMPO já foi fechado até ${fmtDate((window.ESTAB || {}).fechamento_ate)}, ` +
+      `e lançamentos nessa data não são mais aceitos.\n\n` +
+      `Faça a correção em data do período aberto, ou reabra o fechamento em ` +
+      `Configurações se ainda não transmitiu.`);
+  }
+  return true;
+}
+
+function invalidarSaldos() { _cacheSaldos = null; _cacheBuckets = null; }
 
 /* Compatibilidade: saldoLote(lote) sem contexto. Quando o número existe em
    mais de um saldo (clínica + custódias), soma todos — que é o total físico
