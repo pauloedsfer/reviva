@@ -270,7 +270,7 @@ function renderPage() {
    custódia e qualquer outra identificação. Sai em folha A4 numa
    grade compatível com etiquetas adesivas comuns.
    ============================================================ */
-let _etqCfg = { pac: "", qtd: 8, formato: "grande", custodia: false };
+let _etqCfg = { pac: "", qtd: 8, formato: "grande", custodia: false, corte: true };
 
 function abrirEtiquetasPaciente(pacId) {
   const ativos = patients.filter((p) => p.ativo !== false)
@@ -291,12 +291,15 @@ function abrirEtiquetasPaciente(pacId) {
     </div>
     <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
       <input type="checkbox" id="etqCust"${_etqCfg.custodia ? " checked" : ""}> Incluir aviso <b>USO EXCLUSIVO DESTE PACIENTE</b> (para caixa de custódia)</label></div>
+    <div class="ff"><label style="display:flex;align-items:center;gap:8px;font-weight:400">
+      <input type="checkbox" id="etqCorte"${_etqCfg.corte ? " checked" : ""}> Imprimir <b>linha pontilhada de corte</b> (papel comum — desmarque para folha adesiva já vincada)</label></div>
     <div class="note-box" style="margin:0">A etiqueta traz nome, prontuário, leito, nascimento/idade e data de internação, com o nome da clínica. Serve para prontuário, caixa de custódia e demais identificações. Imprima em folha adesiva A4 ou em papel comum para recortar.</div>
   `, async () => {
     _etqCfg.pac = fv("etqPac");
     _etqCfg.formato = fv("etqFmt");
     _etqCfg.qtd = Math.max(1, Math.min(60, parseInt(fv("etqQtd"), 10) || 1));
     _etqCfg.custodia = document.getElementById("etqCust").checked;
+    _etqCfg.corte = document.getElementById("etqCorte").checked;
     setTimeout(imprimirEtiquetasPaciente, 60);
   }, "Gerar etiquetas");
 }
@@ -346,7 +349,7 @@ function imprimirEtiquetasPaciente() {
   body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;margin:0}
   .grade{display:grid;grid-template-columns:repeat(${gr ? 2 : 3}, 1fr);gap:0}
   .etq{width:100%;height:${gr ? "33.9mm" : "25.4mm"};padding:${gr ? "2mm 3mm" : "1.4mm 2mm"};
-       border:1px dashed #c8cfc8;overflow:hidden;display:flex;flex-direction:column;justify-content:center;
+       border:1px dashed ${_etqCfg.corte ? "#8f978f" : "#c8cfc8"};overflow:hidden;display:flex;flex-direction:column;justify-content:center;
        page-break-inside:avoid}
   .clin{font-size:${gr ? "7pt" : "5.5pt"};text-transform:uppercase;letter-spacing:.04em;color:#4a544f}
   .nome{font-size:${gr ? "11pt" : "8pt"};font-weight:700;line-height:1.1;margin:${gr ? "1mm 0 .8mm" : ".6mm 0 .4mm"};
@@ -358,7 +361,9 @@ function imprimirEtiquetasPaciente() {
          padding:${gr ? ".6mm 1.5mm" : ".3mm 1mm"};display:inline-block;align-self:flex-start}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;
        border-radius:8px;cursor:pointer;font:inherit;font-size:13px;z-index:9}
-  @media print{.btn{display:none} .etq{border-color:transparent}}
+  /* Em folha adesiva a linha não deve sair impressa; em papel comum ela é o
+     guia da tesoura. Por isso a borda no papel segue a opção do modal. */
+  @media print{.btn{display:none} .etq{border-color:${_etqCfg.corte ? "#8f978f" : "transparent"}}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   <div class="grade">${etiquetas}</div>

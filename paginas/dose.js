@@ -131,6 +131,7 @@ window.printLabels = function (opts) {
     _gerarEtiquetas({ ...opts, data: dia }).map((l) => ({ ...l, dia })));
   if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nesse período."); return; }
   const cards = labels.map((l) => `
+    <div class="cell">
     <div class="lbl">
       <div class="lbl-h">${hosp} — Dose Unitária · ${fmtDate(l.dia)}</div>
       <div class="lbl-p">${l.patient.nome}</div>
@@ -138,14 +139,24 @@ window.printLabels = function (opts) {
       <div class="lbl-t"><b class="lbl-hora">${l.slot}</b>${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(l.dia)}</span></div>
       <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>`).join("")}</div>
       <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.</div>
+    </div>
     </div>`).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas — Dose Unitária</title>
     <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;margin:0}
       /* 2 colunas e altura AUTOMÁTICA: com 3 colunas e altura fixa de 46mm,
          horários com muitas medicações estouravam a etiqueta e o texto
          era cortado. Agora a etiqueta cresce conforme o conteúdo. */
-      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:5mm;align-items:start}
-      .lbl{border:1px solid #333;border-radius:6px;padding:8px 10px;min-height:40mm;display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid}
+      /* Guias de corte: cada etiqueta fica dentro de uma célula que desenha
+         pontilhado nas divisas, para recortar com tesoura em linha reta.
+         align-items:stretch iguala a altura das duas células da mesma linha,
+         então a pontilhada horizontal atravessa a folha sem degrau. O espaço
+         entre etiquetas continua sendo 5mm (2,5mm de padding de cada lado). */
+      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0;align-items:stretch}
+      .cell{position:relative;display:flex;padding:2.5mm;border-right:1px dashed #9aa39a;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
+      .cell:nth-child(2n){border-right:none}
+      /* tesourinha só na coluna da esquerda, marcando o início da linha de corte */
+      .cell:nth-child(2n+1)::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
+      .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:8px 10px;min-height:40mm;display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
       .lbl-p{font-weight:700;font-size:13px;margin-top:5px}.lbl-b{font-size:11px;color:#333}
       .lbl-t{display:inline-block;align-self:flex-start;background:#1E2A28;color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin:5px 0;font-weight:600}
