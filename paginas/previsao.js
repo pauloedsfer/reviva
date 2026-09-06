@@ -261,21 +261,31 @@ function abrirImprimirPrevisao() {
            }).join("")}
       </select>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">O número entre parênteses é quanto sai no relatório. Opções sem itens ficam indisponíveis.</div></div>
+    <div class="ff" id="pvBlocoAgrup"><label>Quadro por paciente <span style="font-weight:400;color:var(--muted)">— como organizar as linhas</span></label>
+      <select id="pvAgrup">
+        <option value="paciente" selected>Agrupado por paciente — um bloco por paciente</option>
+        <option value="urgencia">Lista corrida — em falta primeiro, depois por cobertura</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Agrupado, cada paciente vira um bloco com todos os seus medicamentos e o total que a família precisa adquirir — é assim que se identifica de quem cobrar a compra.</div></div>
     <div class="note-box" style="margin:0">O quadro de <b>medicação por paciente</b> mostra a custódia de cada um e o que está sem estoque na clínica — é o documento que interessa à equipe e à família. O quadro de <b>estoque da clínica</b> é o que sustenta a compra junto à direção.</div>
   `, async () => {
     const cont = fv("pvConteudo") || "ambos";
     const faixa = fv("pvFaixa") || "comconsumo";
+    const agrup = fv("pvAgrup") || "paciente";
     setTimeout(() => imprimirPrevisao({
-      faixa, incEst: cont !== "pacientes", incCust: cont !== "estoque",
+      faixa, agrup, incEst: cont !== "pacientes", incCust: cont !== "estoque",
     }), 60);
   }, "Gerar relatório");
 }
 
-// esconde a faixa de cobertura quando o relatório é só de pacientes
+// esconde a faixa de cobertura quando o relatório é só de pacientes,
+// e o agrupamento quando o relatório é só do estoque da clínica
 function _pvAtualizaModal() {
   const c = document.getElementById("pvConteudo");
   const b = document.getElementById("pvBlocoFaixa");
+  const a = document.getElementById("pvBlocoAgrup");
   if (c && b) b.style.display = c.value === "pacientes" ? "none" : "";
+  if (c && a) a.style.display = c.value === "estoque" ? "none" : "";
 }
 
 const _PV_FAIXAS = {
@@ -292,6 +302,7 @@ const _PV_FAIXAS = {
 function imprimirPrevisao(o) {
   o = o || { faixa: "todos", incEst: true, incCust: true };
   if (o.incEst === undefined) o.incEst = true;
+  if (!o.agrup) o.agrup = "paciente";
   const fx = _PV_FAIXAS[o.faixa] || _PV_FAIXAS.todos;
   const est0 = _pvLinhasEstoque(), cus0 = _pvLinhasCustodia();
   const est = o.incEst ? est0.filter((r) => fx.ks.indexOf(r.st.k) !== -1) : [];
@@ -313,12 +324,48 @@ function imprimirPrevisao(o) {
     <td class="c mono">${r.estoque}</td>
     <td class="c mono">${_pvDias(r.dias)}</td>
     <td class="c mono">${r.comprar || "—"}</td></tr>`;
-  const tc = (r) => `<tr>
-    <td class="c">${r.tipo === "faltante" ? "EM FALTA" : r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO"}</td>
-    <td>${_esc(r.p.nome)}</td><td>${_esc(r.s.nome)}</td>
+  const _situ = (r) => r.tipo === "faltante" ? "EM FALTA"
+    : r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO";
+  // colunas comuns aos dois modos (medicamento em diante)
+  const _tcCols = (r) => `<td>${_esc(r.s.nome)}</td>
     <td class="c mono">${r.consumoDia ? fmtDose(r.consumoDia) : "SOS"}</td>
     <td class="c mono">${r.tipo === "faltante" ? "—" : r.saldoCust}</td>
-    <td class="c">${r.tipo === "faltante" ? "sem estoque na clínica — solicitar à família" : _pvDias(r.dias)}</td></tr>`;
+    <td class="c">${r.tipo === "faltante" ? "sem estoque na clínica — solicitar à família" : _pvDias(r.dias)}</td>`;
+  const tc = (r) => `<tr><td class="c">${_situ(r)}</td><td>${_esc(r.p.nome)}</td>${_tcCols(r)}</tr>`;
+  const tcg = (r) => `<tr><td class="c">${_situ(r)}</td>${_tcCols(r)}</tr>`;
+
+  /* Agrupado por paciente: o quadro deixa de ser uma lista corrida por
+     urgência e passa a ter um bloco por paciente, com a contagem do que a
+     família precisa adquirir. É o recorte usado para cobrar a reposição de
+     quem é responsável por cada paciente. */
+  const cusPorPaciente = () => {
+    const m = {};
+    cus.forEach((r) => { (m[r.p.id] = m[r.p.id] || { p: r.p, itens: [] }).itens.push(r); });
+    return Object.values(m).sort((a, b) =>
+      (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true }) ||
+      a.p.nome.localeCompare(b.p.nome, "pt-BR"));
+  };
+  const tabelaCustodia = () => {
+    if (!cus.length) return `<table><thead><tr><th class="c">Situação</th><th>Paciente</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
+      <tbody><tr><td colspan="6" class="c">Sem custódia com saldo</td></tr></tbody></table>`;
+    if (o.agrup !== "paciente") {
+      return `<table><thead><tr><th class="c">Situação</th><th>Paciente</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
+        <tbody>${cus.map(tc).join("")}</tbody></table>`;
+    }
+    const grupos = cusPorPaciente().map((g) => {
+      const falt = g.itens.filter((r) => r.tipo === "faltante").length;
+      const itens = g.itens.slice().sort((a, b) => {
+        if ((a.tipo === "faltante") !== (b.tipo === "faltante")) return a.tipo === "faltante" ? -1 : 1;
+        const va = a.dias === null ? 1e9 : a.dias, vb = b.dias === null ? 1e9 : b.dias;
+        return va - vb || a.s.nome.localeCompare(b.s.nome, "pt-BR");
+      });
+      return `<tr class="grp"><td colspan="5"><b>${_esc(g.p.nome)}</b>${g.p.leito ? " · leito " + _esc(g.p.leito) : ""}${g.p.prontuario ? " · prontuário " + _esc(g.p.prontuario) : ""}
+        <span class="grp-n">${g.itens.length} item(ns)${falt ? ` · <b>${falt} a adquirir pela família</b>` : ""}</span></td></tr>
+        ${itens.map(tcg).join("")}`;
+    }).join("");
+    return `<table class="cust-grp"><thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
+      <tbody>${grupos}</tbody></table>`;
+  };
   const corpo = `
     <style>
       table{width:100%;border-collapse:collapse;margin-bottom:14px}
@@ -328,20 +375,24 @@ function imprimirPrevisao(o) {
       h2{font-size:11px;text-transform:uppercase;color:#2C5F5A;margin:12px 0 4px;border-bottom:1px solid #cfd6cf;padding-bottom:2px}
       .leg{font-size:9.5px;color:#6a736e;margin-bottom:8px}
       .recorte{background:#EEF2EC;border-left:3px solid #2C5F5A;padding:5px 9px;font-size:11px;margin-bottom:8px}
+      /* cabeçalho de cada paciente no quadro agrupado; page-break-after:avoid
+         evita o nome do paciente sozinho no pé da página */
+      tr.grp td{background:#E7EDE6;font-size:11px;border-top:2px solid #1E2A28;padding:4px 6px}
+      tr.grp{page-break-after:avoid;break-after:avoid}
+      tr.grp .grp-n{float:right;font-size:10px;color:#4a544f;font-weight:400}
     </style>
-    <div class="recorte"><b>Recorte deste relatório:</b> ${o.incEst ? `${_esc(fx.rot)} — ${est.length} de ${est0.length} item(ns)` : "medicação por paciente (custódia e reposição)"}${!o.incCust ? " · sem o quadro por paciente" : ""}${!o.incEst ? " · sem o quadro do estoque da clínica" : ""}.</div>
+    <div class="recorte"><b>Recorte deste relatório:</b> ${o.incEst ? `${_esc(fx.rot)} — ${est.length} de ${est0.length} item(ns)` : "medicação por paciente (custódia e reposição)"}${!o.incCust ? " · sem o quadro por paciente" : (o.agrup === "paciente" ? " · quadro por paciente agrupado por paciente" : " · quadro por paciente em lista corrida")}${!o.incEst ? " · sem o quadro do estoque da clínica" : ""}.</div>
     <div class="leg">Consumo diário calculado a partir das prescrições ativas. Crítico: até ${_pvCfg.critico} dias · Atenção: até ${_pvCfg.atencao} dias · Sugestão de compra para ${_pvCfg.cobertura} dias de cobertura.</div>
     ${o.incEst ? `<h2>Cobertura do estoque da clínica</h2>
     <table><thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Pac.</th><th class="c">Consumo/dia</th><th class="c">Estoque</th><th class="c">Cobertura</th><th class="c">Comprar</th></tr></thead>
     <tbody>${est.map(tb).join("") || '<tr><td colspan="7" class="c">Sem dados</td></tr>'}</tbody></table>` : ""}
     ${o.incCust ? `<h2>Medicação por paciente — custódia e reposição</h2>
-    <table><thead><tr><th class="c">Situação</th><th>Paciente</th><th>Medicamento</th><th class="c">Consumo/dia</th><th class="c">Saldo</th><th class="c">Cobertura</th></tr></thead>
-    <tbody>${cus.map(tc).join("") || '<tr><td colspan="6" class="c">Sem custódia com saldo</td></tr>'}</tbody></table>` : ""}`;
+    ${tabelaCustodia()}` : ""}`;
   const totalCompra = est.reduce((a, r) => a + (r.comprar || 0), 0);
   const titulo = o.incEst ? "Previsão de Cobertura e Compras" : "Medicação por Paciente — Custódia e Reposição";
   const sub = o.incEst
     ? `Projeção com base nas prescrições vigentes em ${fmtDate(HOJE)} · recorte: ${fx.rot} · ${est.length} item(ns)`
-    : `Situação por paciente em ${fmtDate(HOJE)} · ${cus.length} item(ns) · ${cus.filter((r) => r.tipo === "faltante").length} sem estoque na clínica`;
+    : `Situação por paciente em ${fmtDate(HOJE)} · ${new Set(cus.map((r) => r.p.id)).size} paciente(s) · ${cus.length} item(ns) · ${cus.filter((r) => r.tipo === "faltante").length} sem estoque na clínica`;
   imprimirRelatorio(titulo, sub,
     corpo.replace("<h2>Cobertura do estoque da clínica</h2>",
       `<h2>Cobertura do estoque da clínica — ${fx.rot}</h2>` +
