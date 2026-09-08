@@ -74,29 +74,63 @@ function _linhasVazias(n, cols) {
   return r;
 }
 
-// dISO = dia que está sendo impresso; a prescrição entra se estiver vigente
-// NAQUELE dia (respeita data de início e data limite do tratamento).
-function _tabelaPaciente(p, periodos, blankRows, dISO) {
-  const cols = periodos.length;
-  const pres = prescriptions.filter((pr) => pr.paciente === p.id && prescVigenteEm(pr, dISO))
-    .sort((a, b) => _cmpMapa(a, b, cols));
-  const linhas = pres.map((pr) => {
-    const cells = {};
-    periodos.forEach((per) => (cells[per.key] = []));
-    let sos = false;
+/* Um medicamento = uma linha do mapa, mesmo que as doses tenham sido lançadas
+   em prescrições separadas. É o caso de dose diferente por período (1 cp de
+   manhã, 3 à tarde, 3 à noite): a farmácia lança separado porque a quantidade
+   por horário muda, mas a enfermagem tem que ver uma linha só, com a
+   quantidade escrita dentro de cada período. Duas linhas do mesmo remédio no
+   mapa é convite a dose dobrada ou esquecida. */
+function _agruparPresc(pres) {
+  const ordem = [], por = new Map();
+  pres.forEach((pr) => {
+    if (!por.has(pr.subId)) { por.set(pr.subId, []); ordem.push(pr.subId); }
+    por.get(pr.subId).push(pr);
+  });
+  return ordem.map((k) => por.get(k));
+}
+// prescrição sintética do grupo, só para ordenar a linha pelos horários somados
+function _reprGrupo(g) {
+  return { subId: g[0].subId, horarios: g.flatMap((pr) => pr.horarios || []) };
+}
+
+function _linhaMapa(g, periodos, cols) {
+  const cells = {};
+  periodos.forEach((per) => (cells[per.key] = []));
+  let sos = false;
+  const sub = subById(g[0].subId);
+  const unid = formaSolida(sub) ? " comp." : "";
+  // quantidade igual em todas as prescrições do grupo? então ela vai no nome,
+  // como sempre foi. Se varia por horário, vai dentro de cada célula.
+  const qtds = new Set(g.map((pr) => qtdPorHorario(pr)));
+  const uniforme = qtds.size === 1;
+  const doses = new Set(g.map((pr) => (pr.dose || "").trim()).filter(Boolean));
+  g.forEach((pr) => {
+    const q = qtdPorHorario(pr);
     (pr.horarios || []).forEach((hor) => {
       if (_ehSOS(hor)) { sos = true; return; }
       const per = _periodoDe(hor, cols);
       if (!per) { sos = true; return; }
-      if (cells[per]) cells[per].push(_ehJejum(hor) ? "JEJUM" : hor);
+      const rot = _ehJejum(hor) ? "JEJUM" : hor;
+      if (cells[per]) cells[per].push(uniforme ? rot : `${rot} <b>${fmtDose(q)}${unid}</b>`);
     });
-    // o mapa mostra a DOSE ADMINISTRADA (pode ser fracionada, ex.: ½ comprimido)
-    const nq = qtdPorHorario(pr);
-    const marca = nq === 1 ? "" : ` (${fmtDose(nq)}${formaSolida(subById(pr.subId)) ? " comp." : ""}/dose)`;
-    const nome = subNomeExibicao(pr.subId) + (pr.dose ? " — " + pr.dose : "") + marca + (sos ? " (SOS)" : "");
-    const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
-    return `<tr><td class="med">${nome}</td>${tds}</tr>`;
-  }).join("");
+  });
+  const q0 = qtdPorHorario(g[0]);
+  const marca = uniforme && q0 !== 1 ? ` (${fmtDose(q0)}${unid}/dose)` : "";
+  const doseTxt = doses.size === 1 ? " — " + [...doses][0] : "";
+  const nome = subNomeExibicao(g[0].subId) + doseTxt + marca + (sos ? " (SOS)" : "");
+  const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
+  return `<tr><td class="med">${nome}</td>${tds}</tr>`;
+}
+
+// dISO = dia que está sendo impresso; a prescrição entra se estiver vigente
+// NAQUELE dia (respeita data de início e data limite do tratamento).
+function _tabelaPaciente(p, periodos, blankRows, dISO, agrupar) {
+  const cols = periodos.length;
+  const pres = prescriptions.filter((pr) => pr.paciente === p.id && prescVigenteEm(pr, dISO));
+  const grupos = (agrupar === false) ? pres.map((pr) => [pr]) : _agruparPresc(pres);
+  const linhas = grupos
+    .sort((a, b) => _cmpMapa(_reprGrupo(a), _reprGrupo(b), cols))
+    .map((g) => _linhaMapa(g, periodos, cols)).join("");
   const cabPer = periodos.map((per) => `<th>${per.label}</th>`).join("");
   return `
     <div class="pac">
@@ -131,6 +165,7 @@ function imprimirMapa() {
   const blankRows = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaLinhas").value, 10)));
   const blankPacs = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaFichas").value, 10)));
   const pularSemPresc = document.getElementById("mapaSemPresc").value === "pular";
+  const agrupar = (document.getElementById("mapaAgrupar") || {}).value !== "separado";
 
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
@@ -143,7 +178,7 @@ function imprimirMapa() {
     d.setDate(d.getDate() + i);
     const dISO = d.toISOString().slice(0, 10);
     const pacs = pacsAll.filter((p) => _internadoEm(p, dISO));
-    const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows, dISO)).join("");
+    const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows, dISO, agrupar)).join("");
     const fichas = Array.from({ length: blankPacs }, () => _fichaVazia(periodos, blankRows)).join("");
     paginas.push(`
       <section class="dia">
@@ -212,6 +247,7 @@ function imprimirMapaPaciente() {
   const blankRows = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaLinhas").value, 10)));
   const blankPacs = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaFichas").value, 10)));
   const pularSemPresc = document.getElementById("mapaSemPresc").value === "pular";
+  const agrupar = (document.getElementById("mapaAgrupar") || {}).value !== "separado";
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
   const dias = _diasSpan(dataIni, nDias);
@@ -231,7 +267,7 @@ function imprimirMapaPaciente() {
       return `
         <div class="dia-bloco">
           <div class="dia-cab"><span class="dia-data">${_fmtDiaLongo(d)}</span> <span class="dia-pac"><b>${p.nome}</b> · Idade: ${_idade(p.dataNascimento) || "____"} · Leito: ${p.leito || "____"}${p.prontuario ? " · Prontuário: " + p.prontuario : ""}</span></div>
-          ${_tabelaPaciente(p, periodos, blankRows, iso)}
+          ${_tabelaPaciente(p, periodos, blankRows, iso, agrupar)}
         </div>`;
     }).join("");
 
@@ -331,6 +367,12 @@ function renderPage() {
               <option value="pular" selected>Ignorar (não imprimir)</option>
             </select>
           </div>
+          <div><label>Mesmo medicamento em prescrições separadas</label>
+            <select id="mapaAgrupar">
+              <option value="agrupado" selected>Agrupar numa linha só</option>
+              <option value="separado">Uma linha por prescrição</option>
+            </select>
+          </div>
         </div>
         <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="imprimirMapaPaciente()">🖶 Mapa por paciente (prontuário)</button>
@@ -344,7 +386,8 @@ function renderPage() {
       <div class="panel-head"><div><div class="panel-title">Como o horário vira coluna</div></div></div>
       <div class="panel-body" style="font-size:13px;color:var(--muted)">
         <b>3 períodos:</b> Manhã 05h–11h · Tarde 12h–17h · Noite 18h–04h. &nbsp;•&nbsp; <b>2 períodos:</b> Manhã até 11h · Noite a partir de 12h.<br>
-        Medicações marcadas como <b>SOS</b> aparecem com "(SOS)" no nome, para a enfermagem administrar quando necessário.
+        Medicações marcadas como <b>SOS</b> aparecem com "(SOS)" no nome, para a enfermagem administrar quando necessário.<br>
+        Quando o mesmo medicamento tem <b>dose diferente por período</b> (ex.: 1 comp. de manhã, 3 à tarde e 3 à noite), lance uma prescrição para cada quantidade: o mapa junta tudo numa linha só e escreve a quantidade dentro de cada período.
       </div>
     </div>
   `;
