@@ -858,10 +858,19 @@ function buildMovements() {
       paciente: loteInfo.pac, lote: loteInfo.lote, custoUnit: 0, origem: "proprio" });
   });
   ajustes.forEach((a) => {
+    /* O ajuste pertence ao SALDO do lote conferido, que pode ser a custódia de
+       um paciente. Sem essa informação o BMPO lançava toda conferência na
+       coluna do estabelecimento — abrindo negativo lá e deixando sobra na
+       custódia, com o total sob guarda certo. `dono` é só a propriedade do
+       saldo; `paciente` continua nulo porque o ajuste não é entrega a
+       ninguém — é isso que mantém o Livro classificando a saída como ajuste,
+       e não como dispensação ao paciente. */
+    const b = _lotesAgrupados()[_chaveDoAjuste(a)];
+    const dono = b ? (b.integrado ? null : (b.restritoPaciente || null)) : (a.paciente || null);
     list.push({
       data: a.data, tipo: a.delta >= 0 ? "ajuste_entrada" : "ajuste_saida", subId: a.subId,
       qtd: Math.abs(a.delta), ref: `Ajuste de inventário — ${a.justificativa}`,
-      paciente: null, lote: a.lote, custoUnit: 0, origem: "ajuste",
+      paciente: null, dono, lote: a.lote, custoUnit: 0, origem: "ajuste",
     });
   });
   list.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));

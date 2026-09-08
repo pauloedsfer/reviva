@@ -212,7 +212,11 @@ function _fsSet(campo, valor) {
    o medicamento foi. */
 function _fsMotivoSaida(m) {
   const ref = String(m.ref || "");
-  if (m.tipo === "ajuste_saida" || /^Ajuste de invent/i.test(ref)) return "Ajuste de inventário";
+  if (m.tipo === "ajuste_saida" || /^Ajuste de invent/i.test(ref)) {
+    // ajuste em lote de custódia: o Livro precisa dizer de qual saldo saiu
+    const p = m.dono ? patById(m.dono) : null;
+    return p ? `Ajuste de inventário · custódia de ${p.nome}` : "Ajuste de inventário";
+  }
   if (/perda|quebra|avaria/i.test(ref)) return "Perda / avaria";
   if (/descarte|inutiliz/i.test(ref)) return "Descarte";
   if (/devolu.*fam/i.test(ref)) return "Devolução à família";

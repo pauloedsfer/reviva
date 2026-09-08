@@ -33,7 +33,11 @@ function _nomeMes(mes) {
    deixa de ser de terceiro e passa a compor a coluna do estabelecimento. */
 function _ehCustodia(m) {
   const b = _lotesAgrupados();
-  const k = _chaveDaSaida(m.subId, m.lote, m.paciente);
+  // `dono` (quando existe) é a propriedade do saldo movimentado — o ajuste de
+  // inventário usa esse campo, porque não tem paciente de destino. Nos demais
+  // movimentos o dono é o próprio paciente da saída.
+  const dono = m.dono !== undefined ? m.dono : m.paciente;
+  const k = _chaveDaSaida(m.subId, m.lote, dono);
   const l = b[k];
   return !!(l && l.restritoPaciente && !l.integrado);
 }
