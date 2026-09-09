@@ -42,12 +42,14 @@ function abrirFormItemCotacao() {
         <option value="livre"${temSub ? '' : ' selected'}>Item livre (digitar)</option>
       </select></div>
     <div id="itBlocoSub" style="display:${temSub ? 'block' : 'none'}">
-      <div class="ff"><label>Substância <span style="font-weight:400;color:var(--muted)">— itens da padronização</span></label><select id="itSub">${_optSubsPadronizadas()}</select></div></div>
+      <div class="ff"><label>Substância <span style="font-weight:400;color:var(--muted)">— itens da padronização</span></label><select id="itSub" onchange="_cotHintItem()">${_optSubsPadronizadas()}</select>
+        <div id="itHint" style="font-size:12px;color:var(--muted);margin-top:4px"></div></div></div>
     <div id="itBlocoLivre" style="display:${temSub ? 'none' : 'block'}">
       <div class="ff row2">
         <div><label>Descrição *</label><input id="itDesc" placeholder="Ex.: Sertralina 50 mg comp."></div>
         <div><label>Unidade</label><input id="itUnid" placeholder="comp., amp., frasco…"></div></div></div>
     <div class="ff"><label>Quantidade a cotar *</label><input id="itQtd" type="number" min="0" step="1" placeholder="Ex.: 30"></div>`;
+  setTimeout(_cotHintItem, 40);
   abrirModal("Adicionar item à cotação", corpo, async () => {
     const tipo = fv("itTipo"); const qtd = fvNum("itQtd");
     if (qtd == null || qtd < 0) throw new Error("Informe a quantidade a cotar.");
@@ -65,9 +67,25 @@ function abrirFormItemCotacao() {
     if (error) throw error;
   }, "Adicionar item");
 }
+/* Mostra a situação do item escolhido antes de ele entrar na cotação, e já
+   sugere a quantidade que fecha a cobertura. */
+function _cotHintItem() {
+  const el = document.getElementById("itHint"); if (!el) return;
+  const s = substances.find((x) => x.id === fv("itSub"));
+  if (!s || fv("itTipo") !== "sub") { el.innerHTML = ""; return; }
+  const st = _cotSituacao(s.id), fl = _cotFlag(s.id);
+  const q = document.getElementById("itQtd");
+  if (q && !q.value) q.value = _cotQtdSugerida(s);
+  el.innerHTML = `<span class="tag" style="background:${fl.bg};color:${fl.cor}">${fl.txt}</span> `
+    + (st ? `estoque atual <b>${fmtDose(st.estoque)}</b> ${s.unidade || ""}`
+          + (st.consumoDia > 0 ? ` · consumo ${fmtDose(st.consumoDia)}/dia · cobertura ${_cotDias(st.dias)}` : " · sem consumo registrado")
+        : "");
+}
+
 function _toggleItemCot() {
   document.getElementById("itBlocoSub").style.display = fv("itTipo") === "sub" ? "block" : "none";
   document.getElementById("itBlocoLivre").style.display = fv("itTipo") === "livre" ? "block" : "none";
+  _cotHintItem();
 }
 async function adicionarTodasSubstancias() {
   const cot = cotacoes.find((c) => c.id === _cotAberta);
@@ -76,7 +94,7 @@ async function adicionarTodasSubstancias() {
   const novas = subsPadronizadas().filter((s) => !jaTem.has(s.id))
     .sort((a, b) => (catOrdem(a.categoria) - catOrdem(b.categoria)) || a.nome.localeCompare(b.nome, "pt-BR"));
   if (!novas.length) { alert("Todos os itens da padronização já estão na cotação."); return; }
-  if (!confirm(`Adicionar ${novas.length} item(ns) da padronização?\n\nA quantidade vem sugerida (injetáveis 10, líquidos 2, demais 1 caixa) e pode ser ajustada depois.`)) return;
+  if (!confirm(`Adicionar ${novas.length} item(ns) da padronização?\n\nA quantidade vem calculada para ${COT_COBERTURA} dias de cobertura onde há consumo registrado; nos demais, sugestão por unidade (injetável 10, líquido 2, demais 1). Dá para ajustar depois.`)) return;
   const base = cot.itens.length;
   const { error } = await window.SB.from("cotacao_itens").insert(novas.map((s, i) => ({ cotacao_id: _cotAberta, substancia_id: s.id, descricao: s.nome, unidade: s.unidade, quantidade: _cotQtdSugerida(s), ordem: base + i })));
   if (error) { alert("Erro: " + error.message); return; }
@@ -142,11 +160,107 @@ function imprimirCotacao(id) {
 function _precoUnit(p) { return (p && p.disponivel && p.precoCaixa != null && p.unidPorCaixa) ? p.precoCaixa / p.unidPorCaixa : null; }
 // opções de substância para a cotação: só padronizadas, agrupadas por categoria
 // quantidade inicial sugerida, conforme a apresentação
+/* ---- SITUAÇÃO DE ESTOQUE DE CADA ITEM ----
+   A cotação decidia às cegas: cotava-se tudo, com ou sem estoque em casa.
+   Aqui cada item ganha saldo, consumo/dia e cobertura, para o RT ver o que
+   precisa entrar e o que já está coberto antes de mandar ao fornecedor.
+   O consumo vem das prescrições vigentes, agregado por princípio+dosagem —
+   o mesmo critério da previsão de cobertura. Material hospitalar não tem
+   prescrição: fica como "sem consumo registrado", que é a verdade, e não
+   como se estivesse sobrando. */
+let _cotSit = null;
+function _cotSituacao(subId) {
+  if (!subId) return null;
+  if (!_cotSit) {
+    _cotSit = {};
+    const sos = (pr) => (pr.horarios || []).some((h) => /\bSOS\b|S\.?O\.?S\.?|SE\s+NECESS/i.test(String(h)));
+    const dosesDia = (pr) => (pr.horarios || []).filter((h) => !sos(pr) && !/\bSOS\b|S\.?O\.?S\.?|SE\s+NECESS/i.test(String(h))).length;
+    gruposSubstancias().forEach((g) => {
+      let consumoDia = 0;
+      prescriptions.forEach((pr) => {
+        if (g.subIds.indexOf(pr.subId) === -1 || !prescVigenteEm(pr)) return;
+        const p = patById(pr.paciente);
+        if (!p || p.ativo === false) return;      // paciente com alta não consome
+        if (sos(pr)) return;                       // SOS não entra na média
+        consumoDia += qtdConsumida(pr) * dosesDia(pr);
+      });
+      const estoque = g.subIds.reduce((a, id) => a + saldo(id), 0);
+      const dias = consumoDia > 0 ? estoque / consumoDia : null;
+      g.subIds.forEach((id) => (_cotSit[id] = { estoque, consumoDia, dias }));
+    });
+  }
+  return _cotSit[subId] || null;
+}
+function _cotInvalidaSit() { _cotSit = null; }
+
+// dias de cobertura que a compra deve alcançar
+const COT_COBERTURA = 60;
+
+function _cotFlag(subId) {
+  const st = _cotSituacao(subId);
+  if (!st) return { k: "livre", txt: "item livre", cor: "var(--muted)", bg: "var(--surface-2)" };
+  if (st.estoque <= 0) return { k: "sem", txt: _cotPadraoCarrinho(subId) ? "sem estoque — item do carrinho" : "sem estoque", cor: "#B04A3F", bg: "#F7E3E1" };
+  if (st.dias === null) {
+    const padrao = _cotPadraoCarrinho(subId);
+    if (padrao > 0 && st.estoque < padrao) return { k: "repor", txt: "abaixo do padrão do carrinho", cor: "#B04A3F", bg: "#F7E3E1" };
+    return { k: "parado", txt: "sem consumo registrado", cor: "#8a938d", bg: "#F1F3F1" };
+  }
+  if (st.dias <= 30) return { k: "repor", txt: "repor", cor: "#B04A3F", bg: "#F7E3E1" };
+  if (st.dias <= COT_COBERTURA) return { k: "aten", txt: "programar", cor: "#B07A2F", bg: "#FBF3E3" };
+  return { k: "ok", txt: "estoque suficiente", cor: "#2C5F5A", bg: "#E7F0E3" };
+}
+
+// quantidade padrão do item no carrinho de emergência, quando ele for de lá
+function _cotPadraoCarrinho(subId) {
+  const c = (typeof emergencyCart !== "undefined" && emergencyCart) ? emergencyCart : null;
+  const it = c && (c.itens || []).find((i) => i.subId === subId);
+  return it ? (it.qtdPadrao || 0) : 0;
+}
+
+/* Quantidade sugerida, na ordem: (1) o que fecha a cobertura, onde há consumo
+   registrado; (2) o que falta para completar o padrão do carrinho de
+   emergência; (3) a regra antiga por unidade. Material hospitalar ainda não
+   tem consumo lançado — enquanto não existir a baixa por setor, ele cai no
+   padrão do carrinho ou na regra por unidade, e a quantidade é conferida
+   à mão. */
 function _cotQtdSugerida(s) {
+  const st = _cotSituacao(s.id);
+  if (st && st.consumoDia > 0) {
+    const falta = Math.ceil(st.consumoDia * COT_COBERTURA - st.estoque);
+    return Math.max(falta, 0);
+  }
+  const padrao = _cotPadraoCarrinho(s.id);
+  if (padrao > 0) return Math.max(Math.ceil(padrao - (st ? st.estoque : 0)), 0);
   const u = (s.unidade || "").toLowerCase();
   if (u.indexOf("ampola") === 0 || u.indexOf("frasco-ampola") === 0) return 10;
   if (u.indexOf("frasco") === 0) return 2;
   return 1;
+}
+
+function _cotDias(d) {
+  if (d === null) return "—";
+  if (!isFinite(d)) return "∞";
+  return d < 1 ? "<1 dia" : Math.floor(d) + (Math.floor(d) === 1 ? " dia" : " dias");
+}
+
+/* Só o que precisa repor: sem estoque, cobertura curta, ou item da
+   padronização que nunca teve entrada — que é o caso de todo o material
+   hospitalar recém-cadastrado. Deixa de fora o que já tem cobertura folgada. */
+async function adicionarEmFalta() {
+  const cot = cotacoes.find((c) => c.id === _cotAberta);
+  const jaTem = new Set(cot.itens.map((i) => i.substanciaId).filter(Boolean));
+  const novas = subsPadronizadas().filter((s) => {
+    if (jaTem.has(s.id)) return false;
+    const k = _cotFlag(s.id).k;
+    return k === "sem" || k === "repor" || k === "aten";
+  }).sort((a, b) => (catOrdem(a.categoria) - catOrdem(b.categoria)) || a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!novas.length) { alert("Nada a repor: os itens da padronização com estoque baixo já estão na cotação."); return; }
+  const semEstoque = novas.filter((s) => _cotFlag(s.id).k === "sem").length;
+  if (!confirm(`Adicionar ${novas.length} item(ns) que precisam de reposição?\n\n${semEstoque} sem estoque nenhum.\n\nA quantidade vem calculada para ${COT_COBERTURA} dias de cobertura onde há consumo registrado; nos demais, sugestão por unidade. Dá para ajustar item a item depois.`)) return;
+  const base = cot.itens.length;
+  const { error } = await window.SB.from("cotacao_itens").insert(novas.map((s, i) => ({ cotacao_id: _cotAberta, substancia_id: s.id, descricao: s.nome, unidade: s.unidade, quantidade: _cotQtdSugerida(s), ordem: base + i })));
+  if (error) { alert("Erro: " + error.message); return; }
+  await recarregarTela();
 }
 
 function _optSubsPadronizadas(sel) {
@@ -402,7 +516,8 @@ function _viewItens(cot) {
       <div class="panel-head">
         <div><div class="panel-title">${cot.identificador||"Cotação"} · itens</div><div class="panel-title-sub">${fmtDate(cot.data)}${cot.observacao?" · "+cot.observacao:""} · ${cot.itens.length} item(ns)</div></div>
         <div class="toolbar">
-          ${substances.length ? '<button class="btn ghost sm" onclick="adicionarTodasSubstancias()">+ Todas as substâncias</button>' : ''}
+          ${substances.length ? '<button class="btn ghost sm" onclick="adicionarEmFalta()">+ Só o que precisa repor</button>' : ''}
+          ${substances.length ? '<button class="btn ghost sm" onclick="adicionarTodasSubstancias()">+ Toda a padronização</button>' : ''}
           <button class="btn ghost sm" onclick="abrirFormItemCotacao()">+ Item</button>
           <button class="btn ghost sm" onclick="imprimirRelatorioCotacao('${cot.id}')">🖶 Relatório de justificativa</button>
           <button class="btn ghost sm" onclick="abrirImportarPrecos('${cot.id}')">⬆ Importar preços</button>
@@ -421,13 +536,19 @@ function _viewItens(cot) {
           let n = 0;
           const corpo = categoriasAlfabeticas().filter((c) => porCat[c] && porCat[c].length).map((c) => {
             const rs = porCat[c].sort((a, b) => (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR"));
-            return `<tr><td colspan="6" style="background:var(--primary-tint);color:var(--primary-dark);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 8px">${catRotulo(c)} <span style="font-weight:400;opacity:.7">(${rs.length})</span></td></tr>` +
+            return `<tr><td colspan="8" style="background:var(--primary-tint);color:var(--primary-dark);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 8px">${catRotulo(c)} <span style="font-weight:400;opacity:.7">(${rs.length})</span></td></tr>` +
               rs.map((r) => { n++; const lt = r.sub && r.sub.lista && r.sub.lista !== "—" ? ` <span class="tag ${listaTagClass(r.sub.lista)}">${r.sub.lista}</span>` : "";
-                return `<tr><td class="num mono">${n}</td><td><b>${r.it.descricao}</b>${lt}</td><td class="mono">${r.it.unidade||"—"}</td><td class="num mono">${r.it.quantidade||"—"}</td>
-                <td>${r.it.substanciaId?'<span class="tag">cadastrada</span>':'<span class="tag" style="background:var(--accent-tint);color:var(--accent)">livre</span>'}</td>
+                const st = r.sub ? _cotSituacao(r.sub.id) : null;
+                const fl = _cotFlag(r.sub ? r.sub.id : null);
+                return `<tr><td class="num mono">${n}</td><td><b>${r.it.descricao}</b>${lt}${r.it.substanciaId?"":' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">livre</span>'}</td><td class="mono">${r.it.unidade||"—"}</td><td class="num mono">${r.it.quantidade||"—"}</td>
+                <td class="num mono">${st ? fmtDose(st.estoque) : "—"}</td>
+                <td class="num mono">${st ? (st.dias === null ? "—" : _cotDias(st.dias)) : "—"}</td>
+                <td><span class="tag" style="background:${fl.bg};color:${fl.cor}">${fl.txt}</span></td>
                 <td style="text-align:right"><button class="btn ghost sm" onclick="removerItemCotacao('${r.it.id}')">Remover</button></td></tr>`; }).join("");
           }).join("");
-          return `<table><thead><tr><th>#</th><th>Descrição</th><th>Unid.</th><th>Qtde.</th><th>Origem</th><th></th></tr></thead><tbody>${corpo}</tbody></table>`;
+          const sobra = cot.itens.filter((i) => i.substanciaId && _cotFlag(i.substanciaId).k === "ok").length;
+          const aviso = sobra ? `<div style="background:#E7F0E3;border-left:3px solid #2C5F5A;padding:6px 10px;font-size:12px;margin-bottom:8px">${sobra} item(ns) com cobertura acima de ${COT_COBERTURA} dias — vale conferir se precisam entrar nesta compra.</div>` : "";
+          return aviso + `<table><thead><tr><th>#</th><th>Descrição</th><th>Unid.</th><th>Qtde.</th><th class="num">Em estoque</th><th class="num">Cobertura</th><th>Situação</th><th></th></tr></thead><tbody>${corpo}</tbody></table>`;
         })() : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Cotação sem itens. Use <b>+ Item</b>.</div>`}
       </div>
     </div>`;
@@ -617,6 +738,7 @@ function _painelFornecedores() {
 }
 
 function renderPage() {
+  _cotInvalidaSit();   // saldo e consumo são recalculados a cada render
   const cot = _cotAberta ? cotacoes.find((c) => c.id === _cotAberta) : null;
   return cot ? _viewDetalhe(cot) : _viewLista();
 }

@@ -17,7 +17,7 @@ function addMedRow() {
   row.className = "item-row";
   row.style.gridTemplateColumns = "1.5fr .8fr .5fr .5fr .9fr .4fr";
   row.innerHTML = `
-    <div><select class="m-sub">${_optSubs()}</select></div>
+    <div><select class="m-sub">${_optSubs("", "medicamento")}</select></div>
     <div><input type="text" class="m-dose" value="1 comp." placeholder="Dose"></div>
     <div><input type="number" class="m-qtd" min="0.25" step="0.25" value="1" title="Qtd. por horário (aceita fração: 0,5 = meio comprimido)"></div>
     <div><input type="text" class="m-via" value="VO" placeholder="Via"></div>
@@ -128,7 +128,7 @@ function abrirEditarPrescricao(id) {
     <div class="ff"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, para tratamento com duração definida</span></label>
       <input id="eFim" type="date" value="${pr.dataFim || ""}">
       <div style="font-size:11px;color:var(--muted);margin-top:3px">Ex.: antimicrobiano por 7 dias. Passada a data, a prescrição sai do mapa e da dispensação automaticamente, sem precisar suspender à mão. Deixe em branco para uso contínuo.</div></div>
-    <div class="ff"><label>Substância *</label><select id="eSub">${_optSubs(pr.subId)}</select></div>
+    <div class="ff"><label>Substância *</label><select id="eSub">${_optSubs(pr.subId, "medicamento")}</select></div>
     <div class="ff"><label>Médico prescritor</label>
       <select id="ePresc" onchange="_toggleBloco('ePresc','blocoNovoPresc')">${_optPresc(pr.prescritorId)}</select>
     </div>

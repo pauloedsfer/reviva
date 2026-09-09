@@ -103,7 +103,8 @@ async function carregarDados() {
     nomeComercial: s.nome_comercial, unidadeCompra: s.unidade_compra,
     fatorUnidade: s.fator_unidade == null ? null : Number(s.fator_unidade), id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
     principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma,
-    categoria: s.categoria || "NAO CLASSIFICADO", padronizado: s.padronizado !== false }));
+    categoria: s.categoria || "NAO CLASSIFICADO", padronizado: s.padronizado !== false,
+    tipo: s.tipo === "material" ? "material" : "medicamento" }));
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
   fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo,
     situacao: f.situacao || "ativo",
@@ -185,7 +186,8 @@ async function carregarDados() {
       id: c.id, lacreAtual: c.lacre_atual, status: c.status, ultimaConferencia: c.ultima_conferencia,
       responsavelConferencia: (window.RT ? window.RT.nome : "—"),
       itens: cartItens.filter((i) => i.carrinho_id === c.id)
-        .map((i) => ({ nome: i.nome, qtdPadrao: i.qtd_padrao, validade: i.validade })),
+        .map((i) => ({ nome: i.nome, qtdPadrao: i.qtd_padrao, validade: i.validade,
+                       subId: i.substancia_id || null, gaveta: i.gaveta || null, ordem: i.ordem || 0 })),
       historico: cartHist.filter((h) => h.carrinho_id === c.id)
         .sort((a, b) => (a.data < b.data ? 1 : -1))
         .map((h) => ({ data: h.data, evento: h.evento, responsavel: (window.RT ? window.RT.nome : "—") })),
@@ -789,6 +791,14 @@ const CATEGORIAS_ORDEM = [
   "SOLUCOES PARENTERAIS E ELETROLITOS",
   "RESPIRATORIOS E CORTICOIDES",
   "URGENCIA E EMERGENCIA",
+  "MATERIAL - PUNCAO E INJECAO",
+  "MATERIAL - INFUSAO E EQUIPOS",
+  "MATERIAL - CURATIVO E ANTISSEPSIA",
+  "MATERIAL - PROTECAO INDIVIDUAL",
+  "MATERIAL - SONDAS E COLETORES",
+  "MATERIAL - VIA AEREA E OXIGENIOTERAPIA",
+  "MATERIAL - DIAGNOSTICO E MONITORIZACAO",
+  "MATERIAL - DIVERSOS",
   "NAO CLASSIFICADO",
 ];
 const CATEGORIA_ROTULO = {
@@ -802,15 +812,36 @@ const CATEGORIA_ROTULO = {
   "SOLUCOES PARENTERAIS E ELETROLITOS": "Soluções parenterais e eletrólitos",
   "RESPIRATORIOS E CORTICOIDES": "Respiratórios e corticoides",
   "URGENCIA E EMERGENCIA": "Urgência e emergência",
+  "MATERIAL - PUNCAO E INJECAO": "Material — punção e injeção",
+  "MATERIAL - INFUSAO E EQUIPOS": "Material — infusão e equipos",
+  "MATERIAL - CURATIVO E ANTISSEPSIA": "Material — curativo e antissepsia",
+  "MATERIAL - PROTECAO INDIVIDUAL": "Material — proteção individual",
+  "MATERIAL - SONDAS E COLETORES": "Material — sondas e coletores",
+  "MATERIAL - VIA AEREA E OXIGENIOTERAPIA": "Material — via aérea e oxigenioterapia",
+  "MATERIAL - DIAGNOSTICO E MONITORIZACAO": "Material — diagnóstico e monitorização",
+  "MATERIAL - DIVERSOS": "Material — diversos",
   "NAO CLASSIFICADO": "Não classificado",
 };
 function catRotulo(c) { return CATEGORIA_ROTULO[c] || c || "Não classificado"; }
 function catOrdem(c) { const i = CATEGORIAS_ORDEM.indexOf(c); return i === -1 ? 998 : i; }
 // categorias em ORDEM ALFABÉTICA pelo rótulo exibido (usada nos documentos impressos)
+/* Inclui também categoria que exista no cadastro mas não na lista fixa acima.
+   Antes ficavam de fora: quem filtra por esta função (seletor da cotação,
+   impresso da cotação, estoque) simplesmente não via o item, sem erro nenhum
+   na tela — foi o que aconteceu com as categorias de material. */
 function categoriasAlfabeticas() {
-  return [...CATEGORIAS_ORDEM].sort((a, b) => catRotulo(a).localeCompare(catRotulo(b), "pt-BR"));
+  const set = new Set(CATEGORIAS_ORDEM);
+  (substances || []).forEach((s) => { if (s.categoria) set.add(s.categoria); });
+  return [...set].sort((a, b) => catRotulo(a).localeCompare(catRotulo(b), "pt-BR"));
 }
 // substâncias da padronização (o que a clínica compra) x medicação de paciente
+/* Material hospitalar mora na mesma tabela dos medicamentos (tipo='material'),
+   para reaproveitar nota fiscal, lote, validade, custo médio, ajuste e cotação.
+   Só não pode aparecer onde a tela é clínica: prescrição, mapa, dose unitária.
+   No BMPO nunca entra — material tem lista '—' e o balanço filtra controlados. */
+function ehMaterial(s) { const x = typeof s === "object" ? s : subById(s); return !!(x && x.tipo === "material"); }
+function subsMedicamentos() { return substances.filter((s) => !ehMaterial(s)); }
+function subsMateriais() { return substances.filter((s) => ehMaterial(s)); }
 function subsPadronizadas() { return substances.filter((s) => s.padronizado); }
 function subsDePaciente() { return substances.filter((s) => !s.padronizado); }
 

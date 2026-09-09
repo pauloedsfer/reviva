@@ -110,9 +110,17 @@ function fvOrNull(id) { const v = fv(id); return v === "" ? null : v; }
 
 /* ---------------- construtores de campo ---------------- */
 // Substâncias nos seletores: agrupadas por categoria e em ordem alfabética.
-function _optSubs(sel) {
+// `apenas` restringe o seletor: "medicamento" tira o material hospitalar da
+// lista (prescrição, dispensação, devolução de dose). Entrada de nota fiscal
+// e ajuste de inventário continuam vendo tudo — material também tem lote,
+// validade e saldo.
+function _optSubs(sel, apenas) {
   const cats = {};
-  substances.forEach((s) => { (cats[s.categoria || "NAO CLASSIFICADO"] = cats[s.categoria || "NAO CLASSIFICADO"] || []).push(s); });
+  const fonte = apenas === "medicamento" && typeof subsMedicamentos === "function"
+    ? subsMedicamentos()
+    : apenas === "material" && typeof subsMateriais === "function"
+      ? subsMateriais() : substances;
+  fonte.forEach((s) => { (cats[s.categoria || "NAO CLASSIFICADO"] = cats[s.categoria || "NAO CLASSIFICADO"] || []).push(s); });
   const ordem = (typeof categoriasAlfabeticas === "function")
     ? categoriasAlfabeticas().filter((c) => cats[c])
     : Object.keys(cats).sort((a, b) => a.localeCompare(b, "pt-BR"));

@@ -540,7 +540,7 @@ function abrirFormDevolucao() {
       <div><label>Paciente</label><select id="dvPac">${_optPats()}</select></div>
     </div>
     <div class="ff row2">
-      <div><label>Substância *</label><select id="dvSub" onchange="atualizaLotesDevolucao()">${_optSubs(primeiraSub)}</select></div>
+      <div><label>Substância *</label><select id="dvSub" onchange="atualizaLotesDevolucao()">${_optSubs(primeiraSub, "medicamento")}</select></div>
       <div><label>Lote *</label><select id="dvLote">${_opcoesLoteDevolucao(primeiraSub)}</select></div>
     </div>
     <div class="ff row2">
