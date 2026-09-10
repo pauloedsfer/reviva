@@ -100,8 +100,12 @@ async function adicionarTodasSubstancias() {
   if (error) { alert("Erro: " + error.message); return; }
   await recarregarTela();
 }
+/* Sem confirmação: tirar item de cotação em rascunho é reversível — basta
+   adicionar de novo. Pergunta a cada clique só atrapalha quem está limpando
+   uma lista grande. A rede de proteção fica na remoção em lote, que pergunta
+   UMA vez pelo conjunto. */
 async function removerItemCotacao(id) {
-  if (!confirm("Remover este item da cotação?")) return;
+  _cotSel.delete(id);
   const { error } = await window.SB.from("cotacao_itens").delete().eq("id", id);
   if (error) { alert("Erro: " + error.message); return; }
   await recarregarTela();
@@ -235,6 +239,28 @@ function _cotQtdSugerida(s) {
   if (u.indexOf("ampola") === 0 || u.indexOf("frasco-ampola") === 0) return 10;
   if (u.indexOf("frasco") === 0) return 2;
   return 1;
+}
+
+/* ---- SELEÇÃO PARA REMOÇÃO EM LOTE ---- */
+let _cotSel = new Set();
+function _cotMarcaItem(id, on) { on ? _cotSel.add(id) : _cotSel.delete(id); _cotBarraSel(); }
+function _cotMarcaTodos(on) {
+  document.querySelectorAll(".cot-chk").forEach((c) => { c.checked = on; on ? _cotSel.add(c.value) : _cotSel.delete(c.value); });
+  _cotBarraSel();
+}
+function _cotBarraSel() {
+  const b = document.getElementById("cotBtnRemover"); if (!b) return;
+  const n = _cotSel.size;
+  b.disabled = !n;
+  b.textContent = n ? `🗑 Remover ${n} marcado${n > 1 ? "s" : ""}` : "🗑 Remover marcados";
+}
+async function removerMarcadosCotacao() {
+  const ids = [..._cotSel]; if (!ids.length) return;
+  if (!confirm(`Remover ${ids.length} item(ns) marcado(s) desta cotação?`)) return;
+  const { error } = await window.SB.from("cotacao_itens").delete().in("id", ids);
+  if (error) { alert("Erro: " + error.message); return; }
+  _cotSel.clear();
+  await recarregarTela();
 }
 
 function _cotDias(d) {
@@ -519,6 +545,7 @@ function _viewItens(cot) {
           ${substances.length ? '<button class="btn ghost sm" onclick="adicionarEmFalta()">+ Só o que precisa repor</button>' : ''}
           ${substances.length ? '<button class="btn ghost sm" onclick="adicionarTodasSubstancias()">+ Toda a padronização</button>' : ''}
           <button class="btn ghost sm" onclick="abrirFormItemCotacao()">+ Item</button>
+          <button class="btn ghost sm" id="cotBtnRemover" disabled onclick="removerMarcadosCotacao()">🗑 Remover marcados</button>
           <button class="btn ghost sm" onclick="imprimirRelatorioCotacao('${cot.id}')">🖶 Relatório de justificativa</button>
           <button class="btn ghost sm" onclick="abrirImportarPrecos('${cot.id}')">⬆ Importar preços</button>
           <button class="btn ghost sm" onclick="exportarCotacaoExcel('${cot.id}')">⬇ Exportar Excel</button>
@@ -536,11 +563,11 @@ function _viewItens(cot) {
           let n = 0;
           const corpo = categoriasAlfabeticas().filter((c) => porCat[c] && porCat[c].length).map((c) => {
             const rs = porCat[c].sort((a, b) => (a.it.descricao || "").localeCompare(b.it.descricao || "", "pt-BR"));
-            return `<tr><td colspan="8" style="background:var(--primary-tint);color:var(--primary-dark);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 8px">${catRotulo(c)} <span style="font-weight:400;opacity:.7">(${rs.length})</span></td></tr>` +
+            return `<tr><td colspan="9" style="background:var(--primary-tint);color:var(--primary-dark);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:5px 8px">${catRotulo(c)} <span style="font-weight:400;opacity:.7">(${rs.length})</span></td></tr>` +
               rs.map((r) => { n++; const lt = r.sub && r.sub.lista && r.sub.lista !== "—" ? ` <span class="tag ${listaTagClass(r.sub.lista)}">${r.sub.lista}</span>` : "";
                 const st = r.sub ? _cotSituacao(r.sub.id) : null;
                 const fl = _cotFlag(r.sub ? r.sub.id : null);
-                return `<tr><td class="num mono">${n}</td><td><b>${r.it.descricao}</b>${lt}${r.it.substanciaId?"":' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">livre</span>'}</td><td class="mono">${r.it.unidade||"—"}</td><td class="num mono">${r.it.quantidade||"—"}</td>
+                return `<tr><td class="c"><input type="checkbox" class="cot-chk" value="${r.it.id}"${_cotSel.has(r.it.id) ? " checked" : ""} onchange="_cotMarcaItem('${r.it.id}', this.checked)"></td><td class="num mono">${n}</td><td><b>${r.it.descricao}</b>${lt}${r.it.substanciaId?"":' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">livre</span>'}</td><td class="mono">${r.it.unidade||"—"}</td><td class="num mono">${r.it.quantidade||"—"}</td>
                 <td class="num mono">${st ? fmtDose(st.estoque) : "—"}</td>
                 <td class="num mono">${st ? (st.dias === null ? "—" : _cotDias(st.dias)) : "—"}</td>
                 <td><span class="tag" style="background:${fl.bg};color:${fl.cor}">${fl.txt}</span></td>
@@ -548,7 +575,7 @@ function _viewItens(cot) {
           }).join("");
           const sobra = cot.itens.filter((i) => i.substanciaId && _cotFlag(i.substanciaId).k === "ok").length;
           const aviso = sobra ? `<div style="background:#E7F0E3;border-left:3px solid #2C5F5A;padding:6px 10px;font-size:12px;margin-bottom:8px">${sobra} item(ns) com cobertura acima de ${COT_COBERTURA} dias — vale conferir se precisam entrar nesta compra.</div>` : "";
-          return aviso + `<table><thead><tr><th>#</th><th>Descrição</th><th>Unid.</th><th>Qtde.</th><th class="num">Em estoque</th><th class="num">Cobertura</th><th>Situação</th><th></th></tr></thead><tbody>${corpo}</tbody></table>`;
+          return aviso + `<table><thead><tr><th class="c"><input type="checkbox" title="Marcar todos" onchange="_cotMarcaTodos(this.checked)"></th><th>#</th><th>Descrição</th><th>Unid.</th><th>Qtde.</th><th class="num">Em estoque</th><th class="num">Cobertura</th><th>Situação</th><th></th></tr></thead><tbody>${corpo}</tbody></table>`;
         })() : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Cotação sem itens. Use <b>+ Item</b>.</div>`}
       </div>
     </div>`;
@@ -739,6 +766,7 @@ function _painelFornecedores() {
 
 function renderPage() {
   _cotInvalidaSit();   // saldo e consumo são recalculados a cada render
+  setTimeout(_cotBarraSel, 0);
   const cot = _cotAberta ? cotacoes.find((c) => c.id === _cotAberta) : null;
   return cot ? _viewDetalhe(cot) : _viewLista();
 }
