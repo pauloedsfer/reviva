@@ -6,7 +6,8 @@
    Primeiro documento: Sinais Vitais.
    ============================================================ */
 
-let _enfCfg = { doc: "sinaisvitais", pac: "", linhas: 30, folhas: 1 };
+const _hojeISO = new Date().toISOString().slice(0, 7);
+let _enfCfg = { doc: "sinaisvitais", pac: "", linhas: 30, folhas: 1, mes: _hojeISO, equip: "" };
 
 function _enfSet(campo, valor) {
   _enfCfg[campo] = campo === "linhas" || campo === "folhas" ? (parseInt(valor, 10) || 1) : valor;
@@ -134,7 +135,7 @@ const _ENF_DOCS = [
     desc: "Data, hora, PA, FC, SpO₂, temperatura, HGT e assinatura da enfermagem.",
     fn: "imprimirSinaisVitais()", usaPaciente: true },
   { id: "temperatura", area: "Farmácia", nome: "Registro de Temperatura e Umidade",
-    desc: "Controle da geladeira (atual, mínima e máxima) e do ambiente (temperatura e umidade), com campo de ocorrências e assinatura do RT. Cadeia de frio — POP-FAR-014.",
+    desc: "Folha mensal com todos os dias do mês já impressos, duas leituras por dia, em uma única tabela: refrigerador (atual, mínima e máxima) e ambiente (temperatura, umidade). Fim de semana destacado. Cadeia de frio — POP-FAR-014.",
     fn: "imprimirRegistroTemperatura()", usaPaciente: false },
 ];
 
@@ -174,6 +175,10 @@ function renderPage() {
             <input type="number" min="5" max="60" value="${_enfCfg.linhas}" onchange="_enfSet('linhas', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
           <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Quantidade de folhas</label>
             <input type="number" min="1" max="20" value="${_enfCfg.folhas}" onchange="_enfSet('folhas', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Mês de referência <span style="font-weight:400;color:var(--muted)">— registro de temperatura</span></label>
+            <input type="month" value="${_enfCfg.mes}" onchange="_enfSet('mes', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Termo-higrômetro nº <span style="font-weight:400;color:var(--muted)">— opcional</span></label>
+            <input type="text" value="${_esc(_enfCfg.equip)}" placeholder="identificação do aparelho" onchange="_enfSet('equip', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
         </div>
         <div class="note-box" style="margin-top:12px">${
           _enfCfg.pac === "__todos__"
@@ -195,82 +200,113 @@ function renderPage() {
   `;
 }
 
-/* ---- FOLHA DE REGISTRO DE TEMPERATURA E UMIDADE (cadeia de frio) ---- */
+/* ---- FOLHA MENSAL DE TEMPERATURA E UMIDADE (cadeia de frio) ----
+   Um único termo-higrômetro atende o refrigerador e o ambiente: sensor
+   interno na geladeira, leitura de ambiente no próprio aparelho. Por isso a
+   folha é uma tabela só, e não duas — o que a equipe lê de uma vez, registra
+   de uma vez.
+   A folha sai com TODOS os dias do mês já impressos, duas leituras por dia.
+   Dia que não for preenchido fica visível como falha, que é o ponto: em
+   planilha de linhas em branco, dia esquecido não deixa marca. */
+const _MESES_PT = ["janeiro","fevereiro","março","abril","maio","junho",
+                   "julho","agosto","setembro","outubro","novembro","dezembro"];
+const _DIAS_PT = ["dom","seg","ter","qua","qui","sex","sáb"];
+
 function imprimirRegistroTemperatura() {
-  const nLin = Math.max(5, Math.min(70, _enfCfg.linhas));
-  const nFolhas = Math.max(1, Math.min(20, _enfCfg.folhas));
+  const ref = /^\d{4}-\d{2}$/.test(_enfCfg.mes || "") ? _enfCfg.mes : new Date().toISOString().slice(0, 7);
+  const ano = parseInt(ref.slice(0, 4), 10), mes = parseInt(ref.slice(5, 7), 10);
+  const ultimo = new Date(ano, mes, 0).getDate();
+
+  // 8 colunas por leitura: hora · refrigerador (atual/mín/máx) · ambiente
+  // (temp/umidade) · conforme · rubrica
+  const bloco = `<td class="c-hora"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td>
+                 <td class="c-num"></td><td class="c-num"></td><td class="c-conf"></td><td class="c-ass"></td>`;
+  const linhas = Array.from({ length: ultimo }, (_, i) => {
+    const dia = i + 1;
+    const dow = new Date(ano, mes - 1, dia).getDay();
+    const fds = dow === 0 || dow === 6;   // sem farmacêutico: leitura pela enfermagem
+    return `<tr class="${fds ? "fds" : ""}">
+      <td class="c-dia">${String(dia).padStart(2, "0")}<span class="dow"> ${_DIAS_PT[dow]}</span></td>
+      ${bloco}${bloco}</tr>`;
+  }).join("");
 
   const cab = `
     <tr>
-      <th rowspan="2" class="c-dia">Data</th>
-      <th rowspan="2" class="c-hora">Hora</th>
-      <th colspan="3" class="grp">Refrigerador (2 °C a 8 °C)</th>
-      <th colspan="2" class="grp">Ambiente (15 °C a 30 °C)</th>
-      <th rowspan="2" class="c-conf">Conforme</th>
-      <th rowspan="2" class="c-ass">Rubrica</th>
+      <th rowspan="3" class="c-dia">Dia</th>
+      <th colspan="8" class="grp">1ª leitura — início do expediente</th>
+      <th colspan="8" class="grp">2ª leitura — fim do expediente</th>
     </tr>
     <tr>
-      <th class="c-num">Atual</th><th class="c-num">Mín.</th><th class="c-num">Máx.</th>
-      <th class="c-num">Temp.</th><th class="c-num">Umid. %</th>
+      <th rowspan="2" class="c-hora">Hora</th><th colspan="3" class="sub">Refrigerador 2 a 8 °C</th>
+      <th colspan="2" class="sub">Ambiente 15 a 30 °C</th><th rowspan="2" class="c-conf">C/NC</th><th rowspan="2" class="c-ass">Rubrica</th>
+      <th rowspan="2" class="c-hora">Hora</th><th colspan="3" class="sub">Refrigerador 2 a 8 °C</th>
+      <th colspan="2" class="sub">Ambiente 15 a 30 °C</th><th rowspan="2" class="c-conf">C/NC</th><th rowspan="2" class="c-ass">Rubrica</th>
+    </tr>
+    <tr>
+      <th class="c-num">Atual</th><th class="c-num">Mín</th><th class="c-num">Máx</th><th class="c-num">Temp</th><th class="c-num">Umid%</th>
+      <th class="c-num">Atual</th><th class="c-num">Mín</th><th class="c-num">Máx</th><th class="c-num">Temp</th><th class="c-num">Umid%</th>
     </tr>`;
-  const linha = `<tr><td class="c-dia"></td><td class="c-hora"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td><td class="c-num"></td><td class="c-conf"></td><td class="c-ass"></td></tr>`;
-  const corpoTab = Array.from({ length: nLin }, () => linha).join("");
 
-  const folha = () => `
-    <section class="folha">
-      ${_enfCabecalho()}
-      <h1>REGISTRO DE TEMPERATURA E UMIDADE — FARMÁCIA</h1>
-      <div class="ref">
-        <div class="campo" style="flex:1"><span class="rot">Mês / Ano:</span><span class="val"></span></div>
-        <div class="campo" style="flex:1.4"><span class="rot">Equipamento / local:</span><span class="val"></span></div>
-        <div class="campo" style="flex:1"><span class="rot">Termo-higrômetro nº:</span><span class="val"></span></div>
-      </div>
-      <div class="inst">Leitura <b>duas vezes ao dia</b>, no início e no fim do funcionamento da farmácia. Registrar temperatura <b>atual, mínima e máxima</b> do refrigerador e <b>temperatura e umidade</b> do ambiente, e <b>zerar a memória</b> de máxima/mínima após anotar. Fora da faixa: marcar <b>N</b> em Conforme, isolar os medicamentos como EM AVALIAÇÃO e acionar o farmacêutico RT (POP-FAR-014).</div>
-      <table><thead>${cab}</thead><tbody>${corpoTab}</tbody></table>
-      <div class="desvio">
-        <div class="bl">Ocorrências e desvios de temperatura (data, valor, duração, medicamentos afetados e conduta)</div>
-        ${Array.from({ length: 4 }, () => `<div class="linha"></div>`).join("")}
-      </div>
-      <div class="assin">
-        <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico Responsável Técnico</div>
-        <div class="dt">Data: ____ / ____ / ______</div>
-      </div>
-      <div class="rod">Registro da farmácia — arquivar mensalmente. POP-FAR-014 · Referência: RDC 430/2020, arts. 77 a 81.</div>
-    </section>`;
-
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Registro de Temperatura e Umidade</title>
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Registro de Temperatura e Umidade — ${_MESES_PT[mes - 1]} de ${ano}</title>
   <style>
-  @page{size:A4 portrait;margin:9mm 9mm}
+  @page{size:A4 landscape;margin:7mm 8mm}
   *{box-sizing:border-box}
-  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:10.5px;margin:0}
-  .folha{page-break-after:always}.folha:last-child{page-break-after:auto}
-  .cab{display:flex;align-items:center;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:6px 10px}
-  .cab-logo img{height:34px;width:auto;display:block}
-  .cab-txt{flex:1;text-align:center}.cab-nome{font-size:14px;font-weight:700}.cab-sub{font-size:9px;color:#4a544f;margin-top:1px}
-  h1{font-size:12px;letter-spacing:.06em;text-align:center;margin:0;padding:3px 0;border:1px solid #1E2A28;border-bottom:none;background:#EEF2EC;font-weight:700}
-  .ref{display:flex;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:5px 10px}
-  .campo{display:flex;align-items:baseline;gap:5px;border-bottom:1px dotted #9aa39d;min-height:15px}
-  .campo .rot{font-size:8.5px;text-transform:uppercase;color:#6a736e;font-weight:600;white-space:nowrap}
-  .campo .val{flex:1}
-  .inst{border:1px solid #1E2A28;border-bottom:none;padding:4px 10px;font-size:8.5px;color:#4a544f;line-height:1.4;background:#F7F9F6}
-  table{width:100%;border-collapse:collapse}
-  th,td{border:1px solid #1E2A28;padding:0 3px;font-size:9.5px;height:18px;text-align:center}
-  th{background:#EEF2EC;font-size:8px;text-transform:uppercase;font-weight:700;height:20px}
-  th.grp{background:#DFE8DC;letter-spacing:.03em}
-  .c-dia{width:8%}.c-hora{width:7%}.c-num{width:9%}.c-conf{width:8%}.c-ass{width:15%}
-  .desvio{border:1px solid #1E2A28;border-top:none;padding:5px 10px}
-  .desvio .bl{font-size:8px;text-transform:uppercase;color:#6a736e;letter-spacing:.03em;margin-bottom:3px;font-weight:700}
-  .desvio .linha{border-bottom:1px solid #b9c1ba;height:16px}
-  .assin{display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;gap:24px}
-  .assin .sig{text-align:center;font-size:8.5px;color:#6a736e;min-width:250px}
-  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:3px;color:#1E2A28;font-size:10.5px}
-  .assin .dt{font-size:10px}
-  .rod{margin-top:5px;font-size:8px;color:#8a938d;text-align:center}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:10px;margin:0}
+  .cab{display:flex;align-items:center;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:4px 10px}
+  .cab-logo img{height:28px;width:auto;display:block}
+  .cab-txt{flex:1;text-align:center}.cab-nome{font-size:13px;font-weight:700}.cab-sub{font-size:8px;color:#4a544f;margin-top:1px}
+  h1{font-size:11.5px;letter-spacing:.06em;text-align:center;margin:0;padding:3px 0;border:1px solid #1E2A28;border-bottom:none;background:#EEF2EC;font-weight:700}
+  .ref{display:flex;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:4px 10px;font-size:9.5px}
+  .campo{display:flex;align-items:baseline;gap:5px;border-bottom:1px dotted #9aa39d;min-height:14px}
+  .campo .rot{font-size:8px;text-transform:uppercase;color:#6a736e;font-weight:600;white-space:nowrap}
+  .campo .val{flex:1;font-weight:600}
+  .inst{border:1px solid #1E2A28;border-bottom:none;padding:3px 10px;font-size:8px;color:#4a544f;line-height:1.35;background:#F7F9F6}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th,td{border:1px solid #1E2A28;padding:0 2px;font-size:9px;height:15px;text-align:center}
+  th{background:#EEF2EC;font-size:7.5px;text-transform:uppercase;font-weight:700;height:14px;letter-spacing:.02em}
+  th.grp{background:#DFE8DC;font-size:8px}
+  th.sub{background:#E8EFE6;font-size:7px}
+  .c-dia{width:20mm;font-weight:700;text-align:left;padding-left:4px}
+  .c-dia .dow{font-weight:400;color:#6a736e;font-size:8px}
+  .c-hora{width:11mm}.c-num{width:10mm}.c-conf{width:9mm}.c-ass{width:17mm}
+  /* fim de semana: farmácia fechada, leitura feita pela enfermagem */
+  tr.fds td{background:#F4F1E8}
+  tr.fds .c-dia{color:#8a6d3b}
+  .desvio{border:1px solid #1E2A28;border-top:none;padding:4px 10px}
+  .desvio .bl{font-size:7.5px;text-transform:uppercase;color:#6a736e;letter-spacing:.03em;margin-bottom:2px;font-weight:700}
+  .desvio .linha{border-bottom:1px solid #b9c1ba;height:14px}
+  .assin{display:flex;justify-content:space-between;align-items:flex-end;margin-top:10px;gap:24px}
+  .assin .sig{text-align:center;font-size:8px;color:#6a736e;min-width:230px}
+  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:2px;color:#1E2A28;font-size:10px}
+  .assin .dt{font-size:9.5px}
+  .rod{margin-top:4px;font-size:7.5px;color:#8a938d;text-align:center}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
   @media print{.btn{display:none}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
-  ${Array.from({ length: nFolhas }, folha).join("")}
+  <section class="folha">
+    ${_enfCabecalho()}
+    <h1>REGISTRO DE TEMPERATURA E UMIDADE — FARMÁCIA</h1>
+    <div class="ref">
+      <div class="campo" style="flex:1"><span class="rot">Mês:</span><span class="val">${_MESES_PT[mes - 1]} de ${ano}</span></div>
+      <div class="campo" style="flex:1.3"><span class="rot">Equipamento:</span><span class="val">Refrigerador exclusivo de medicamentos — farmácia</span></div>
+      <div class="campo" style="flex:1"><span class="rot">Termo-higrômetro nº:</span><span class="val">${_esc(_enfCfg.equip || "")}</span></div>
+    </div>
+    <div class="inst">Aparelho <b>único</b>: sensor interno no refrigerador e leitura de ambiente no próprio mostrador — um registro por leitura, nesta mesma folha.
+      <b>Duas leituras por dia, todos os dias</b>, inclusive sábados e domingos (linhas destacadas), quando a leitura é feita pela enfermagem.
+      Anotar hora, temperatura <b>atual, mínima e máxima</b> do refrigerador e <b>temperatura e umidade</b> do ambiente, e <b>zerar a memória</b> de máx/mín logo após anotar.
+      Em <b>C/NC</b>: C quando tudo dentro da faixa, NC quando qualquer valor sair. Fora da faixa: isolar os medicamentos como EM AVALIAÇÃO, descrever em Ocorrências e acionar o farmacêutico RT (POP-FAR-014). Nenhum item volta ao uso sem liberação do RT.</div>
+    <table><thead>${cab}</thead><tbody>${linhas}</tbody></table>
+    <div class="desvio">
+      <div class="bl">Ocorrências, desvios e condutas (dia, horário, valor, duração, medicamentos afetados, conduta e liberação do RT)</div>
+      ${Array.from({ length: 3 }, () => `<div class="linha"></div>`).join("")}
+    </div>
+    <div class="assin">
+      <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico Responsável Técnico</div>
+      <div class="dt">Data: ____ / ____ / ______</div>
+    </div>
+    <div class="rod">Registro da farmácia — conferir, assinar e arquivar ao fim do mês. POP-FAR-014 · Referência: RDC 430/2020, arts. 77 a 81.</div>
+  </section>
   </body></html>`;
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
