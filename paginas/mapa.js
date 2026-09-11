@@ -93,7 +93,11 @@ function _reprGrupo(g) {
   return { subId: g[0].subId, horarios: g.flatMap((pr) => pr.horarios || []) };
 }
 
-function _linhaMapa(g, periodos, cols) {
+/* O SOS não tem horário e não é administrado todo dia — dentro do mapa ele
+   ocupa uma linha que fica eternamente em branco e confunde quem procura o
+   que administrar. Por padrão sai só na Folha de Preparo na Hora e SOS, onde
+   há campo para hora, motivo e quantidade. */
+function _linhaMapa(g, periodos, cols, comSOS) {
   const cells = {};
   periodos.forEach((per) => (cells[per.key] = []));
   let sos = false;
@@ -114,23 +118,26 @@ function _linhaMapa(g, periodos, cols) {
       if (cells[per]) cells[per].push(uniforme ? rot : `${rot} <b>${fmtDose(q)}${unid}</b>`);
     });
   });
+  const soSOS = sos && periodos.every((per) => !cells[per.key].length);
+  if (soSOS && !comSOS) return "";   // prescrição só de SOS: sai da folha
   const q0 = qtdPorHorario(g[0]);
   const marca = uniforme && q0 !== 1 ? ` (${fmtDose(q0)}${unid}/dose)` : "";
   const doseTxt = doses.size === 1 ? " — " + [...doses][0] : "";
-  const nome = subNomeExibicao(g[0].subId) + doseTxt + marca + (sos ? " (SOS)" : "");
+  const nome = subNomeExibicao(g[0].subId) + doseTxt + marca + (sos && comSOS ? " (SOS)" : "");
   const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
   return `<tr><td class="med">${nome}</td>${tds}</tr>`;
 }
 
 // dISO = dia que está sendo impresso; a prescrição entra se estiver vigente
 // NAQUELE dia (respeita data de início e data limite do tratamento).
-function _tabelaPaciente(p, periodos, blankRows, dISO, agrupar) {
+function _tabelaPaciente(p, periodos, blankRows, dISO, agrupar, comSOS) {
   const cols = periodos.length;
   const pres = prescriptions.filter((pr) => pr.paciente === p.id && prescVigenteEm(pr, dISO));
   const grupos = (agrupar === false) ? pres.map((pr) => [pr]) : _agruparPresc(pres);
   const linhas = grupos
     .sort((a, b) => _cmpMapa(_reprGrupo(a), _reprGrupo(b), cols))
-    .map((g) => _linhaMapa(g, periodos, cols)).join("");
+    .map((g) => _linhaMapa(g, periodos, cols, comSOS))
+    .filter(Boolean).join("");
   const cabPer = periodos.map((per) => `<th>${per.label}</th>`).join("");
   return `
     <div class="pac">
@@ -166,6 +173,7 @@ function imprimirMapa() {
   const blankPacs = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaFichas").value, 10)));
   const pularSemPresc = document.getElementById("mapaSemPresc").value === "pular";
   const agrupar = (document.getElementById("mapaAgrupar") || {}).value !== "separado";
+  const comSOS = (document.getElementById("mapaSOS") || {}).value === "dentro";
 
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
@@ -178,7 +186,7 @@ function imprimirMapa() {
     d.setDate(d.getDate() + i);
     const dISO = d.toISOString().slice(0, 10);
     const pacs = pacsAll.filter((p) => _internadoEm(p, dISO));
-    const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows, dISO, agrupar)).join("");
+    const corpoPacientes = pacs.map((p) => _tabelaPaciente(p, periodos, blankRows, dISO, agrupar, comSOS)).join("");
     const fichas = Array.from({ length: blankPacs }, () => _fichaVazia(periodos, blankRows)).join("");
     paginas.push(`
       <section class="dia">
@@ -248,6 +256,7 @@ function imprimirMapaPaciente() {
   const blankPacs = Math.max(0, Math.min(10, parseInt(document.getElementById("mapaFichas").value, 10)));
   const pularSemPresc = document.getElementById("mapaSemPresc").value === "pular";
   const agrupar = (document.getElementById("mapaAgrupar") || {}).value !== "separado";
+  const comSOS = (document.getElementById("mapaSOS") || {}).value === "dentro";
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
   const dias = _diasSpan(dataIni, nDias);
@@ -267,7 +276,7 @@ function imprimirMapaPaciente() {
       return `
         <div class="dia-bloco">
           <div class="dia-cab"><span class="dia-data">${_fmtDiaLongo(d)}</span> <span class="dia-pac"><b>${p.nome}</b> · Idade: ${_idade(p.dataNascimento) || "____"} · Leito: ${p.leito || "____"}${p.prontuario ? " · Prontuário: " + p.prontuario : ""}</span></div>
-          ${_tabelaPaciente(p, periodos, blankRows, iso, agrupar)}
+          ${_tabelaPaciente(p, periodos, blankRows, iso, agrupar, comSOS)}
         </div>`;
     }).join("");
 
@@ -365,6 +374,12 @@ function renderPage() {
             <select id="mapaSemPresc">
               <option value="incluir">Incluir no mapa</option>
               <option value="pular" selected>Ignorar (não imprimir)</option>
+            </select>
+          </div>
+          <div><label>Medicação SOS</label>
+            <select id="mapaSOS">
+              <option value="fora" selected>Só na folha de preparo e SOS</option>
+              <option value="dentro">Mostrar também no mapa</option>
             </select>
           </div>
           <div><label>Mesmo medicamento em prescrições separadas</label>

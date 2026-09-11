@@ -40,6 +40,11 @@ function _formSubstancia(s) {
           <option value="0"${s.padronizado === false ? " selected" : ""}>Medicação de paciente (não entra em cotação)</option>
         </select></div>
     </div>
+    <div class="ff">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+        <input type="checkbox" id="sPrep"${s && s.preparoNaHora ? " checked" : ""}> <b>Preparo na hora</b> — a enfermagem prepara no momento da administração</label>
+      <div class="dica">Marque para insulina, gotas, xarope, suspensão, pomada e spray. Não entra em kit nem gera etiqueta: sai na Folha de Preparo na Hora, e o frasco é entregue identificado por paciente.</div>
+    </div>
   `;
 }
 
@@ -55,6 +60,7 @@ function abrirFormSubstancia(id) {
       unidade_compra: fvOrNull("sUnidCompra"),
       fator_unidade: fv("sFator") ? fvNum("sFator") : null,
       categoria: fv("sCat") || "NAO CLASSIFICADO", padronizado: fv("sPadr") !== "0",
+      preparo_na_hora: document.getElementById("sPrep").checked,
     };
     if (id) {
       const { error } = await window.SB.from("substancias").update(dados).eq("id", id);

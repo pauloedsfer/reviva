@@ -89,8 +89,9 @@ function _gerarEtiquetas(opts) {
     slots.forEach((slot) => {
       const items = pres.filter((pr) => pr.horarios.includes(slot)).map((pr) => {
         const cust = lotesCustodiaDoPaciente(pr.subId, p.id).reduce((a, l) => a + l.saldo, 0) > 0;
-        return { pr, sub: subById(pr.subId), qtdAdm: qtdPorHorario(pr), qtd: qtdConsumida(pr),
-                 descarte: temDescarte(pr), custodia: cust };
+        const sub = subById(pr.subId);
+        return { pr, sub, qtdAdm: qtdPorHorario(pr), qtd: qtdConsumida(pr),
+                 descarte: temDescarte(pr), custodia: cust, preparo: ehPreparoNaHora(sub) };
       }).sort((a, b) => a.sub.nome.localeCompare(b.sub.nome, "pt-BR"));
       if (items.length) labels.push({ patient: p, slot, items });
     });
@@ -127,9 +128,15 @@ window.printLabels = function (opts) {
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
   const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
   // cada etiqueta carrega o dia a que pertence — o kit é exclusivo daquele dia
+  /* Medicação de preparo na hora não vai em kit — sai da etiqueta para não
+     gastar adesivo com item que a enfermagem vai preparar do frasco. Horário
+     que fica sem nenhum item depois disso não gera etiqueta. */
   const labels = dias.flatMap((dia) =>
-    _gerarEtiquetas({ ...opts, data: dia }).map((l) => ({ ...l, dia })));
-  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nesse período."); return; }
+    _gerarEtiquetas({ ...opts, data: dia })
+      .map((l) => ({ ...l, dia, items: l.items.filter((it) => !it.preparo) }))
+      .filter((l) => l.items.length));
+  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nesse período (medicação de preparo na hora não gera etiqueta)."); return; }
+  const cols = opts.colunas === 3 ? 3 : 2;
   const cards = labels.map((l) => `
     <div class="cell">
     <div class="lbl">
@@ -151,12 +158,12 @@ window.printLabels = function (opts) {
          align-items:stretch iguala a altura das duas células da mesma linha,
          então a pontilhada horizontal atravessa a folha sem degrau. O espaço
          entre etiquetas continua sendo 5mm (2,5mm de padding de cada lado). */
-      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0;align-items:stretch}
+      .grid{display:grid;grid-template-columns:repeat(${cols},1fr);gap:0;align-items:stretch}
       .cell{position:relative;display:flex;padding:2.5mm;border-right:1px dashed #9aa39a;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
-      .cell:nth-child(2n){border-right:none}
+      .cell:nth-child(${cols}n){border-right:none}
       /* tesourinha só na coluna da esquerda, marcando o início da linha de corte */
-      .cell:nth-child(2n+1)::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
-      .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:8px 10px;min-height:40mm;display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid}
+      .cell:nth-child(${cols}n+1)::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
+      .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:${cols === 3 ? "6px 7px" : "8px 10px"};min-height:${cols === 3 ? "34mm" : "40mm"};display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid;font-size:${cols === 3 ? "9.5px" : "11px"}}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
       .lbl-p{font-weight:700;font-size:13px;margin-top:5px}.lbl-b{font-size:11px;color:#333}
       .lbl-t{display:inline-block;align-self:flex-start;background:#1E2A28;color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin:5px 0;font-weight:600}
@@ -377,8 +384,14 @@ function renderPage() {
     (x.ref.indexOf("Dose ") === 0 || x.ref.indexOf("SOS") === 0));
   const returnsData = returns.filter((r) => r.data === d);
 
-  const bannerRetro = ehHoje ? "" :
-    `<div class="note-box" style="border-color:#E0C9A6;background:#FBF3E4"><b>Dispensação retroativa — ${fmtDate(d)}.</b> Você está dando baixa em um dia passado, a partir do Mapa de Medicação preenchido. As saídas serão gravadas com esta data.</div>`;
+  /* Data futura não é erro: na sexta a farmácia entrega os kits de sábado,
+     domingo e segunda de manhã, e a baixa tem de sair junto com o kit — a
+     medicação deixa o estoque da farmácia naquele momento. Chamar isso de
+     "retroativa" confundia quem estava fazendo exatamente o certo. */
+  const bannerRetro = ehHoje ? ""
+    : d < HOJE
+    ? `<div class="note-box" style="border-color:#E0C9A6;background:#FBF3E4"><b>Dispensação retroativa — ${fmtDate(d)}.</b> Você está dando baixa em um dia passado, a partir do Mapa de Medicação preenchido. As saídas serão gravadas com esta data.</div>`
+    : `<div class="note-box" style="border-color:#A9C6BF;background:#EAF2EF"><b>Dispensação antecipada — ${fmtDate(d)}.</b> Baixa dos kits que saem hoje da farmácia para serem administrados nessa data. As saídas serão gravadas com a data da administração; o que não for usado volta pela tela de devolução.</div>`;
 
   // ---- filtros por horário / período ----
   const horTodos = _horariosPendentes(pendentes);
@@ -459,7 +472,7 @@ function renderPage() {
     </table>
     <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:12px">
       <div style="font-size:12.5px;color:var(--muted)">${visiveis.length} dose(s) na seleção atual${_dispFiltro.length ? ` · <a href="#" onclick="_dispSetFiltro([]);return false" style="color:var(--primary-dark)">ver todas</a>` : ""}</div>
-      <button class="btn" id="btnDispensar" onclick="confirmarDispensacao()">Confirmar dispensação${ehHoje ? "" : " (retroativa)"}</button>
+      <button class="btn" id="btnDispensar" onclick="confirmarDispensacao()">Confirmar dispensação${ehHoje ? "" : (d < HOJE ? " (retroativa)" : " (antecipada)")}</button>
     </div>`
     : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma dose no filtro selecionado. <a href="#" onclick="_dispSetFiltro([]);return false" style="color:var(--primary-dark)">Ver todas</a>.</div>`}
   ` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nada pendente nesta data — todas as doses já foram dispensadas (ou não há prescrições ativas em ${fmtDate(d)}).</div>`;
@@ -607,27 +620,175 @@ function abrirSeparacao() {
       <div style="padding:4px 0">${chips || '<span style="color:var(--muted);font-size:12.5px">Nenhum horário com prescrição nesta data.</span>'}</div>
       <label style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px">
         <input type="checkbox" id="sepSOS"> Incluir SOS <span style="color:var(--muted)">(normalmente não entra no kit)</span></label></div>
-    <div class="ff"><label>O que imprimir</label>
-      <select id="sepTipo">
-        <option value="check">Checklist de separação (folha por paciente)</option>
-        <option value="etiq">Etiquetas dos kits (uma por horário)</option>
-        <option value="ambos">Os dois</option>
-      </select></div>
+    <div class="ff row2">
+      <div><label>O que imprimir</label>
+        <select id="sepTipo">
+          <option value="check">Checklist de separação (folha por paciente)</option>
+          <option value="etiq">Etiquetas dos kits (uma por horário)</option>
+          <option value="ambos">Checklist + etiquetas</option>
+          <option value="prep">Folha de preparo na hora e SOS (uma por dia)</option>
+          <option value="tudo">Tudo — checklist, etiquetas e folha de preparo</option>
+        </select></div>
+      <div><label>Colunas das etiquetas</label>
+        <select id="sepCols">
+          <option value="2">2 colunas — etiqueta maior</option>
+          <option value="3" selected>3 colunas — aproveita melhor a folha</option>
+        </select></div>
+    </div>
+    <div class="note-box" style="margin:0">Insulina, gotas, xarope e pomada <b>não geram etiqueta</b>: aparecem no checklist marcadas como preparo na hora e saem na folha própria, com espaço para a enfermagem registrar glicemia, quantidade e rubrica. O SOS sai só nessa folha.</div>
   `, async () => {
     const pac = fv("sepPac");
     const horarios = Array.from(document.querySelectorAll(".sep-hor:checked")).map((c) => c.value);
     const incluirSOS = document.getElementById("sepSOS").checked;
-    if (!horarios.length && !incluirSOS) throw new Error("Selecione ao menos um horário.");
+    if (!horarios.length && !incluirSOS && fv("sepTipo") !== "prep") throw new Error("Selecione ao menos um horário.");
     const tipo = fv("sepTipo");
     const ini = fv("sepIni") || _sepAmanha();
     const nd = Math.max(1, Math.min(14, parseInt(fv("sepDias"), 10) || 1));
     const dias = Array.from({ length: nd }, (_, i) => _fsAddDiasLocal(ini, i));
-    const opts = { pac: pac || null, horarios, incluirSOS, dias };
+    const colunas = parseInt(fv("sepCols"), 10) === 2 ? 2 : 3;
+    const opts = { pac: pac || null, horarios, incluirSOS, dias, colunas };
     setTimeout(() => {
-      if (tipo === "check" || tipo === "ambos") imprimirChecklistSeparacao(opts);
-      if (tipo === "etiq" || tipo === "ambos") setTimeout(() => window.printLabels(opts), 400);
+      if (tipo === "check" || tipo === "ambos" || tipo === "tudo") imprimirChecklistSeparacao(opts);
+      if (tipo === "etiq" || tipo === "ambos" || tipo === "tudo") setTimeout(() => window.printLabels(opts), 400);
+      if (tipo === "prep" || tipo === "tudo") setTimeout(() => imprimirFolhaPreparo(opts), 800);
     }, 60);
   }, "Gerar");
+}
+
+/* ---- FOLHA DE PREPARO NA HORA E SOS ----
+   O que a farmácia não consegue entregar pronto em kit: insulina, gotas,
+   xarope, pomada — e o que não tem horário, o SOS. São os dois casos em que a
+   enfermagem prepara a dose sozinha, e por isso são os dois que precisam de
+   registro próprio, com o que foi realmente preparado e administrado.
+   Uma folha por dia, para ficar no posto junto do mapa. */
+function imprimirFolhaPreparo(opts) {
+  opts = opts || {};
+  const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
+  const est = window.ESTAB || {};
+  const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
+
+  const dados = dias.map((dia) => {
+    const alvos = patients.filter((p) => _pacienteInternadoNaData(p, dia))
+      .filter((p) => !opts.pac || p.id === opts.pac);
+    const pres = _prescricoesNaData(dia);
+    const fixos = [], sos = [];
+    alvos.forEach((p) => {
+      pres.filter((pr) => pr.paciente === p.id).forEach((pr) => {
+        const sub = subById(pr.subId);
+        (pr.horarios || []).forEach((h) => {
+          if (_ehSOSHor(h)) { sos.push({ p, pr, sub }); return; }
+          if (ehPreparoNaHora(sub)) fixos.push({ p, pr, sub, hor: h });
+        });
+      });
+    });
+    fixos.sort((a, b) => (_horValor(a.hor) - _horValor(b.hor))
+      || (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true })
+      || a.p.nome.localeCompare(b.p.nome, "pt-BR"));
+    sos.sort((a, b) => a.p.nome.localeCompare(b.p.nome, "pt-BR") || a.sub.nome.localeCompare(b.sub.nome, "pt-BR"));
+    return { dia, fixos, sos };
+  }).filter((x) => x.fixos.length || x.sos.length);
+
+  if (!dados.length) { alert("Nenhuma medicação de preparo na hora ou SOS prescrita nesse período."); return; }
+
+  const linhaFixo = (f) => `<tr>
+    <td class="c-hor mono"><b>${_esc(f.hor)}</b></td>
+    <td class="c-pac">${_esc(f.p.nome)}${f.p.leito ? `<span class="leito"> · leito ${_esc(f.p.leito)}</span>` : ""}</td>
+    <td>${_esc(subNomeExibicao(f.sub))}</td>
+    <td class="c-dose mono">${_esc(f.pr.dose || fmtDose(qtdPorHorario(f.pr)))}</td>
+    <td class="c-via">${_esc(f.pr.via || "—")}</td>
+    <td class="c-br"></td><td class="c-br"></td><td class="c-ass"></td></tr>`;
+
+  // SOS: duas linhas em branco por prescrição — pode ser usado mais de uma vez
+  const linhaSos = (x) => `<tr>
+    <td class="c-pac">${_esc(x.p.nome)}${x.p.leito ? `<span class="leito"> · leito ${_esc(x.p.leito)}</span>` : ""}</td>
+    <td>${_esc(subNomeExibicao(x.sub))}</td>
+    <td class="c-dose mono">${_esc(x.pr.dose || fmtDose(qtdPorHorario(x.pr)))}</td>
+    <td class="c-via">${_esc(x.pr.via || "—")}</td>
+    <td class="c-br"></td><td class="c-motivo"></td><td class="c-br"></td><td class="c-ass"></td></tr>
+    <tr><td class="c-pac vazio"></td><td class="vazio"></td><td class="c-dose vazio"></td><td class="c-via vazio"></td>
+    <td class="c-br"></td><td class="c-motivo"></td><td class="c-br"></td><td class="c-ass"></td></tr>`;
+
+  const folha = (g) => `
+    <section class="folha">
+      <div class="cab">
+        <div class="cab-txt"><div class="cab-nome">${_esc(hosp)}</div>
+          <div class="cab-sub">${est.cnpj ? "CNPJ " + _esc(est.cnpj) : ""}</div></div>
+      </div>
+      <h1>PREPARO NA HORA E MEDICAÇÃO SOS</h1>
+      <div class="ref">
+        <div class="campo"><span class="rot">Data:</span><span class="val">${fmtDate(g.dia)} · ${_diaSemana(g.dia)}</span></div>
+        <div class="campo"><span class="rot">Plantão:</span><span class="val"></span></div>
+        <div class="campo"><span class="rot">Responsável pelo plantão:</span><span class="val"></span></div>
+      </div>
+      <div class="inst">Estas medicações <b>não vêm em kit</b> — são preparadas pela enfermagem no momento da administração, a partir do frasco identificado do paciente.
+        A administração continua sendo rubricada no <b>Mapa de Medicação</b>; esta folha registra o que foi efetivamente preparado.
+        <b>SOS</b> é administrado apenas quando necessário e registrado somente aqui: anotar data, hora, motivo e quantidade.</div>
+
+      <div class="sec">Medicação de preparo na hora — horários fixos</div>
+      ${g.fixos.length ? `<table><thead><tr>
+        <th class="c-hor">Horário</th><th class="c-pac">Paciente</th><th>Medicamento</th>
+        <th class="c-dose">Dose prescrita</th><th class="c-via">Via</th>
+        <th class="c-br">Glicemia<br>(mg/dL)</th><th class="c-br">Qtd. administrada</th><th class="c-ass">Rubrica</th>
+      </tr></thead><tbody>${g.fixos.map(linhaFixo).join("")}</tbody></table>`
+      : `<div class="vazio-msg">Nenhuma medicação de preparo na hora prescrita para este dia.</div>`}
+
+      <div class="sec">Medicação SOS — administrar se necessário</div>
+      ${g.sos.length ? `<table><thead><tr>
+        <th class="c-pac">Paciente</th><th>Medicamento</th><th class="c-dose">Dose</th><th class="c-via">Via</th>
+        <th class="c-br">Hora</th><th class="c-motivo">Motivo / queixa</th><th class="c-br">Qtd.</th><th class="c-ass">Rubrica</th>
+      </tr></thead><tbody>${g.sos.map(linhaSos).join("")}</tbody></table>`
+      : `<div class="vazio-msg">Nenhuma medicação SOS prescrita para este dia.</div>`}
+
+      <div class="oc"><div class="bl">Ocorrências, recusas e comunicações à farmácia</div>
+        ${Array.from({ length: 3 }, () => `<div class="linha"></div>`).join("")}</div>
+      <div class="assin">
+        <div class="sig"><div class="l"></div>Enfermagem — plantão</div>
+        <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico RT</div>
+      </div>
+      <div class="rod">Folha do dia — devolver à farmácia preenchida. POP-FAR-SEP-01 · A medicação SOS é escriturada pela farmácia a partir deste registro.</div>
+    </section>`;
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Preparo na hora e SOS — ${fmtDate(dados[0].dia)}</title>
+  <style>
+  @page{size:A4 portrait;margin:9mm}
+  *{box-sizing:border-box}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:10.5px;margin:0}
+  .folha{page-break-after:always}.folha:last-child{page-break-after:auto}
+  .cab{border:1px solid #1E2A28;border-bottom:none;padding:5px 10px;text-align:center}
+  .cab-nome{font-size:13px;font-weight:700}.cab-sub{font-size:8.5px;color:#4a544f}
+  h1{font-size:12px;letter-spacing:.06em;text-align:center;margin:0;padding:3px 0;border:1px solid #1E2A28;border-bottom:none;background:#EEF2EC;font-weight:700}
+  .ref{display:flex;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:5px 10px}
+  .campo{display:flex;align-items:baseline;gap:5px;border-bottom:1px dotted #9aa39d;min-height:15px;flex:1}
+  .campo .rot{font-size:8.5px;text-transform:uppercase;color:#6a736e;font-weight:600;white-space:nowrap}
+  .campo .val{flex:1;font-weight:600}
+  .inst{border:1px solid #1E2A28;padding:4px 10px;font-size:8.5px;color:#4a544f;line-height:1.4;background:#F7F9F6}
+  .sec{margin-top:9px;background:#2C5F5A;color:#fff;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 10px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #1E2A28;padding:1px 4px;font-size:9.5px;height:19px;text-align:left}
+  th{background:#EEF2EC;font-size:7.5px;text-transform:uppercase;font-weight:700;text-align:center;line-height:1.2}
+  .mono{font-variant-numeric:tabular-nums}
+  .c-hor{width:11%;text-align:center}.c-pac{width:24%}.c-dose{width:12%;text-align:center}
+  .c-via{width:7%;text-align:center}.c-br{width:10%;background:#FCFDFB}.c-motivo{width:16%;background:#FCFDFB}
+  .c-ass{width:13%;background:#FCFDFB}
+  .leito{color:#6a736e;font-size:8.5px}
+  td.vazio{border-top:none;color:#b9c1ba}
+  .vazio-msg{border:1px solid #1E2A28;border-top:none;padding:6px 10px;font-size:9px;color:#8a938d;font-style:italic}
+  .oc{border:1px solid #1E2A28;border-top:none;padding:5px 10px;margin-top:9px}
+  .oc .bl{font-size:8px;text-transform:uppercase;color:#6a736e;font-weight:700;margin-bottom:3px}
+  .oc .linha{border-bottom:1px solid #b9c1ba;height:16px}
+  .assin{display:flex;justify-content:space-between;gap:24px;margin-top:16px}
+  .assin .sig{text-align:center;font-size:8.5px;color:#6a736e;flex:1}
+  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:3px;color:#1E2A28;font-size:10.5px;min-height:14px}
+  .rod{margin-top:6px;font-size:8px;color:#8a938d;text-align:center}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
+  @media print{.btn{display:none}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  ${dados.map(folha).join("")}
+  </body></html>`;
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }
 
 function imprimirChecklistSeparacao(opts) {
@@ -656,7 +817,7 @@ function imprimirChecklistSeparacao(opts) {
           return `<tr>
           <td class="ck"></td>
           <td class="qt mono"><b>${fmtDose(it.qtdAdm)}</b>${it.descarte ? `<div class="sep">separar ${fmtDose(it.qtd)}</div>` : ""}</td>
-          <td>${_esc(subNomeExibicao(it.sub))}${it.custodia ? ' <span class="cust">★ custódia</span>' : ""}</td>
+          <td>${_esc(subNomeExibicao(it.sub))}${it.custodia ? ' <span class="cust">★ custódia</span>' : ""}${it.preparo ? ' <span class="prep">preparo na hora — entregar o frasco, não vai em kit</span>' : ""}</td>
           <td class="lt">${sug
             ? `<span class="mono">${_esc(sug.lote)}</span>${sug.validade ? `<div class="lv">val. ${fmtDate(sug.validade)}</div>` : ""}`
             : `<span class="semlote">sem saldo</span>`}</td></tr>`;
@@ -702,6 +863,7 @@ function imprimirChecklistSeparacao(opts) {
   .rod{margin-top:8px;font-size:8.5px;color:#6a736e;border-top:1px solid #e2e7e1;padding-top:5px}
   .lt .lv{font-size:8px;color:#6a736e}
   .lt .semlote{font-size:9px;color:#B04A3F;font-style:italic}
+  .prep{display:inline-block;background:#EAF2EF;color:#2C5F5A;border:1px solid #A9C6BF;border-radius:3px;padding:0 3px;font-size:7.5px;text-transform:uppercase;vertical-align:middle}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
   @media print{.btn{display:none}}
   </style></head><body>

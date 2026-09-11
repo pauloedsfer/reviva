@@ -104,7 +104,8 @@ async function carregarDados() {
     fatorUnidade: s.fator_unidade == null ? null : Number(s.fator_unidade), id: s.id, nome: s.nome, lista: s.lista, unidade: s.unidade,
     principio_ativo: s.principio_ativo, concentracao: s.concentracao, forma: s.forma,
     categoria: s.categoria || "NAO CLASSIFICADO", padronizado: s.padronizado !== false,
-    tipo: s.tipo === "material" ? "material" : "medicamento" }));
+    tipo: s.tipo === "material" ? "material" : "medicamento",
+    preparoNaHora: s.preparo_na_hora === true }));
   prescritores = prescs.map((p) => ({ id: p.id, nome: p.nome, conselho: p.conselho, uf: p.uf, numero: p.numero, externo: !!p.externo }));
   fornecedores = forns.map((f) => ({ id: f.id, nome: f.nome, cnpj: f.cnpj, tipo: f.tipo,
     situacao: f.situacao || "ativo",
@@ -842,6 +843,10 @@ function categoriasAlfabeticas() {
 function ehMaterial(s) { const x = typeof s === "object" ? s : subById(s); return !!(x && x.tipo === "material"); }
 function subsMedicamentos() { return substances.filter((s) => !ehMaterial(s)); }
 function subsMateriais() { return substances.filter((s) => ehMaterial(s)); }
+/* Medicação que a enfermagem prepara na hora da administração — insulina,
+   gotas, xarope, pomada. Não pode ser fracionada com antecedência, então não
+   entra em kit nem gera etiqueta; sai na Folha de Preparo na Hora. */
+function ehPreparoNaHora(s) { const x = typeof s === "object" ? s : subById(s); return !!(x && x.preparoNaHora); }
 function subsPadronizadas() { return substances.filter((s) => s.padronizado); }
 function subsDePaciente() { return substances.filter((s) => !s.padronizado); }
 
