@@ -73,7 +73,10 @@ function abrirAltaPaciente(id) {
       <div class="note-box" style="margin-top:10px">Estas medicações ficarão <b>aguardando retirada</b>. Depois da alta, na tela <b>Medicação do Paciente</b>, você decide item a item: <b>devolver à família</b> (com Termo de Devolução) ou <b>integrar ao estoque</b>.</div>`
     : `<div class="note-box">Este paciente não tem medicação em custódia com saldo.</div>`;
   const corpo = `
-    <div class="ff"><label>Data da alta *</label><input id="altaData" type="date" value="${new Date().toISOString().slice(0,10)}" max="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="ff row2">
+      <div><label>Data da alta *</label><input id="altaData" type="date" value="${new Date().toISOString().slice(0,10)}" max="${new Date().toISOString().slice(0,10)}"></div>
+      <div><label>Motivo <span style="font-weight:400;color:var(--muted)">— opcional</span></label><input id="altaMotivo" type="text" placeholder="alta a pedido, alta médica, evasão…"></div>
+    </div>
     <div class="item-head">O que acontece na alta</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
       • ${presAtivas} prescrição(ões) serão encerradas (deixam de aparecer no mapa e na dispensação após a data da alta).<br>
@@ -89,9 +92,89 @@ function abrirAltaPaciente(id) {
     if (p.admissao && data < p.admissao) throw new Error("A alta não pode ser anterior à admissão.");
     const { error: e1 } = await window.SB.from("pacientes").update({ ativo: false, data_alta: data }).eq("id", id);
     if (e1) throw e1;
-    const { error: e2 } = await window.SB.from("prescricoes").update({ ativo: false }).eq("paciente_id", id);
+    /* Só as prescrições ATIVAS neste momento são marcadas como encerradas pela
+       alta. As que o prescritor já tinha suspendido continuam suspensas e não
+       voltam numa eventual reversão. */
+    const { error: e2 } = await window.SB.from("prescricoes")
+      .update({ ativo: false, encerrada_por_alta: true })
+      .eq("paciente_id", id).eq("ativo", true);
     if (e2) throw e2;
+    await window.SB.from("paciente_eventos").insert({ paciente_id: id, data, tipo: "alta", motivo: fvOrNull("altaMotivo") });
   }, "Confirmar alta");
+}
+
+/* ---------------- REVERSÃO DA ALTA ----------------
+   Paciente que voltou. A admissão original é preservada — é ela que sustenta
+   os mapas, as dispensações e o balanço do período anterior. O que muda é a
+   data da alta (limpa), a situação do paciente e as prescrições escolhidas.
+   A interrupção fica registrada em paciente_eventos. */
+function abrirReverterAlta(id) {
+  const p = patients.find((x) => x.id === id); if (!p) return;
+  const pres = prescriptions.filter((pr) => pr.paciente === id);
+  const daAlta = pres.filter((pr) => pr.encerradaPorAlta);
+  const antes = pres.filter((pr) => !pr.ativo && !pr.encerradaPorAlta);
+  const jaAtivas = pres.filter((pr) => pr.ativo);
+
+  // custódia que já teve destino não volta: saiu com a família ou virou estoque
+  const itensDoPac = new Set(patientMeds.filter((pm) => pm.paciente === id)
+    .flatMap((pm) => pm.itens.map((it) => it.id)));
+  const dest = custodiaDestinos.filter((d) => itensDoPac.has(d.itemId));
+  const cust = _custodiaDoPaciente(id);
+
+  const linha = (pr, marcado) => {
+    const sub = subById(pr.subId);
+    return `<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px">
+      <input type="checkbox" class="rev-pr" value="${pr.id}"${marcado ? " checked" : ""} style="margin-top:3px">
+      <span><b>${_esc(sub ? sub.nome : "—")}</b>${pr.dose ? " — " + _esc(pr.dose) : ""}
+      <span style="color:var(--muted)">· ${(pr.horarios || []).join(", ") || "sem horário"}</span></span></label>`;
+  };
+
+  const corpo = `
+    <div class="ff row2">
+      <div><label>Data do retorno *</label><input id="revData" type="date" value="${HOJE}" max="${HOJE}"></div>
+      <div><label>Leito</label><input id="revLeito" type="text" value="${_esc(p.leito || "")}" placeholder="leito atual"></div>
+    </div>
+    <div class="ff"><label>Motivo do retorno <span style="font-weight:400;color:var(--muted)">— fica no histórico</span></label>
+      <input id="revMotivo" type="text" placeholder="reinternação, alta lançada por engano, recaída…"></div>
+
+    <div class="item-head">Prescrições a reativar</div>
+    ${daAlta.length ? `<div style="font-size:12.5px;color:var(--muted);margin-bottom:4px">Encerradas pela alta — vêm marcadas:</div>
+      ${daAlta.map((pr) => linha(pr, true)).join("")}` : ""}
+    ${antes.length ? `<div style="font-size:12.5px;color:var(--muted);margin:10px 0 4px">Já estavam suspensas <b>antes</b> da alta — desmarcadas de propósito:</div>
+      ${antes.map((pr) => linha(pr, false)).join("")}` : ""}
+    ${!daAlta.length && !antes.length ? `<div class="note-box">Este paciente não tem prescrições a reativar.${jaAtivas.length ? ` ${jaAtivas.length} continua(m) ativa(s).` : ""}</div>` : ""}
+    <div class="note-box" style="margin-top:10px">Confira com o prescritor antes de reativar: depois de uma alta, a prescrição costuma ser revista. O que ficar desmarcado continua suspenso e pode ser reativado depois na tela de Prescrições.</div>
+
+    <div class="item-head">O que a reversão NÃO desfaz</div>
+    <div style="font-size:13px;color:var(--muted)">
+      • <b>Custódia já devolvida à família ou integrada ao estoque</b> não volta — a medicação saiu fisicamente ou já virou patrimônio da clínica. ${dest.length ? `Há <b>${dest.length}</b> destino(s) de custódia lançado(s) para este paciente.` : "Não há destino de custódia lançado."}${cust.length ? ` Saldo ainda sob guarda: <b>${cust.length}</b> item(ns).` : ""}<br>
+      • <b>Dispensações e devoluções</b> do período anterior ficam como estão — são movimentação real de estoque.<br>
+      • A <b>data de admissão</b> original é mantida (${p.admissao ? fmtDate(p.admissao) : "—"}). A alta e o retorno ficam registrados na ficha, para a internação não parecer contínua.
+    </div>`;
+
+  abrirModal(`Reverter alta — ${p.nome}`, corpo, async () => {
+    const data = fv("revData");
+    if (!data) throw new Error("Informe a data do retorno.");
+    if (p.dataAlta && data < p.dataAlta) throw new Error("O retorno não pode ser anterior à alta.");
+    const ids = Array.from(document.querySelectorAll(".rev-pr:checked")).map((c) => c.value);
+
+    const { error: e1 } = await window.SB.from("pacientes")
+      .update({ ativo: true, data_alta: null, leito: fvOrNull("revLeito") }).eq("id", id);
+    if (e1) throw e1;
+    if (ids.length) {
+      const { error: e2 } = await window.SB.from("prescricoes")
+        .update({ ativo: true, encerrada_por_alta: false }).in("id", ids);
+      if (e2) throw e2;
+    }
+    // as não reativadas deixam de ser "encerradas pela alta": viram suspensas
+    const naoVolta = daAlta.filter((pr) => ids.indexOf(pr.id) === -1).map((pr) => pr.id);
+    if (naoVolta.length) {
+      await window.SB.from("prescricoes").update({ encerrada_por_alta: false }).in("id", naoVolta);
+    }
+    const { error: e3 } = await window.SB.from("paciente_eventos")
+      .insert({ paciente_id: id, data, tipo: "retorno", motivo: fvOrNull("revMotivo") });
+    if (e3) throw e3;
+  }, "Confirmar retorno");
 }
 
 /* ---------------- EXTRATO DE ALTA ---------------- */
@@ -169,7 +252,16 @@ function imprimirExtratoAlta(pacId, comValores) {
     <div class="d"><span class="dl">Alta:</span><span class="dv">${p.dataAlta ? fmtDate(p.dataAlta) : "—"}</span></div>
     <div class="d"><span class="dl">Período:</span><span class="dv">${diasInternado(p)} dia(s)</span></div>
     <div class="d"><span class="dl">Leito:</span><span class="dv">${p.leito || "—"}</span></div>
-  </div></div>
+  </div>
+  ${(() => {
+    /* Internação interrompida: o extrato precisa dizer que houve alta e
+       retorno, senão o período aparece como contínuo. */
+    const evs = typeof eventosDoPaciente === "function" ? eventosDoPaciente(p.id) : [];
+    if (evs.length < 2) return "";
+    return `<div style="margin-top:6px;font-size:9.5px;color:#4a544f">
+      <b>Internação com interrupção:</b> ${evs.map((e) => `${e.tipo === "alta" ? "alta" : "retorno"} em ${fmtDate(e.data)}${e.motivo ? " (" + e.motivo + ")" : ""}`).join(" · ")}</div>`;
+  })()}
+  </div>
 
   <div class="bloco"><h2>Medicamentos administrados (doses dispensadas)</h2>
     <table><thead><tr><th>Medicamento</th><th class="c">Doses</th><th class="c">Da custódia própria</th>${comValores ? '<th class="r">Custo (estoque hospital)</th>' : ""}</tr></thead>
@@ -246,14 +338,16 @@ function _tabArquivo() {
                 <td class="mono">${p.dataAlta ? fmtDate(p.dataAlta) : "—"}</td>
                 <td class="num mono">${diasInternado(p)} dia(s)</td>
                 <td>${pend ? `<span class="pill warn">● ${pend} item(ns) aguardando retirada</span>` : '<span class="pill">● resolvida</span>'}</td>
-                <td style="text-align:right"><button class="btn ghost sm" onclick="abrirExtratoAlta('${p.id}')">🖶 Extrato de Alta</button></td>
+                <td style="text-align:right;white-space:nowrap">
+                  <button class="btn ghost sm" onclick="abrirReverterAlta('${p.id}')" title="Paciente voltou, ou a alta foi lançada por engano">↩ Reverter alta</button>
+                  <button class="btn ghost sm" onclick="abrirExtratoAlta('${p.id}')">🖶 Extrato de Alta</button></td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhum paciente arquivado ainda.</div>`}
       </div>
     </div>
-    <div class="note-box">Nada é apagado: dispensações, custódia e prescrições ficam no histórico. O <b>Extrato de Alta</b> pode ser reimpresso a qualquer momento, em versão <b>com valores</b> (diretoria) ou <b>sem valores</b> (família).</div>`;
+    <div class="note-box">Nada é apagado: dispensações, custódia e prescrições ficam no histórico. O <b>Extrato de Alta</b> pode ser reimpresso a qualquer momento, em versão <b>com valores</b> (diretoria) ou <b>sem valores</b> (família). <b>Reverter alta</b> traz o paciente de volta com as prescrições que você escolher — a admissão original é mantida e a interrupção fica registrada.</div>`;
 }
 
 function renderPage() {

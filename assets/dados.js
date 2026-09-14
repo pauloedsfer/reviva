@@ -38,6 +38,7 @@ let fornecedores = [];
 let pops = [];
 let cotacoes = [];
 let custodiaDestinos = [];
+let pacienteEventos = [];
 let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
 let movements = [];
 
@@ -126,6 +127,7 @@ async function carregarDados() {
     horarios: Array.isArray(x.horarios) ? x.horarios : (x.horarios || []),
     qtdPorHorario: x.qtd_por_horario != null ? Number(x.qtd_por_horario) : 1,
     prescritorId: x.prescritor_id, dataInicio: x.data_inicio, dataFim: x.data_fim, ativo: x.ativo,
+    encerradaPorAlta: x.encerrada_por_alta === true,
   }));
 
   invoices = invs.map((nf) => ({
@@ -207,6 +209,14 @@ async function carregarDados() {
     }));
   } catch (e) { ajustes = []; }
 
+
+  // Eventos de internação — alta e retorno (migration_reversao_alta.sql).
+  try {
+    const evs = await _buscarTudo("paciente_eventos");
+    pacienteEventos = (evs || []).map((e) => ({
+      id: e.id, paciente: e.paciente_id, data: e.data, tipo: e.tipo, motivo: e.motivo || "",
+    })).sort((a, b) => (a.data < b.data ? -1 : 1));
+  } catch (e) { pacienteEventos = []; }
 
   // Destinos de custódia (migration_alta.sql). Carga tolerante.
   try {
@@ -295,6 +305,17 @@ const prescById = (id) => prescritores.find((p) => p.id === id) || null;
    tratamentos com duração definida (antimicrobianos, corticoides em
    esquema curto): terminado o prazo, a prescrição sai do mapa e da
    dispensação sozinha, sem depender de alguém lembrar de suspender. */
+/* Alta e retorno do paciente, em ordem. A ficha guarda um só par
+   admissão/alta; estes eventos é que contam a história real de quem saiu e
+   voltou. A admissão original nunca é alterada — é ela que mantém válidos os
+   mapas e as dispensações do período anterior. */
+function eventosDoPaciente(pacId) {
+  return pacienteEventos.filter((e) => e.paciente === pacId);
+}
+function teveRetorno(pacId) {
+  return eventosDoPaciente(pacId).some((e) => e.tipo === "retorno");
+}
+
 function prescVigenteEm(pr, d) {
   if (!pr || pr.ativo === false) return false;
   const dia = d || HOJE;
