@@ -627,7 +627,8 @@ function abrirSeparacao() {
           <option value="etiq">Etiquetas dos kits (uma por horário)</option>
           <option value="ambos">Checklist + etiquetas</option>
           <option value="prep">Folha de preparo na hora e SOS (uma por dia)</option>
-          <option value="tudo">Tudo — checklist, etiquetas e folha de preparo</option>
+          <option value="sacos">Etiquetas dos sacos (dia e período)</option>
+          <option value="tudo">Tudo — checklist, etiquetas, sacos e folha de preparo</option>
         </select></div>
       <div><label>Colunas das etiquetas</label>
         <select id="sepCols">
@@ -650,9 +651,131 @@ function abrirSeparacao() {
     setTimeout(() => {
       if (tipo === "check" || tipo === "ambos" || tipo === "tudo") imprimirChecklistSeparacao(opts);
       if (tipo === "etiq" || tipo === "ambos" || tipo === "tudo") setTimeout(() => window.printLabels(opts), 400);
-      if (tipo === "prep" || tipo === "tudo") setTimeout(() => imprimirFolhaPreparo(opts), 800);
+      if (tipo === "sacos" || tipo === "tudo") setTimeout(() => imprimirEtiquetasSacos(opts), 800);
+      if (tipo === "prep" || tipo === "tudo") setTimeout(() => imprimirFolhaPreparo(opts), 1200);
     }, 60);
   }, "Gerar");
+}
+
+/* ---- ETIQUETAS DOS SACOS (período e dia) ----
+   Os kits individuais vão em três sacos por período, e os três num saco do
+   dia. Estas são as etiquetas desses sacos — as que hoje são feitas no Word.
+   Além do texto que ele já usava, a etiqueta traz o que o sistema sabe e o
+   Word não: quais horários estão dentro, quantos kits, e a lista de pacientes
+   por leito. Isso transforma a etiqueta em conferência de recebimento: a
+   enfermagem confere a contagem antes de abrir. */
+const _PERIODOS_SACO = [
+  { key: "manha", nome: "MANHÃ" },
+  { key: "tarde", nome: "TARDE" },
+  { key: "noite", nome: "NOITE" },
+];
+function _periodoDoHorario(hor) {
+  if (/JEJUM/i.test(String(hor))) return "manha";   // jejum é o primeiro da manhã
+  const m = String(hor).match(/\d{1,2}/);
+  if (!m) return null;
+  const h = parseInt(m[0], 10);
+  if (h >= 5 && h < 12) return "manha";
+  if (h >= 12 && h < 18) return "tarde";
+  return "noite";
+}
+
+function imprimirEtiquetasSacos(opts) {
+  opts = opts || {};
+  const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
+  const est = window.ESTAB || {};
+  const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
+
+  const porDia = dias.map((dia) => {
+    // mesma fonte das etiquetas dos kits: sem SOS e sem preparo na hora
+    const labels = _gerarEtiquetas({ ...opts, data: dia })
+      .map((l) => ({ ...l, items: l.items.filter((it) => !it.preparo) }))
+      .filter((l) => l.items.length && !_ehSOSHor(l.slot));
+    const grupos = _PERIODOS_SACO.map((per) => {
+      const ls = labels.filter((l) => _periodoDoHorario(l.slot) === per.key);
+      const horarios = [...new Set(ls.map((l) => l.slot))].sort((a, b) => _horValor(a) - _horValor(b));
+      const pacs = [];
+      ls.forEach((l) => { if (!pacs.some((x) => x.id === l.patient.id)) pacs.push(l.patient); });
+      pacs.sort((a, b) => (a.leito || "").localeCompare(b.leito || "", "pt-BR", { numeric: true })
+        || a.nome.localeCompare(b.nome, "pt-BR"));
+      return { ...per, kits: ls.length, doses: ls.reduce((a, l) => a + l.items.length, 0), horarios, pacs };
+    }).filter((g) => g.kits);
+    return { dia, grupos };
+  }).filter((x) => x.grupos.length);
+
+  if (!porDia.length) { alert("Nada a etiquetar nesse período."); return; }
+
+  const etqPeriodo = (dia, g) => `
+    <section class="etq">
+      <div class="topo">${_esc(hosp)} — FARMÁCIA</div>
+      <div class="tit">MEDICAÇÃO POR PACIENTE</div>
+      <div class="faixa">${g.nome}</div>
+      <div class="dt">${_diaSemana(dia)} · ${fmtDate(dia)}</div>
+      <div class="meta">
+        <div><span class="r">Horários:</span> <b>${g.horarios.join("  ·  ")}</b></div>
+        <div><span class="r">Contém:</span> <b>${g.kits}</b> kit(s) · ${g.doses} dose(s)</div>
+      </div>
+      <div class="pacs"><div class="r">Pacientes neste saco — conferir na entrega</div>
+        <div class="lista">${g.pacs.map((p) => `<span class="pc">${p.leito ? `<b>${_esc(p.leito)}</b> ` : ""}${_esc(p.nome)}</span>`).join("")}</div>
+      </div>
+      <div class="rod">Insulina, gotas, xarope e pomada <b>não estão neste saco</b> — preparo na hora, conforme a folha do dia.
+        Kit não administrado volta fechado à farmácia.</div>
+      <div class="ass"><span>Separado: ______________</span><span>Conferido: ______________</span></div>
+    </section>`;
+
+  const etqDia = (d) => {
+    const kits = d.grupos.reduce((a, g) => a + g.kits, 0);
+    return `
+    <section class="etq dia">
+      <div class="topo">${_esc(hosp)} — FARMÁCIA</div>
+      <div class="tit">MEDICAÇÃO POR PACIENTE</div>
+      <div class="faixa grande">${_diaSemana(d.dia)}</div>
+      <div class="dt grande">${fmtDate(d.dia)}</div>
+      <div class="meta">
+        <div><span class="r">Contém:</span> <b>${d.grupos.length}</b> saco(s) — ${d.grupos.map((g) => g.nome).join(" · ")}</div>
+        <div><span class="r">Total:</span> <b>${kits}</b> kit(s) de paciente</div>
+      </div>
+      <div class="rod">Abrir somente no dia indicado. Kit é exclusivo deste dia — o que não for administrado volta fechado à farmácia.</div>
+      <div class="ass"><span>Separado: ______________</span><span>Recebido: ______________</span></div>
+    </section>`;
+  };
+
+  const folhas = porDia.map((d) => [etqDia(d), ...d.grupos.map((g) => etqPeriodo(d.dia, g))]).flat();
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas dos sacos — ${fmtDate(porDia[0].dia)}</title>
+  <style>
+  @page{size:A4 portrait;margin:8mm}
+  *{box-sizing:border-box}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#000;margin:0}
+  .grid{display:grid;grid-template-columns:1fr;gap:0}
+  .etq{height:138mm;border:2px solid #000;border-radius:4px;padding:7mm 8mm;display:flex;flex-direction:column;
+       page-break-inside:avoid;break-inside:avoid;margin-bottom:5mm;position:relative}
+  .etq:nth-child(2n){margin-bottom:0}
+  .etq:nth-child(2n)::after{content:"✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —";
+       position:absolute;left:0;right:0;bottom:-4.5mm;text-align:center;font-size:9px;color:#666;letter-spacing:1px}
+  .topo{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#333;text-align:center}
+  .tit{font-size:15px;font-weight:700;letter-spacing:.06em;text-align:center;margin-top:2mm}
+  .faixa{background:#000;color:#fff;font-size:34px;font-weight:800;letter-spacing:.14em;text-align:center;
+         padding:3mm 0;margin:3mm 0 2mm;line-height:1}
+  .faixa.grande{font-size:30px}
+  .dt{text-align:center;font-size:15px;font-weight:700;letter-spacing:.04em}
+  .dt.grande{font-size:20px;margin-top:1mm}
+  .meta{margin-top:3mm;font-size:12px;line-height:1.6;border-top:1px solid #000;border-bottom:1px solid #000;padding:2mm 0}
+  .meta .r{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#444}
+  .pacs{margin-top:2.5mm;flex:1;overflow:hidden}
+  .pacs .r{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#444;margin-bottom:1mm}
+  .lista{display:flex;flex-wrap:wrap;gap:1mm 3mm}
+  .pc{font-size:10.5px;border:1px solid #999;border-radius:3px;padding:0 4px;white-space:nowrap}
+  .rod{font-size:9px;color:#333;line-height:1.4;border-top:1px dashed #666;padding-top:1.5mm;margin-top:1.5mm}
+  .ass{display:flex;justify-content:space-between;font-size:10px;margin-top:2.5mm}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
+  @media print{.btn{display:none}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <div class="grid">${folhas.join("")}</div>
+  </body></html>`;
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }
 
 /* ---- FOLHA DE PREPARO NA HORA E SOS ----
