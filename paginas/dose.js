@@ -704,74 +704,82 @@ function imprimirEtiquetasSacos(opts) {
 
   if (!porDia.length) { alert("Nada a etiquetar nesse período."); return; }
 
+  /* Quatro etiquetas por folha A4, uma folha por dia: o saco do dia e os três
+     de período. Faixa em tarja preta com DIA DA SEMANA · PERÍODO, que é o que
+     se lê de longe na bancada e na gaveta. */
   const etqPeriodo = (dia, g) => `
     <section class="etq">
-      <div class="topo">${_esc(hosp)} — FARMÁCIA</div>
-      <div class="tit">MEDICAÇÃO POR PACIENTE</div>
-      <div class="faixa">${g.nome}</div>
-      <div class="dt">${_diaSemana(dia)} · ${fmtDate(dia)}</div>
-      <div class="meta">
-        <div><span class="r">Horários:</span> <b>${g.horarios.join("  ·  ")}</b></div>
-        <div><span class="r">Contém:</span> <b>${g.kits}</b> kit(s) · ${g.doses} dose(s)</div>
+      <div class="topo">${_esc(hosp)} — FARMÁCIA &nbsp;·&nbsp; MEDICAÇÃO POR PACIENTE</div>
+      <div class="faixa">${_diaSemana(dia)} · ${g.nome}</div>
+      <div class="linha1">
+        <span class="dt">${fmtDate(dia)}</span>
+        <span class="mt"><span class="r">Horários</span> <b>${g.horarios.join(" · ")}</b></span>
+        <span class="mt"><span class="r">Contém</span> <b>${g.kits}</b> kit(s) · ${g.doses} dose(s)</span>
       </div>
-      <div class="pacs"><div class="r">Pacientes neste saco — conferir na entrega</div>
-        <div class="lista">${g.pacs.map((p) => `<span class="pc">${p.leito ? `<b>${_esc(p.leito)}</b> ` : ""}${_esc(p.nome)}</span>`).join("")}</div>
+      <div class="pacs"><span class="r">Pacientes — conferir na entrega:</span>
+        ${g.pacs.map((p) => `<span class="pc">${p.leito ? `<b>${_esc(p.leito)}</b> ` : ""}${_esc(p.nome)}</span>`).join("")}
       </div>
-      <div class="rod">Insulina, gotas, xarope e pomada <b>não estão neste saco</b> — preparo na hora, conforme a folha do dia.
-        Kit não administrado volta fechado à farmácia.</div>
-      <div class="ass"><span>Separado: ______________</span><span>Conferido: ______________</span></div>
+      <div class="rodape">
+        <span class="rod">Insulina, gotas, xarope e pomada <b>não</b> vão neste saco — preparo na hora. Kit não administrado volta fechado à farmácia.</span>
+        <span class="ass">Separado: __________ &nbsp; Conferido: __________</span>
+      </div>
     </section>`;
 
   const etqDia = (d) => {
     const kits = d.grupos.reduce((a, g) => a + g.kits, 0);
     return `
     <section class="etq dia">
-      <div class="topo">${_esc(hosp)} — FARMÁCIA</div>
-      <div class="tit">MEDICAÇÃO POR PACIENTE</div>
-      <div class="faixa grande">${_diaSemana(d.dia)}</div>
-      <div class="dt grande">${fmtDate(d.dia)}</div>
-      <div class="meta">
-        <div><span class="r">Contém:</span> <b>${d.grupos.length}</b> saco(s) — ${d.grupos.map((g) => g.nome).join(" · ")}</div>
-        <div><span class="r">Total:</span> <b>${kits}</b> kit(s) de paciente</div>
+      <div class="topo">${_esc(hosp)} — FARMÁCIA &nbsp;·&nbsp; MEDICAÇÃO POR PACIENTE</div>
+      <div class="faixa">${_diaSemana(d.dia)} · DIA COMPLETO</div>
+      <div class="linha1">
+        <span class="dt grande">${fmtDate(d.dia)}</span>
+        <span class="mt"><span class="r">Contém</span> <b>${d.grupos.length}</b> saco(s) — ${d.grupos.map((g) => g.nome).join(" · ")}</span>
+        <span class="mt"><span class="r">Total</span> <b>${kits}</b> kit(s)</span>
       </div>
-      <div class="rod">Abrir somente no dia indicado. Kit é exclusivo deste dia — o que não for administrado volta fechado à farmácia.</div>
-      <div class="ass"><span>Separado: ______________</span><span>Recebido: ______________</span></div>
+      <div class="rodape">
+        <span class="rod"><b>Abrir somente no dia indicado.</b> Kit é exclusivo deste dia — o que não for administrado volta fechado à farmácia.</span>
+        <span class="ass">Separado: __________ &nbsp; Recebido: __________</span>
+      </div>
     </section>`;
   };
 
-  const folhas = porDia.map((d) => [etqDia(d), ...d.grupos.map((g) => etqPeriodo(d.dia, g))]).flat();
+  // uma folha por dia: saco do dia + sacos de período
+  const folhas = porDia.map((d) =>
+    `<div class="folha">${etqDia(d)}${d.grupos.map((g) => etqPeriodo(d.dia, g)).join("")}</div>`).join("");
 
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas dos sacos — ${fmtDate(porDia[0].dia)}</title>
   <style>
-  @page{size:A4 portrait;margin:8mm}
+  @page{size:A4 portrait;margin:7mm}
   *{box-sizing:border-box}
   body{font-family:"Public Sans",Arial,sans-serif;color:#000;margin:0}
-  .grid{display:grid;grid-template-columns:1fr;gap:0}
-  .etq{height:138mm;border:2px solid #000;border-radius:4px;padding:7mm 8mm;display:flex;flex-direction:column;
-       page-break-inside:avoid;break-inside:avoid;margin-bottom:5mm;position:relative}
-  .etq:nth-child(2n){margin-bottom:0}
-  .etq:nth-child(2n)::after{content:"✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —";
-       position:absolute;left:0;right:0;bottom:-4.5mm;text-align:center;font-size:9px;color:#666;letter-spacing:1px}
-  .topo{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#333;text-align:center}
-  .tit{font-size:15px;font-weight:700;letter-spacing:.06em;text-align:center;margin-top:2mm}
-  .faixa{background:#000;color:#fff;font-size:34px;font-weight:800;letter-spacing:.14em;text-align:center;
-         padding:3mm 0;margin:3mm 0 2mm;line-height:1}
-  .faixa.grande{font-size:30px}
-  .dt{text-align:center;font-size:15px;font-weight:700;letter-spacing:.04em}
-  .dt.grande{font-size:20px;margin-top:1mm}
-  .meta{margin-top:3mm;font-size:12px;line-height:1.6;border-top:1px solid #000;border-bottom:1px solid #000;padding:2mm 0}
-  .meta .r{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#444}
-  .pacs{margin-top:2.5mm;flex:1;overflow:hidden}
-  .pacs .r{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#444;margin-bottom:1mm}
-  .lista{display:flex;flex-wrap:wrap;gap:1mm 3mm}
-  .pc{font-size:10.5px;border:1px solid #999;border-radius:3px;padding:0 4px;white-space:nowrap}
-  .rod{font-size:9px;color:#333;line-height:1.4;border-top:1px dashed #666;padding-top:1.5mm;margin-top:1.5mm}
-  .ass{display:flex;justify-content:space-between;font-size:10px;margin-top:2.5mm}
+  .folha{page-break-after:always}
+  .folha:last-child{page-break-after:auto}
+  /* 4 por folha: 281mm úteis / 4 = 70mm, com 2mm de respiro para o corte */
+  .etq{height:67mm;border:2px solid #000;border-radius:4px;padding:3.5mm 5mm;display:flex;flex-direction:column;
+       page-break-inside:avoid;break-inside:avoid;margin-bottom:3mm;position:relative}
+  .etq:last-child{margin-bottom:0}
+  .etq::after{content:"✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —";
+       position:absolute;left:0;right:0;bottom:-3.2mm;text-align:center;font-size:8px;color:#777;letter-spacing:1px}
+  .etq:last-child::after{content:none}
+  .topo{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:#333;text-align:center}
+  .faixa{background:#000;color:#fff;font-size:30px;font-weight:800;letter-spacing:.1em;text-align:center;
+         padding:1.5mm 0;margin:1.5mm 0;line-height:1.05;white-space:nowrap;overflow:hidden}
+  .dia .faixa{font-size:26px}
+  .linha1{display:flex;align-items:baseline;gap:5mm;border-bottom:1px solid #000;padding-bottom:1mm;flex-wrap:wrap}
+  .dt{font-size:15px;font-weight:800;letter-spacing:.03em}
+  .dt.grande{font-size:19px}
+  .mt{font-size:10.5px}
+  .r{font-size:7.5px;text-transform:uppercase;letter-spacing:.06em;color:#444}
+  .pacs{flex:1;margin-top:1.2mm;overflow:hidden;line-height:1.5}
+  .pc{display:inline-block;font-size:9.5px;border:1px solid #999;border-radius:3px;padding:0 3px;margin:0 2px 1px 0;white-space:nowrap}
+  .rodape{display:flex;justify-content:space-between;align-items:flex-end;gap:4mm;border-top:1px dashed #666;padding-top:1mm;margin-top:1mm}
+  .rod{font-size:7.5px;color:#333;line-height:1.3;flex:1}
+  .ass{font-size:9px;white-space:nowrap}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
   @media print{.btn{display:none}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
-  <div class="grid">${folhas.join("")}</div>
+  ${folhas}
   </body></html>`;
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
