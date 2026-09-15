@@ -139,3 +139,114 @@ function iniciarMonitorSessao() {
     });
   }
 }
+
+/* ============================================================
+   Bloqueio por inatividade
+   Farmácia com controlado não pode ficar com a tela aberta e
+   destravada quando ninguém está na bancada: quem passar pela sala
+   dispensa, ajusta estoque ou vê prontuário no seu login.
+   Aqui a sessão é encerrada depois de um tempo sem uso, com aviso
+   e contagem regressiva antes.
+
+   O tempo vem de window.INATIVIDADE_MIN (config.js) e pode ser
+   ajustado por aparelho na tela de Configurações — o computador da
+   farmácia, que fica numa sala de passagem, costuma pedir um tempo
+   menor que o celular do RT. 0 desliga o bloqueio.
+   ============================================================ */
+
+const INATIVIDADE_PADRAO = 15;      // minutos
+const INATIVIDADE_AVISO  = 60;      // segundos de contagem antes de sair
+const _INAT_CHAVE = "reviva.inatividadeMin";
+const _INAT_ULTIMO = "reviva.ultimaAtividade";
+
+function inatividadeMin() {
+  const local = parseInt(localStorage.getItem(_INAT_CHAVE), 10);
+  if (!isNaN(local) && local >= 0) return local;
+  const cfg = parseInt(window.INATIVIDADE_MIN, 10);
+  return isNaN(cfg) ? INATIVIDADE_PADRAO : cfg;
+}
+function definirInatividadeMin(min) {
+  localStorage.setItem(_INAT_CHAVE, String(parseInt(min, 10) || 0));
+  if (window.__inat && window.__inat.reiniciar) window.__inat.reiniciar();
+}
+
+function iniciarBloqueioInatividade() {
+  if (window.__inat) return;
+  let tAviso = null, tSair = null, tick = null, avisando = false;
+
+  const limpar = () => { clearTimeout(tAviso); clearTimeout(tSair); clearInterval(tick); };
+
+  const sairPorInatividade = async () => {
+    limpar();
+    /* marca o motivo para a tela de login explicar o que houve —
+       sem isso o usuário acha que o sistema caiu */
+    try { sessionStorage.setItem("reviva.saidaInatividade", "1"); } catch (e) {}
+    await sair();
+  };
+
+  const fecharAviso = () => {
+    const d = document.getElementById("inatAviso");
+    if (d) d.remove();
+    avisando = false;
+  };
+
+  const avisar = () => {
+    if (avisando) return;
+    avisando = true;
+    let resta = INATIVIDADE_AVISO;
+    const d = document.createElement("div");
+    d.id = "inatAviso";
+    d.style.cssText = "position:fixed;inset:0;background:rgba(20,28,26,.6);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px";
+    d.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:26px 28px;box-shadow:0 18px 50px rgba(0,0,0,.3);font-family:'Public Sans',Arial,sans-serif">
+        <div style="font-size:17px;font-weight:700;color:#1E2A28;margin-bottom:8px">Ainda está aí?</div>
+        <div style="font-size:14px;color:#4a544f;line-height:1.55">
+          Por segurança, o sistema vai encerrar a sessão em
+          <b id="inatSeg" style="font-variant-numeric:tabular-nums">${resta}</b> segundos por falta de uso.
+          <div style="margin-top:8px;font-size:12.5px;color:#B04A3F">O que estiver preenchido e não gravado será perdido.</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+          <button id="inatFicar" style="background:#2C5F5A;color:#fff;border:none;padding:10px 16px;border-radius:9px;cursor:pointer;font:inherit;font-weight:600">Continuar conectado</button>
+          <button id="inatSair" style="background:transparent;color:#6a736e;border:1px solid #cfd6cf;padding:10px 16px;border-radius:9px;cursor:pointer;font:inherit">Sair agora</button>
+        </div>
+      </div>`;
+    document.body.appendChild(d);
+    document.getElementById("inatFicar").onclick = () => { fecharAviso(); reiniciar(); };
+    document.getElementById("inatSair").onclick = () => { fecharAviso(); sairPorInatividade(); };
+    tick = setInterval(() => {
+      resta -= 1;
+      const el = document.getElementById("inatSeg");
+      if (el) el.textContent = String(Math.max(resta, 0));
+    }, 1000);
+    tSair = setTimeout(sairPorInatividade, INATIVIDADE_AVISO * 1000);
+  };
+
+  const reiniciar = () => {
+    limpar();
+    fecharAviso();
+    try { localStorage.setItem(_INAT_ULTIMO, String(Date.now())); } catch (e) {}
+    const min = inatividadeMin();
+    if (!min) return;                       // 0 = desligado
+    tAviso = setTimeout(avisar, Math.max(min * 60000 - INATIVIDADE_AVISO * 1000, 5000));
+  };
+
+  /* Aba em segundo plano tem os timers estrangulados pelo navegador, e
+     computador suspenso não conta tempo nenhum. Por isso, ao voltar para a
+     aba, o tempo decorrido é conferido pelo relógio — é o caso do "esqueci
+     aberto e fui embora". */
+  const conferirAoVoltar = () => {
+    const min = inatividadeMin();
+    if (!min || document.hidden) return;
+    const ult = parseInt(localStorage.getItem(_INAT_ULTIMO), 10) || Date.now();
+    if (Date.now() - ult >= min * 60000) { sairPorInatividade(); return; }
+    reiniciar();
+  };
+
+  ["mousedown", "keydown", "touchstart", "scroll", "wheel"].forEach((ev) =>
+    document.addEventListener(ev, () => { if (!avisando) reiniciar(); }, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", conferirAoVoltar);
+  window.addEventListener("focus", conferirAoVoltar);
+
+  window.__inat = { reiniciar, sairPorInatividade };
+  reiniciar();
+}

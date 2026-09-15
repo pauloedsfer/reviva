@@ -15,3 +15,8 @@
 
 window.SUPABASE_URL      = "https://lgnwybsyzfynrlgbuqvn.supabase.co";      // ex.: https://abcdefgh.supabase.co
 window.SUPABASE_ANON_KEY = "sb_publishable_esLanHXRMa44yqWLNj0bUA_2BoSbwpJ";  // uma string longa começando por "eyJ..."
+
+/* Minutos sem uso até o sistema encerrar a sessão sozinho.
+   Vale para todos os aparelhos; cada um pode ajustar o seu em
+   Configurações > Segurança. 0 desliga o bloqueio. */
+window.INATIVIDADE_MIN = 15;

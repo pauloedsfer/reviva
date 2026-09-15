@@ -137,6 +137,7 @@ function wireChrome() {
 
 async function initLayout() {
   if (typeof iniciarMonitorSessao === "function") iniciarMonitorSessao();
+  if (typeof iniciarBloqueioInatividade === "function") iniciarBloqueioInatividade();
 
   // padroniza a entrada de texto em MAIÚSCULAS (exceto POPs, e-mail, senha, números, datas e seletores)
   ativarMaiusculas();

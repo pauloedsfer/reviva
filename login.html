@@ -63,6 +63,16 @@
   const msg = document.getElementById("msg");
   function erro(t){ msg.textContent = t; msg.className = "msg err"; }
 
+  /* Saiu por inatividade: sem esta explicação, o usuário volta achando que o
+     sistema caiu ou que perdeu a senha. */
+  try {
+    if (sessionStorage.getItem("reviva.saidaInatividade")) {
+      sessionStorage.removeItem("reviva.saidaInatividade");
+      msg.textContent = "Sessão encerrada por inatividade. Entre novamente para continuar.";
+      msg.className = "msg";
+    }
+  } catch (e) {}
+
   async function entrar(){
     const email = document.getElementById("email").value.trim();
     const senha = document.getElementById("senha").value;

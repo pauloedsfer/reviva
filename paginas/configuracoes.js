@@ -97,6 +97,24 @@ function renderPage() {
       </div>`;
     })()}
     <div class="panel">
+      <div class="panel-head"><div>
+        <div class="panel-title">Segurança — bloqueio por inatividade</div>
+        <div class="panel-title-sub">Encerra a sessão sozinho quando o sistema fica aberto sem uso</div></div></div>
+      <div class="panel-body">
+        <div class="note-box" style="margin-top:0">Tela aberta e destravada numa sala de passagem é acesso de quem passar por ali — dispensação, ajuste de estoque e prontuário no seu login. Um minuto antes de encerrar aparece um aviso com contagem regressiva, e basta um clique para continuar.</div>
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Encerrar após</label>
+            <select id="cfgInat" onchange="definirInatividadeMin(this.value); _cfgAvisoInat()" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+              ${[5, 10, 15, 30, 60].map((m) => `<option value="${m}"${inatividadeMin() === m ? " selected" : ""}>${m} minutos sem uso</option>`).join("")}
+              <option value="0"${inatividadeMin() === 0 ? " selected" : ""}>Desligado (não recomendado)</option>
+            </select></div>
+          <div class="note-box" style="margin:0;flex:1;min-width:220px">Este ajuste vale <b>só neste aparelho e navegador</b>. O computador da farmácia pede um tempo menor que o seu celular.</div>
+        </div>
+        <div id="cfgInatOk" style="display:none;font-size:13px;color:var(--primary);margin-top:8px">Ajuste salvo neste aparelho.</div>
+      </div>
+    </div>
+
+    <div class="panel">
       <div class="panel-head"><div><div class="panel-title">Responsável Técnico</div><div class="panel-title-sub">Identificação usada nas assinaturas e rodapés</div></div></div>
       <div class="panel-body">
         <div class="cfg-grid">
@@ -157,4 +175,11 @@ async function salvarFechamento(reabrir) {
   if (error) { alert("Erro: " + error.message); return; }
   window.ESTAB.fechamento_ate = v;
   await recarregarTela();
+}
+
+function _cfgAvisoInat() {
+  const el = document.getElementById("cfgInatOk");
+  if (!el) return;
+  el.style.display = "block";
+  setTimeout(() => { el.style.display = "none"; }, 2500);
 }
