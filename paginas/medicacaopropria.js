@@ -291,43 +291,174 @@ function imprimirTermoDevolucao(itemId, qtd, quem, data) {
    liga as baixas ao item, e trocá-lo depois romperia a
    rastreabilidade da escrituração.
    ============================================================ */
+/* ============================================================
+   CORRIGIR ENTRADA DE CUSTÓDIA
+   Entrada errada de custódia tem quatro naturezas diferentes, e só
+   uma delas era tratada aqui:
+     · quantidade, lote ou validade digitados errados  -> corrigir;
+     · SUBSTÂNCIA errada (pegou o cadastro vizinho)     -> trocar;
+     · PACIENTE errado (lançou na ficha de outro)       -> mover;
+     · entrada que nunca deveria existir (duplicada)    -> excluir.
+   As três últimas só são possíveis enquanto o lote NÃO se moveu:
+   depois de dispensar, devolver ou integrar, o lote entrou na
+   escrituração e mexer nele apagaria histórico. Nesse caso a
+   correção é feita por movimentação — devolução ou ajuste —, não
+   por edição do cadastro.
+   ============================================================ */
+
+// tudo o que já se moveu NESTE lote deste paciente (não só pelo número do lote:
+// o mesmo número pode existir na clínica ou na custódia de outro paciente)
+function _movimentoDoItem(pm, it) {
+  const mesmo = (d) => d.subId === it.subId && d.lote === it.lote && d.paciente === pm.paciente;
+  const disp = dispensations.filter(mesmo);
+  const devol = returns.filter(mesmo);
+  const dest = destinosDoItem(it.id);
+  const transf = (transferenciasCustodia || []).filter((t) =>
+    t.subId === it.subId && (t.loteDestino === it.lote || t.loteOrigem === it.lote) && t.paciente === pm.paciente);
+  const dispQtd = disp.reduce((a, d) => a + d.qtd, 0);
+  const devolQtd = devol.reduce((a, d) => a + d.qtd, 0);
+  const destQtd = dest.reduce((a, d) => a + d.qtd, 0);
+  return {
+    disp, devol, dest, transf,
+    dispQtd, devolQtd, destQtd,
+    consumido: dispQtd - devolQtd + destQtd,
+    travado: !!(disp.length || devol.length || dest.length || transf.length),
+  };
+}
+
 function abrirEditarCustodia(itemId) {
   const achado = _acharItemCustodia(itemId);
   if (!achado) return;
   const { pm, it } = achado;
   const pac = patById(pm.paciente);
-  // dispensações já feitas com este lote
-  const usos = dispensations.filter((d) => d.lote === it.lote).length;
-  const dispQtd = dispensations.filter((d) => d.lote === it.lote).reduce((a, d) => a + d.qtd, 0);
+  const mov = _movimentoDoItem(pm, it);
+  const saldo = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
+  const sub = subById(it.subId);
+  const controlado = !!(sub && sub.lista && sub.lista !== "—");
 
-  abrirModal(`Corrigir item de custódia — ${pac ? pac.nome : ""}`, `
+  const resumoMov = mov.travado ? `<div style="margin-top:6px">
+      Este lote <b>já se movimentou</b>${mov.disp.length ? `: ${mov.disp.length} dispensação(ões) — ${fmtDose(mov.dispQtd)}` : ""}${mov.devol.length ? ` · ${mov.devol.length} devolução(ões) — ${fmtDose(mov.devolQtd)}` : ""}${mov.dest.length ? ` · ${mov.dest.length} destino(s) de custódia — ${fmtDose(mov.destQtd)}` : ""}${mov.transf.length ? ` · ${mov.transf.length} transferência(s)` : ""}.
+      Substância, paciente e número do lote ficam bloqueados; a entrada não pode ser excluída.</div>` : "";
+
+  abrirModal(`Corrigir entrada de custódia — ${pac ? pac.nome : ""}`, `
     <div class="note-box" style="margin-top:0">
-      <b>${_esc(subById(it.subId).nome)}</b> · quantidade recebida: <b>${it.qtd}</b> · saldo atual: <b>${saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente))}</b>
-      ${usos ? `<div style="margin-top:6px">Já houve <b>${usos} administração(ões)</b> deste lote (${dispQtd} unidade(s)). O número do lote fica bloqueado para preservar a rastreabilidade.</div>` : ""}
+      <b>${_esc(sub ? sub.nome : "—")}</b>${controlado ? ` <span class="tag ${listaTagClass(sub.lista)}">Lista ${sub.lista}</span>` : ""}
+      · recebido em <b>${fmtDate(pm.data)}</b> · quantidade lançada: <b>${fmtDose(it.qtd)}</b> · saldo atual: <b>${fmtDose(saldo)}</b>
+      ${resumoMov}
     </div>
+
     <div class="ff row2">
-      <div><label>Número do lote${usos ? " (bloqueado)" : ""}</label>
-        <input id="ecLote" value="${(it.lote || "").replace(/"/g, "&quot;")}"${usos ? " disabled style=\"background:#F1F3F1;color:var(--muted)\"" : ""}></div>
+      <div><label>Paciente${mov.travado ? " (bloqueado)" : ""}</label>
+        <select id="ecPac"${mov.travado ? " disabled" : ""}>
+          ${patients.filter((p) => p.ativo || p.id === pm.paciente)
+            .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+            .map((p) => `<option value="${p.id}"${p.id === pm.paciente ? " selected" : ""}>${_esc(p.nome)}${p.leito ? " · leito " + _esc(p.leito) : ""}</option>`).join("")}
+        </select>
+        ${!mov.travado ? `<div class="dica">Move <b>só este item</b> para a ficha do paciente escolhido.</div>` : ""}</div>
+      <div><label>Substância${mov.travado ? " (bloqueada)" : ""}</label>
+        <select id="ecSub"${mov.travado ? " disabled" : ""}>${_optSubs(it.subId, "medicamento")}</select></div>
+    </div>
+
+    <div class="ff row2">
+      <div><label>Número do lote${mov.travado ? " (bloqueado)" : ""}</label>
+        <input id="ecLote" value="${(it.lote || "").replace(/"/g, "&quot;")}"${mov.travado ? " disabled style=\"background:#F1F3F1;color:var(--muted)\"" : ""}></div>
       <div><label>Validade *</label><input id="ecVal" type="date" value="${it.validade || ""}"></div>
     </div>
-    <div class="ff"><label>Quantidade recebida</label><input id="ecQtd" type="number" min="0" step="0.01" value="${it.qtd}">
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">Corrija apenas se a contagem no recebimento estiver errada. ${usos ? "Não pode ficar menor que o já administrado (" + dispQtd + ")." : ""}</div></div>
+    <div class="ff row2">
+      <div><label>Quantidade recebida</label><input id="ecQtd" type="number" min="0" step="0.01" value="${it.qtd}">
+        <div class="dica">Corrija apenas se a contagem no recebimento estiver errada.${mov.travado ? ` Não pode ficar abaixo de <b>${fmtDose(mov.consumido)}</b>, que é o que já saiu deste lote.` : ""}</div></div>
+      <div><label>Data do recebimento</label><input id="ecData" type="date" value="${pm.data || ""}" max="${HOJE}">
+        <div class="dica">Só muda se a entrada foi lançada com a data errada.</div></div>
+    </div>
     <div class="ff"><label>Observação</label><input id="ecObs" value="${(it.obs || "").replace(/"/g, "&quot;")}"></div>
+    <div class="ff"><label>Motivo da correção ${controlado ? "*" : ""}</label>
+      <input id="ecMotivo" placeholder="erro de digitação, lançado no paciente errado, entrada duplicada…">
+      <div class="dica">Fica registrado na observação do item, com a data. ${controlado ? "Obrigatório: a substância é controlada e a correção altera o balanço." : ""}</div></div>
+
+    ${!mov.travado ? `<div class="note-box" style="background:#F7E3E1;border-color:#e4bdb7;margin-bottom:0">
+      <b>Entrada lançada por engano?</b> Enquanto o lote não se moveu, ela pode ser excluída por inteiro.
+      <button class="btn ghost sm" style="margin-top:6px" onclick="excluirEntradaCustodia('${it.id}')">Excluir esta entrada</button></div>` : ""}
   `, async () => {
     const val = fv("ecVal");
     if (!val) throw new Error("Informe a validade.");
     const qtd = fvNum("ecQtd");
     if (!(qtd >= 0)) throw new Error("Quantidade inválida.");
-    if (usos && qtd < dispQtd) throw new Error(`A quantidade não pode ser menor que o já administrado (${dispQtd}).`);
-    const dados = { validade: val, quantidade: qtd, obs: fvOrNull("ecObs") };
-    if (!usos) {
+    const motivo = fv("ecMotivo");
+    if (controlado && !motivo) throw new Error("Informe o motivo da correção: a substância é controlada.");
+
+    const dataNova = fv("ecData") || pm.data;
+    /* Escrituração fechada: a custódia de controlado compõe o balanço, e
+       corrigir dentro de mês transmitido muda documento já assinado. */
+    _periodoOk(dataNova);
+    if (pm.data !== dataNova) _periodoOk(pm.data);
+
+    /* A quantidade não pode deixar o saldo do lote negativo — a regra olha o
+       saldo do BUCKET (substância + lote + paciente), e não só as
+       dispensações: devolução à família, integração e descarte também
+       consumiram deste lote. */
+    if (mov.travado && qtd < mov.consumido) {
+      throw new Error(`A quantidade não pode ficar abaixo de ${fmtDose(mov.consumido)} — é o que já saiu deste lote.`);
+    }
+
+    const carimbo = motivo ? `[correção ${fmtDate(HOJE)}: ${motivo}]` : "";
+    const obs = [fv("ecObs"), carimbo].filter(Boolean).join(" ").trim() || null;
+    const dados = { validade: val, quantidade: qtd, obs };
+
+    if (!mov.travado) {
       const novoLote = fv("ecLote");
       if (!novoLote) throw new Error("Informe o número do lote.");
       dados.numero_lote = novoLote;
+      const novoSub = fv("ecSub");
+      if (novoSub && novoSub !== it.subId) dados.substancia_id = novoSub;
+
+      const novoPac = fv("ecPac");
+      if (novoPac && novoPac !== pm.paciente) {
+        /* Muda de ficha: procura uma entrada do paciente certo na mesma data
+           ou cria uma nova, e leva o item para lá. */
+        const destino = patientMeds.find((x) => x.paciente === novoPac && x.data === dataNova);
+        let destinoId = destino ? destino.id : null;
+        if (!destinoId) {
+          const { data: m, error: em } = await window.SB.from("medicacao_propria")
+            .insert({ paciente_id: novoPac, data: dataNova, ...usuarioId() }).select("id").single();
+          if (em) throw em;
+          destinoId = m.id;
+        }
+        dados.medicacao_propria_id = destinoId;
+      }
     }
+
     const { error } = await window.SB.from("medicacao_propria_itens").update(dados).eq("id", itemId);
     if (error) throw error;
+
+    // data do recebimento pertence à entrada, não ao item
+    if (pm.data !== dataNova && !dados.medicacao_propria_id) {
+      const { error: e2 } = await window.SB.from("medicacao_propria").update({ data: dataNova }).eq("id", pm.id);
+      if (e2) throw e2;
+    }
   }, "Salvar correção");
+}
+
+/* Exclusão da entrada inteira. Só enquanto o lote não se moveu — com
+   movimentação, a exclusão deixaria dispensação apontando para entrada
+   inexistente e saldo negativo na coluna de custódia do balanço. */
+async function excluirEntradaCustodia(itemId) {
+  const achado = _acharItemCustodia(itemId);
+  if (!achado) return;
+  const { pm, it } = achado;
+  const mov = _movimentoDoItem(pm, it);
+  if (mov.travado) { alert("Este lote já se movimentou e não pode ser excluído. Corrija por devolução ou ajuste de inventário."); return; }
+  const sub = subById(it.subId);
+  const pac = patById(pm.paciente);
+  if (!confirm(`Excluir a entrada de ${sub ? sub.nome : "—"} — ${fmtDose(it.qtd)} — da custódia de ${pac ? pac.nome : "—"}?\n\nA entrada some do saldo e do balanço, como se nunca tivesse sido lançada. Só faça isso se ela nunca deveria ter existido.`)) return;
+  try {
+    _periodoOk(pm.data);
+    const { error } = await window.SB.from("medicacao_propria_itens").delete().eq("id", itemId);
+    if (error) throw error;
+    // entrada sem itens não precisa continuar existindo
+    if (pm.itens.length === 1) await window.SB.from("medicacao_propria").delete().eq("id", pm.id);
+    fecharModal();
+    await recarregarTela();
+  } catch (e) { alert("Erro: " + (e.message || e)); }
 }
 
 /* ============================================================
