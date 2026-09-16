@@ -867,6 +867,25 @@ function subsMateriais() { return substances.filter((s) => ehMaterial(s)); }
 /* Medicação que a enfermagem prepara na hora da administração — insulina,
    gotas, xarope, pomada. Não pode ser fracionada com antecedência, então não
    entra em kit nem gera etiqueta; sai na Folha de Preparo na Hora. */
+/* A movimentação saiu do saldo de CUSTÓDIA de um paciente?
+   Decide quem é do estabelecimento e quem é do paciente — separação que a
+   Vigilância exigiu na notificação de setembro/2026: medicação adquirida pela
+   família em drogaria já foi dispensada lá e não entra na escrituração da
+   unidade, ficando em controle paralelo.
+   `dono` é a propriedade do saldo (o ajuste usa esse campo, por não ter
+   paciente de destino); nos demais movimentos o dono é o próprio paciente. */
+function movEhCustodia(m) {
+  const b = _lotesAgrupados();
+  const dono = m.dono !== undefined ? m.dono : m.paciente;
+  const l = b[_chaveDaSaida(m.subId, m.lote, dono)];
+  return !!(l && l.restritoPaciente && !l.integrado);
+}
+function movDonoCustodia(m) {
+  const dono = m.dono !== undefined ? m.dono : m.paciente;
+  const l = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, dono)];
+  return l && l.restritoPaciente && !l.integrado ? l.restritoPaciente : null;
+}
+
 function ehPreparoNaHora(s) { const x = typeof s === "object" ? s : subById(s); return !!(x && x.preparoNaHora); }
 function subsPadronizadas() { return substances.filter((s) => s.padronizado); }
 function subsDePaciente() { return substances.filter((s) => !s.padronizado); }

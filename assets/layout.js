@@ -34,7 +34,7 @@ const NAV = [
   ]},
   { group: "Compliance", items: [
     { id: "escrituracao", label: "Livro de Registro", href: "escrituracao.html" },
-    { id: "balanco", label: "Balanço Mensal (BMPO)", href: "balanco.html" },
+    { id: "balanco", label: "Conferência de Saldos", href: "balanco.html" },
     { id: "pops", label: "POPs do Fluxo", href: "pops.html" },
   ]},
   { group: "Sistema", items: [
@@ -60,7 +60,7 @@ const TITLES = {
   previsao: ["Previsão de Cobertura e Compras", "Dias de cobertura por medicamento com base nas prescrições ativas, com alerta de reposição"],
   financeiro: ["Custos & Indicadores", "Custos da farmácia — medicamentos dispensados, valor em estoque e economia com doações"],
   escrituracao: ["Livro de Registro", "Todas as movimentações — fonte de verdade do estoque"],
-  balanco: ["Balanço Mensal (BMPO)", "Estoque inicial, entradas, saídas e saldo final por substância"],
+  balanco: ["Conferência Mensal de Saldos", "Uso interno: estoque inicial, entradas, saídas e saldo final por substância"],
   pops: ["POPs do Fluxo", "Procedimentos que precisam existir formalmente para blindar o sistema"],
   configuracoes: ["Configurações", "Dados do Responsável Técnico e do estabelecimento — usados nos rodapés e relatórios"],
   roadmap: ["Evoluções futuras", "Possibilidades de expansão do sistema em próximas fases"],

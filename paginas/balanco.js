@@ -31,16 +31,8 @@ function _nomeMes(mes) {
 
    Custódia INTEGRADA ao estoque (alta em que o paciente deixa a medicação)
    deixa de ser de terceiro e passa a compor a coluna do estabelecimento. */
-function _ehCustodia(m) {
-  const b = _lotesAgrupados();
-  // `dono` (quando existe) é a propriedade do saldo movimentado — o ajuste de
-  // inventário usa esse campo, porque não tem paciente de destino. Nos demais
-  // movimentos o dono é o próprio paciente da saída.
-  const dono = m.dono !== undefined ? m.dono : m.paciente;
-  const k = _chaveDaSaida(m.subId, m.lote, dono);
-  const l = b[k];
-  return !!(l && l.restritoPaciente && !l.integrado);
-}
+// delegado para dados.js: a mesma regra vale no Livro e no controle paralelo
+function _ehCustodia(m) { return movEhCustodia(m); }
 
 // Recebe um GRUPO (princípio ativo + dosagem) — a identidade do BMPO.
 // Vários nomes comerciais de mesmo princípio e dosagem formam uma única linha.
@@ -112,13 +104,21 @@ function imprimirBMPO() {
     .bmpo-nota{font-size:9.5px;color:#4a544f;line-height:1.5;margin-bottom:8px;
                background:#F4F6F3;border-left:3px solid #2C5F5A;padding:5px 9px}
   </style>
+  <div class="bmpo-nota" style="border-left-color:#B07A2F;background:#FBF3E3">
+    <b>Documento de conferência interna — não é peça de fiscalização.</b>
+    Conforme notificação da Vigilância Sanitária, o Balanço de Substâncias Psicotrópicas e Entorpecentes
+    (BMPO) aplica-se ao comércio varejista e não à farmácia hospitalar. Este quadro é mantido como
+    ferramenta de conferência do próprio serviço: é ele que revela saldo negativo, divergência de coluna
+    e erro de unidade antes da transcrição ao livro físico.
+  </div>
   <div class="bmpo-nota">
-    <b>Estoque do estabelecimento</b> — substâncias adquiridas pela clínica.
-    <b>Custódia de pacientes</b> — medicação de propriedade do paciente, entregue à farmácia
-    e mantida sob guarda em separado, com uso exclusivo dele; é escriturada por estar sob
-    controle especial, mas não integra o patrimônio do estabelecimento.
-    <b>Total sob guarda</b> — soma das duas colunas, correspondente ao que existe fisicamente na farmácia.
-    Custódia deixada pelo paciente na alta e integrada ao estoque passa a compor a coluna do estabelecimento.
+    <b>Estoque do estabelecimento</b> — substâncias adquiridas pela clínica, que compõem a escrituração
+    e o Livro de Registro Específico.
+    <b>Custódia de pacientes</b> — medicação de propriedade do paciente, adquirida em drogaria e mantida
+    sob guarda com uso exclusivo dele. Não integra a escrituração da unidade: consta aqui apenas para a
+    conferência do que existe fisicamente na farmácia, e seu registro próprio é o Controle Paralelo.
+    <b>Total sob guarda</b> — soma das duas colunas, correspondente ao físico da farmácia.
+    Custódia integrada ao estoque na alta passa a compor a coluna do estabelecimento e, aí sim, a escrituração.
   </div>
   <table>
     <thead>
@@ -135,7 +135,8 @@ function imprimirBMPO() {
       </tr>
     </thead>
     <tbody>${_bmpoRows(mes, true)}</tbody></table>`;
-  imprimirRelatorio("Balanço de Substâncias Psicotrópicas e Entorpecentes (BMPO)", "Referência: " + _nomeMes(mes), corpo);
+  imprimirRelatorio("Conferência Mensal de Saldos — uso interno",
+    "Referência: " + _nomeMes(mes) + " · não é BMPO: o balanço não se aplica à farmácia hospitalar", corpo);
 }
 
 /* Fechamento do mês, na própria tela do BMPO — é aqui que o RT conclui a
@@ -187,10 +188,10 @@ function renderPage() {
   return `
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Balanço Mensal de Psicotrópicos e Entorpecentes</div><div class="panel-title-sub">Referência: ${_nomeMes(mes)} — estoque inicial derivado do Livro de Registro</div></div>
+        <div><div class="panel-title">Conferência Mensal de Saldos</div><div class="panel-title-sub">Referência: ${_nomeMes(mes)} — uso interno; o BMPO não se aplica à farmácia hospitalar</div></div>
         <div class="toolbar">
           <select onchange="mudarMesBMPO(this.value)">${opts}</select>
-          <button class="btn sm" onclick="imprimirBMPO()">Imprimir BMPO</button>
+          <button class="btn sm" onclick="imprimirBMPO()">Imprimir conferência</button>
         </div>
       </div>
       <div class="panel-body">

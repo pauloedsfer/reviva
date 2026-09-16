@@ -16,8 +16,14 @@ function _lvSet(campo, valor) { _lvFiltro[campo] = valor; document.getElementByI
 function _lvLimpar() { _lvFiltro = { pac: "", de: "", ate: "", tipo: "todos", sub: "", lista: "", lote: "" }; document.getElementById("viewport").innerHTML = renderPage(); }
 
 // aplica os filtros escolhidos a um lançamento já enriquecido com saldo real
+/* Livro de Registro Específico = movimentação do ESTOQUE DO ESTABELECIMENTO.
+   A medicação de custódia (comprada pela família em drogaria) foi dispensada
+   lá pelo farmacêutico da drogaria e, conforme notificação da Vigilância
+   Sanitária, não entra na escrituração da unidade: fica no Controle Paralelo,
+   impresso à parte nesta mesma tela. */
 function _lvPassa(m) {
   const f = _lvFiltro;
+  if (movEhCustodia(m)) return false;
   if (f.pac && m.paciente !== f.pac) return false;
   if (f.de && m.data < f.de) return false;
   if (f.ate && m.data > f.ate) return false;
@@ -39,6 +45,7 @@ function _livroDados() {
   substances.forEach((s) => (running[s.id] = 0));
   const linhas = [];
   movements.forEach((m) => {
+    if (movEhCustodia(m)) return;           // custódia não compõe o saldo do estabelecimento
     const neg = (m.tipo === "saida" || m.tipo === "ajuste_saida");
     running[m.subId] = (running[m.subId] || 0) + (neg ? -m.qtd : m.qtd);
     if (_lvPassa(m)) linhas.push({ m, saldo: running[m.subId] });
@@ -140,15 +147,44 @@ function renderPage() {
       </div>
     </div>
 
+    ${(() => {
+      const cp = _cpDados();
+      const pacs = cp.length;
+      const itens = cp.reduce((a, d) => a + d.itens.length, 0);
+      return `<div class="panel">
+        <div class="panel-head">
+          <div><div class="panel-title">Controle Paralelo — Medicação de Pacientes</div>
+            <div class="panel-title-sub">Custódia: medicação do paciente, fora da escrituração da unidade</div></div>
+          <div class="toolbar"><button class="btn sm" onclick="imprimirControleParalelo()">🖶 Imprimir controle paralelo</button></div>
+        </div>
+        <div class="panel-body">
+          <div class="note-box" style="margin-top:0">Medicação adquirida pela família em drogaria já foi dispensada lá pelo farmacêutico do estabelecimento que vendeu. A clínica mantém o registro do que recebeu, do que foi administrado e do destino na alta — sem folio e sem integrar o Livro. É o que sustenta o Termo de Custódia e o Termo de Devolução.</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 14px;align-items:end">
+            <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Paciente</label>
+              <select onchange="_cpSet('pac', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+                <option value="">Todos os pacientes</option>
+                ${patients.slice().sort((a, b) => (a.nome || "").localeCompare(b.nome || "")).map((p) => `<option value="${p.id}"${p.id === _cpFiltro.pac ? " selected" : ""}>${p.nome}</option>`).join("")}
+              </select></div>
+            <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">De</label>
+              <input type="date" value="${_cpFiltro.de}" onchange="_cpSet('de', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
+            <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Até</label>
+              <input type="date" value="${_cpFiltro.ate}" onchange="_cpSet('ate', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
+          </div>
+          <div class="note-box" style="margin-bottom:0">${pacs ? `<b>${pacs} paciente(s)</b> com custódia movimentada no recorte · ${itens} lote(s).` : "Nenhuma movimentação de custódia no recorte selecionado."}</div>
+        </div>
+      </div>`;
+    })()}
+
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Livro de Registro Específico</div><div class="panel-title-sub">Toda entrada e saída de substâncias controladas, com folio sequencial e saldo real</div></div>
+        <div><div class="panel-title">Livro de Registro Específico</div><div class="panel-title-sub">Entradas e saídas do <b>estoque do estabelecimento</b>, com folio sequencial e saldo real</div></div>
         <div class="toolbar">
           ${ativo ? '<button class="btn ghost sm" onclick="_lvLimpar()">Limpar filtros</button>' : ''}
           <button class="btn sm" onclick="imprimirLivro()">Imprimir${ativo ? " (filtrado)" : " para fiscalização"}</button>
         </div>
       </div>
       <div class="panel-body">
+        <div class="note-box" style="margin-top:0">A medicação de <b>custódia</b> — adquirida pela família em drogaria — não consta deste livro. Ela já foi dispensada pelo farmacêutico da drogaria e, conforme notificação da Vigilância Sanitária, fica em <b>controle paralelo</b>, impresso no painel abaixo. O filtro por paciente aqui alcança apenas o que saiu do estoque da clínica para um paciente.</div>
         <div class="mapa-cfg" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 14px;margin-bottom:14px">
           <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Paciente</label>
             <select onchange="_lvSet('pac',this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optPacs}</select></div>
@@ -265,7 +301,7 @@ function _folhaSemanalDados() {
   const fim = _fsAddDias(ini, 6);
   const grupos = gruposSubstancias().filter((g) => _fsSemana.incluirNaoControlados || grupoControlado(g));
   const blocos = grupos.map((g) => {
-    const doGrupo = movements.filter((m) => g.subIds.indexOf(m.subId) !== -1);
+    const doGrupo = movements.filter((m) => g.subIds.indexOf(m.subId) !== -1 && !movEhCustodia(m));
     let anterior = 0;
     const entradas = [], saidas = [];
     doGrupo.forEach((m) => {
@@ -444,4 +480,90 @@ function imprimirFolhaSemanal() {
   imprimirRelatorio("Folha de Registro Semanal",
     `Período de ${fmtDate(ini)} a ${fmtDate(fim)} · ${blocos.length} item(ns) · para transcrição ao livro físico`,
     corpo);
+}
+
+/* ============================================================
+   CONTROLE PARALELO — MEDICAÇÃO DE PACIENTES (CUSTÓDIA)
+   Notificação da Vigilância Sanitária (set/2026), item 03: medicação
+   que o paciente adquire em drogaria já foi dispensada pelo
+   farmacêutico de lá e NÃO entra na escrituração da unidade. A
+   clínica mantém apenas controle paralelo — que é este documento.
+   Não é livro, não tem folio e não substitui escrituração: é o
+   registro da guarda, do consumo e do destino do que pertence ao
+   paciente, e sustenta o Termo de Custódia e o Termo de Devolução.
+   ============================================================ */
+let _cpFiltro = { de: "", ate: "", pac: "" };
+function _cpSet(campo, valor) { _cpFiltro[campo] = valor; document.getElementById("viewport").innerHTML = renderPage(); }
+
+function _cpDados() {
+  const f = _cpFiltro;
+  const linhas = movements.filter((m) => {
+    if (!movEhCustodia(m)) return false;
+    if (f.de && m.data < f.de) return false;
+    if (f.ate && m.data > f.ate) return false;
+    const dono = movDonoCustodia(m);
+    if (f.pac && dono !== f.pac) return false;
+    return true;
+  }).map((m) => ({ m, dono: movDonoCustodia(m) }));
+
+  // agrupa por paciente e, dentro dele, por substância + lote
+  const porPac = new Map();
+  linhas.forEach(({ m, dono }) => {
+    if (!porPac.has(dono)) porPac.set(dono, new Map());
+    const k = m.subId + "|" + (m.lote || "");
+    const g = porPac.get(dono);
+    if (!g.has(k)) g.set(k, { subId: m.subId, lote: m.lote, movs: [] });
+    g.get(k).movs.push(m);
+  });
+
+  return [...porPac.entries()].map(([pacId, grupos]) => {
+    const p = patById(pacId);
+    const itens = [...grupos.values()].map((g) => {
+      let saldo = 0;
+      const movs = g.movs.slice().sort((a, b) => (a.data < b.data ? -1 : 1)).map((m) => {
+        const neg = (m.tipo === "saida" || m.tipo === "ajuste_saida");
+        saldo += neg ? -m.qtd : m.qtd;
+        return { m, saldo };
+      });
+      return { ...g, movs, saldo };
+    }).sort((a, b) => subById(a.subId).nome.localeCompare(subById(b.subId).nome, "pt-BR"));
+    return { pacId, nome: p ? p.nome : "—", leito: p ? p.leito : "", itens };
+  }).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+function imprimirControleParalelo() {
+  const dados = _cpDados();
+  if (!dados.length) { alert("Nenhuma movimentação de custódia no recorte selecionado."); return; }
+  const TXT = { entrada: "Recebido da família", devolucao: "Devolução à farmácia", saida: "Administrado",
+                ajuste_entrada: "Ajuste +", ajuste_saida: "Ajuste −" };
+
+  const corpo = dados.map((d) => `
+    <h2>${d.nome}${d.leito ? " — leito " + d.leito : ""}</h2>
+    ${d.itens.map((it) => {
+      const s = subById(it.subId);
+      return `<table style="margin-bottom:10px"><thead>
+        <tr><th colspan="6" style="background:#EEF2EC;text-align:left">${s.nome}${s.lista && s.lista !== "—" ? ` · Lista ${s.lista}` : ""} · lote ${it.lote || "—"}</th></tr>
+        <tr><th>Data</th><th>Movimento</th><th>Referência</th><th class="num">Qtde.</th><th class="num">Saldo</th><th>Validade</th></tr>
+        </thead><tbody>
+        ${it.movs.map(({ m, saldo }) => `<tr>
+          <td class="mono">${fmtDate(m.data)}</td>
+          <td>${TXT[m.tipo] || m.tipo}</td>
+          <td>${m.ref || "—"}</td>
+          <td class="num mono">${movSign(m.tipo)}${m.qtd}</td>
+          <td class="num mono">${saldo}</td>
+          <td class="mono">${fmtDate(_validadeLote(m.lote))}</td></tr>`).join("")}
+        <tr><td colspan="4" style="text-align:right"><b>Saldo sob guarda</b></td><td class="num mono"><b>${it.saldo}</b></td><td></td></tr>
+        </tbody></table>`;
+    }).join("")}`).join("");
+
+  const cab = `<div style="border:1px solid #1E2A28;background:#F7F9F6;padding:6px 10px;font-size:10px;line-height:1.45;margin-bottom:10px">
+    <b>Este documento não é escrituração.</b> Registra a medicação de propriedade do paciente, adquirida em drogaria e mantida sob guarda da clínica para uso exclusivo dele.
+    A dispensação foi realizada pelo farmacêutico do estabelecimento que vendeu o medicamento; a clínica mantém controle paralelo do que recebeu, do que foi administrado e do destino na alta.
+    Não integra o Livro de Registro Específico nem o estoque do estabelecimento.</div>`;
+
+  const f = _cpFiltro;
+  const per = [f.de ? "de " + fmtDate(f.de) : "", f.ate ? "até " + fmtDate(f.ate) : ""].filter(Boolean).join(" ")
+    || "todo o período";
+  imprimirRelatorio("Controle Paralelo — Medicação de Pacientes (Custódia)",
+    `${dados.length} paciente(s) · ${per}`, cab + corpo);
 }
