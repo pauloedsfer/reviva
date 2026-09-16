@@ -268,7 +268,7 @@ function renderPage() {
         <div class="toolbar">
           <select onchange="filtrarPrescPaciente(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">${optPacs}</select>
           <button class="btn sm" onclick="abrirImpressaoPrescricoes()">🖶 Imprimir prescrições</button>
-          <button class="btn ghost sm" onclick="imprimirPrescricaoMedica(null)">🖶 Folha em branco</button>
+          <button class="btn ghost sm" onclick="abrirFolhaPrescricaoBranco()">🖶 Folha em branco</button>
           <button class="btn ghost sm" onclick="imprimirReceituario(null,'C')">🖶 Receituário C em branco</button>
           <button class="btn ghost sm" onclick="imprimirReceituario(null,'comum')">🖶 Comum em branco</button>
           <button class="btn sm" onclick="abrirFormPrescricao()">+ Nova prescrição</button>
@@ -422,10 +422,18 @@ function imprimirReceituario(pacId, tipo) {
    Traz TODAS as medicações ativas (controladas e não), pois é a
    ordem médica completa. pacId nulo = folha em branco para preencher à mão.
    ============================================================ */
-function imprimirPrescricaoMedica(pacId) {
+function imprimirPrescricaoMedica(pacId, opts) {
+  opts = opts || {};
   const p = pacId ? patById(pacId) : null;
   const est = window.ESTAB || {};
+  /* Três formatos, do mesmo documento:
+     · sem paciente            -> folha totalmente em branco;
+     · com paciente e opts.vazia -> identificada, medicações em branco (é a
+       folha que o médico preenche na visita, sem redigitar o cabeçalho);
+     · com paciente            -> prescrição vigente impressa. */
   const emBranco = !p;
+  const soIdentificacao = !!(p && opts.vazia);
+  const linhas = Math.min(Math.max(parseInt(opts.linhas, 10) || 14, 5), 20);
   const its = p ? _itensDoPaciente(pacId) : [];
   const presc = p && p.prescritorId ? prescById(p.prescritorId) : null;
   const prescTxt = presc ? `${presc.nome} — ${presc.conselho}-${presc.uf} ${presc.numero}` : "";
@@ -433,8 +441,8 @@ function imprimirPrescricaoMedica(pacId) {
 
   // linhas de medicação: numeradas
   let linhasMed;
-  if (emBranco) {
-    linhasMed = Array.from({ length: 14 }, (_, i) => `<tr><td class="n">${i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
+  if (emBranco || soIdentificacao) {
+    linhasMed = Array.from({ length: linhas }, (_, i) => `<tr><td class="n">${i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
   } else {
     const preench = its.map((pr, i) => {
       const d = _medDescricao(pr);
@@ -443,17 +451,19 @@ function imprimirPrescricaoMedica(pacId) {
       const obs = qtdPorHorario(pr) !== 1 ? `${fmtDose(qtdPorHorario(pr))} por horário` : "";
       return `<tr><td class="n">${i + 1}</td><td class="mono">${_esc(s.nome || d.medicamento)}</td><td>${_esc(pr.dose || "")}</td><td>${_esc(pr.via || "")}</td><td>${_esc(freq)}${obs ? " · " + _esc(obs) : ""}</td></tr>`;
     }).join("");
-    const restantes = Array.from({ length: Math.max(3, 12 - its.length) }, (_, i) => `<tr><td class="n">${its.length + i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
+    const restantes = Array.from({ length: Math.max(3, linhas - its.length) }, (_, i) => `<tr><td class="n">${its.length + i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
     linhasMed = preench + restantes;
   }
 
   const pacBloco = emBranco
     ? `<div>Paciente: ____________________________________________  Prontuário: ____________</div>
        <div>Leito: __________  Idade: ______  Data de internação: ____ / ____ / ______</div>`
-    : `<div>Paciente: <b>${_esc(p.nome)}</b>  ${p.prontuario ? "Prontuário: " + _esc(p.prontuario) : "Prontuário: ____________"}</div>
-       <div>${p.leito ? "Leito: " + _esc(p.leito) + "  " : ""}${idade !== "" ? "Idade: " + idade + "  " : ""}${p.admissao ? "Data de internação: " + fmtDate(p.admissao) : ""}</div>`;
+    /* Identificado: todo campo aparece sempre — com o dado ou com a linha para
+       preencher à mão. Campo que some da folha vira dado que ninguém anota. */
+    : `<div>Paciente: <b>${_esc(p.nome)}</b> &nbsp; Prontuário: ${p.prontuario ? "<b>" + _esc(p.prontuario) + "</b>" : "____________"}</div>
+       <div>Leito: ${p.leito ? "<b>" + _esc(p.leito) + "</b>" : "__________"} &nbsp; Idade: ${idade !== "" ? "<b>" + idade + "</b>" : "______"} &nbsp; Data de internação: ${p.admissao ? "<b>" + fmtDate(p.admissao) + "</b>" : "____ / ____ / ______"}</div>`;
 
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Prescrição Médica${emBranco ? " (em branco)" : " — " + _esc(p.nome)}</title>
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Prescrição Médica${emBranco ? " (em branco)" : (soIdentificacao ? " (em branco) — " + _esc(p.nome) : " — " + _esc(p.nome))}</title>
   <style>@page{size:A4 portrait;margin:14mm 13mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11.5px;margin:0}
   .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:6px}.estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
   .tit{text-align:center;font-size:15px;font-weight:700;letter-spacing:.03em;margin:6px 0}
@@ -475,14 +485,14 @@ function imprimirPrescricaoMedica(pacId) {
   <div class="tit">PRESCRIÇÃO MÉDICA</div>
   <div class="datahora">Data: ____ / ____ / ______   Hora: ______</div>
   <div class="pac">${pacBloco}</div>
-  <div class="alerg"><b>Alergias:</b> ${emBranco ? "___________________________________________________" : "___________________________________________  ( ) Nega alergias"}</div>
+  <div class="alerg"><b>Alergias:</b> ${emBranco || soIdentificacao ? "___________________________________________________" : "___________________________________________  ( ) Nega alergias"}</div>
   <table>
     <thead><tr><th class="n">#</th><th class="med">Medicamento</th><th class="dose">Dose</th><th class="via">Via</th><th>Frequência / horários · observações</th></tr></thead>
     <tbody>${linhasMed}</tbody>
   </table>
   <div class="cuid">
     <div class="bl">Cuidados / orientações</div>
-    ${Array.from({ length: emBranco ? 4 : 3 }, () => `<div class="linha"></div>`).join("")}
+    ${Array.from({ length: emBranco || soIdentificacao ? 4 : 3 }, () => `<div class="linha"></div>`).join("")}
   </div>
   <div class="assin">
     <div>Carimbo:</div>
@@ -693,4 +703,36 @@ function imprimirPrescricoesSelecionadas(sel, o) {
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
   win.document.open(); win.document.write(html); win.document.close();
+}
+
+/* Folha de prescrição para preencher à mão: em branco, ou já identificada
+   com os dados do paciente — que é o caso da visita médica, em que só as
+   medicações mudam e o cabeçalho é sempre o mesmo. */
+function abrirFolhaPrescricaoBranco() {
+  const internados = patients.filter((p) => p.ativo)
+    .sort((a, b) => (a.leito || "").localeCompare(b.leito || "", "pt-BR", { numeric: true })
+      || a.nome.localeCompare(b.nome, "pt-BR"));
+  abrirModal("Folha de prescrição para preencher", `
+    <div class="ff"><label>Identificação do paciente</label>
+      <select id="fbPac">
+        <option value="">Sem identificação — folha totalmente em branco</option>
+        ${internados.map((p) => `<option value="${p.id}">${_esc(p.nome)}${p.leito ? " · leito " + _esc(p.leito) : ""}</option>`).join("")}
+        <option value="__todos">Uma folha para cada paciente internado (${internados.length})</option>
+      </select>
+      <div class="dica">Identificada, a folha sai com nome, prontuário, leito, idade e data de internação preenchidos; as medicações ficam em branco.</div></div>
+    <div class="ff"><label>Linhas de medicação</label>
+      <select id="fbLinhas">
+        ${[10, 14, 16, 20].map((n) => `<option value="${n}"${n === 20 ? " selected" : ""}>${n} linhas</option>`).join("")}
+      </select></div>
+  `, async () => {
+    const linhas = parseInt(fv("fbLinhas"), 10) || 20;
+    const alvo = fv("fbPac");
+    if (alvo === "__todos") {
+      if (!internados.length) throw new Error("Não há pacientes internados.");
+      internados.forEach((p, i) =>
+        setTimeout(() => imprimirPrescricaoMedica(p.id, { vazia: true, linhas }), i * 400));
+      return;
+    }
+    setTimeout(() => imprimirPrescricaoMedica(alvo || null, { vazia: true, linhas }), 60);
+  }, "Imprimir");
 }
