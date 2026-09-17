@@ -1,15 +1,27 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 04/09/2026
+Data: 17/09/2026
 
   assets/dados.js
-  paginas/dose.js
-  paginas/ajustes.js
-  paginas/notasfiscais.js
-  paginas/doacoes.js
-  paginas/medicacaopropria.js
-  paginas/balanco.js
-  paginas/configuracoes.js
-  README.md
+  paginas/escrituracao.js
+
+O QUE MUDOU (Folha de Registro Semanal)
+
+  1. Secao "Substancias sem movimentacao no periodo" passa a listar somente
+     lotes do estoque do estabelecimento. Lote em custodia de paciente
+     (trazido pela familia ou separado por transferencia) saiu da folha.
+     Antes as linhas somavam 130 e o total do grupo mostrava 75.
+
+  2. A transferencia de lote da clinica para o paciente passa a sair sempre
+     como saida total para o paciente. Ela sumia do Livro e da folha quando
+     a clinica e a custodia daquele paciente tinham o mesmo numero de lote
+     de fabrica.
+
+  3. Transferencia da custodia de volta para a clinica: a saida passa a
+     pertencer a custodia do paciente de origem (sai do Livro, entra no
+     Controle Paralelo) e a entrada no estoque continua escriturada.
+     Antes a saida entrava no Livro sem paciente e dobrava a baixa.
+
+Nenhuma migracao de banco nesta entrega.
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
 O zip completo (reviva-app.zip) continua disponivel, caso prefira.

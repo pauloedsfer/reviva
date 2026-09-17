@@ -525,7 +525,13 @@ function _entradasBrutas() {
     subId: t.subId, lote: t.loteDestino, validade: t.validade, qtd: t.qtd,
     custoUnit: t.custoUnit, origem: "transferido", restritoPaciente: t.paciente || null,
     transferenciaId: t.id, loteOrigem: t.loteOrigem,
-    fonte: `Transferido do estoque — ${patById(t.paciente) ? patById(t.paciente).nome : ""} (lote ${t.loteOrigem})`,
+    /* Este texto vai para a coluna "Origem / documento" da folha e do Livro,
+       então precisa dizer de onde o lote veio. Na volta para a clínica não há
+       paciente de destino: patById(null) devolvia "—" e a entrada aparecia sem
+       origem no impresso de fiscalização. */
+    fonte: t.paciente
+      ? `Transferido do estoque — ${patById(t.paciente).nome} (lote ${t.loteOrigem})`
+      : `Devolvido da custódia${t.pacienteOrigem ? " de " + patById(t.pacienteOrigem).nome : ""} (lote ${t.loteOrigem})`,
     data: t.data,
   }));
   patientMeds.forEach((pm) => pm.itens.forEach((it) => {
@@ -902,11 +908,23 @@ function buildMovements() {
   }));
   // saída do estoque geral correspondente a cada transferência
   transferenciasCustodia.forEach((t) => {
-    const p = patById(t.paciente);
+    /* Sem paciente de destino a transferência é devolução ao estoque da casa.
+       patById(null) devolve "—", e o rótulo saía "para custódia — —" no
+       Controle Paralelo; aqui o destino é dito por extenso. */
+    const destino = t.paciente ? `custódia — ${patById(t.paciente).nome}` : "o estoque da clínica";
     list.push({
       data: t.data, tipo: "saida", subId: t.subId, qtd: t.qtd,
-      ref: `Transferência para custódia — ${p ? p.nome : ""}`,
+      ref: `Transferência para ${destino}`,
       paciente: t.paciente, lote: t.loteOrigem, custoUnit: t.custoUnit,
+      /* `dono` é DE QUEM SAI o saldo, não para quem vai. Sem ele,
+         movEhCustodia() procurava o lote pelo paciente de DESTINO: quando a
+         clínica e a custódia daquele paciente tinham o mesmo número de lote
+         de fábrica — o que acontece, porque a família compra na mesma
+         drogaria —, a saída era classificada como custódia e desaparecia do
+         Livro e da Folha de Registro Semanal, embora o saldo da clínica
+         baixasse. É a mesma chave que _mapaSaldos() já usa para debitar a
+         transferência: substância + lote de origem + dono de origem. */
+      dono: t.pacienteOrigem || null,
     });
   });
   dispensations.forEach((d) => {

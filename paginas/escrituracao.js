@@ -326,11 +326,19 @@ function _folhaSemanalDados() {
     _ordemLista(x.g.lista) - _ordemLista(y.g.lista) ||
     String(x.g.label).localeCompare(String(y.g.label), "pt-BR");
   const comMov = blocos.filter((b) => b.entradas.length || b.saidas.length).sort(porLista);
+  /* A folha alimenta o Livro de Registro Específico, que é do estoque do
+     ESTABELECIMENTO. Lote sob custódia de paciente — trazido pela família ou
+     separado por transferência — não é da casa e não entra aqui; ele tem
+     lugar próprio no Controle Paralelo. Antes esses lotes eram listados com
+     uma ★, e a soma deles não fechava com o total do grupo logo abaixo, que
+     já era apurado sem custódia: 75 no total e 130 nas linhas. O lote de
+     custódia INTEGRADO ao estoque na alta não é filtrado aqui porque deixa de
+     ter dono no agrupamento — passa a ser estoque da clínica, e é isso mesmo
+     que o Livro deve mostrar. */
   const semMov = blocos.filter((b) => !b.entradas.length && !b.saidas.length && b.final !== 0).sort(porLista)
     .map((b) => ({ ...b, lotes: allLotes()
-      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && saldoLoteChave(l.chave) > 0)
-      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave),
-                     paciente: l.restritoPaciente ? (patById(l.restritoPaciente) || {}).nome : null }))
+      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && !l.restritoPaciente && saldoLoteChave(l.chave) > 0)
+      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave) }))
       .sort((a, b2) => String(a.validade || "9999").localeCompare(String(b2.validade || "9999"))) }));
   return { ini, fim, blocos: comMov, semMov };
 }
@@ -457,7 +465,7 @@ function imprimirFolhaSemanal() {
     ${semMov.length ? `
       <section class="semmov">
         <div class="sm-tit">Substâncias sem movimentação no período</div>
-        <div class="sm-sub">Sem entradas e sem saídas entre ${fmtDate(ini)} e ${fmtDate(fim)}. Saldo em estoque, por lote, para conferência.</div>
+        <div class="sm-sub">Sem entradas e sem saídas entre ${fmtDate(ini)} e ${fmtDate(fim)}. Saldo do <b>estoque do estabelecimento</b>, por lote, para conferência — medicação em custódia de paciente não integra esta folha.</div>
         <table>
           <tr class="th"><td>Substância</td><td>Lista</td><td>Lote</td><td>Validade</td><td class="num">Saldo</td></tr>
           ${(() => { let at = null; return semMov.map((b) => {
@@ -465,16 +473,23 @@ function imprimirFolhaSemanal() {
             let cab = "";
             if (lst !== at) { at = lst;
               cab = `<tr class="sm-lista"><td colspan="5">${_esc(_rotuloLista(lst))}</td></tr>`; }
+            /* Sem nenhum lote do estabelecimento com saldo, o grupo ainda
+               precisa aparecer com o saldo apurado: silenciar a linha faria
+               a folha discordar do saldo que o Livro acumula. */
+            if (!b.lotes.length) return cab + `<tr>
+              <td><b>${_esc(b.g.label)}</b></td>
+              <td>${b.g.lista ? _esc(b.g.lista) : "—"}</td>
+              <td class="mono">—</td><td class="mono">—</td>
+              <td class="num mono">${b.final}</td></tr>`;
             return cab + b.lotes.map((l, i) => `<tr>
             <td>${i === 0 ? `<b>${_esc(b.g.label)}</b>` : ""}</td>
             <td>${i === 0 ? (b.g.lista ? _esc(b.g.lista) : "—") : ""}</td>
-            <td class="mono">${_esc(l.lote)}${l.paciente ? ` <span class="obs">★ ${_esc(l.paciente)}</span>` : ""}</td>
+            <td class="mono">${_esc(l.lote)}</td>
             <td class="mono">${l.validade ? fmtDate(l.validade) : "—"}</td>
             <td class="num mono">${l.saldo}</td></tr>`).join("") +
             (b.lotes.length > 1 ? `<tr class="sm-tot"><td colspan="4">Total — ${_esc(b.g.label)}</td><td class="num mono">${b.final}</td></tr>` : "");
           }).join(""); })()}
         </table>
-        <div class="sm-nota">★ = lote de uso exclusivo do paciente indicado (custódia).</div>
       </section>` : ""}`;
 
   imprimirRelatorio("Folha de Registro Semanal",
