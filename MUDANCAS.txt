@@ -1,20 +1,22 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 18/09/2026
+Data: 21/09/2026
 
   paginas/dose.js
 
-O QUE MUDOU (Etiquetas dos kits — 2 colunas)
+O QUE MUDOU (Etiquetas dos kits — 2 e 3 colunas)
 
-  As duas colunas passam a ser independentes: cada etiqueta tem a altura
-  do proprio conteudo e nao e mais esticada ate a altura da vizinha.
-  Em teste com 20 etiquetas, a impressao caiu de 3 para 2 folhas.
+  As colunas passam a ser independentes tambem no modo de 3 colunas:
+  cada etiqueta tem a altura do proprio conteudo e nao e mais esticada
+  ate a altura das vizinhas. Os dois modos agora usam o mesmo layout.
 
-  Corte: primeiro a pontilhada vertical do meio, separando as duas tiras;
+  Teste com 20 etiquetas:
+    3 colunas: pagina 1 passou de 12 para 15 etiquetas
+    2 colunas: de 3 para 2 folhas
+
+  Corte: primeiro as pontilhadas verticais, separando as tiras;
   depois as pontilhadas horizontais de cada tira.
 
-  Ordem: de cima para baixo na coluna da esquerda, depois na da direita.
-
-  O modo de 3 colunas nao foi alterado.
+  Ordem: de cima para baixo em cada coluna, da esquerda para a direita.
 
 Nenhuma migracao de banco nesta entrega.
 

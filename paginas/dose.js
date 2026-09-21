@@ -150,35 +150,26 @@ window.printLabels = function (opts) {
     </div>`).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas — Dose Unitária</title>
     <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;margin:0}
-      /* 2 colunas e altura AUTOMÁTICA: com 3 colunas e altura fixa de 46mm,
-         horários com muitas medicações estouravam a etiqueta e o texto
-         era cortado. Agora a etiqueta cresce conforme o conteúdo. */
-      /* Guias de corte: cada etiqueta fica dentro de uma célula que desenha
-         pontilhado nas divisas, para recortar com tesoura em linha reta.
-         align-items:stretch iguala a altura das duas células da mesma linha,
-         então a pontilhada horizontal atravessa a folha sem degrau. O espaço
-         entre etiquetas continua sendo 5mm (2,5mm de padding de cada lado). */
-      .grid{display:grid;grid-template-columns:repeat(${cols},1fr);gap:0;align-items:stretch}
-      .cell{position:relative;display:flex;padding:2.5mm;border-right:1px dashed #9aa39a;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
-      .cell:nth-child(${cols}n){border-right:none}
-      /* tesourinha só na coluna da esquerda, marcando o início da linha de corte */
-      .cell:nth-child(${cols}n+1)::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
-      ${cols === 2 ? `
-      /* 2 COLUNAS INDEPENDENTES. Na grade, a etiqueta de um horário com uma
-         só medicação era esticada até a altura da vizinha com oito — adesivo
-         e papel gastos em branco. Aqui cada coluna empilha as suas etiquetas
-         na altura do próprio conteúdo (multicolunas do CSS), e as linhas não
-         precisam mais coincidir.
-         Consequência no corte: primeiro a tesoura desce pela pontilhada
-         vertical do meio (column-rule), separando as duas tiras; depois cada
-         tira é cortada nas suas próprias pontilhadas horizontais — por isso
-         a tesourinha passa a marcar todas as etiquetas, não só as da esquerda.
-         Consequência na ordem: a leitura é de cima para baixo na coluna da
-         esquerda e depois na da direita, página a página. Os horários do
-         mesmo paciente ficam empilhados um sob o outro. */
-      .grid{display:block;column-count:2;column-gap:0;column-rule:1px dashed #9aa39a}
-      .cell{display:block;border-right:none}
-      .cell::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}` : ""}
+      /* Altura AUTOMÁTICA: com altura fixa de 46mm, horários com muitas
+         medicações estouravam a etiqueta e o texto era cortado. A etiqueta
+         cresce conforme o conteúdo; o min-height só evita tira fina demais
+         para descolar e manusear. */
+      /* COLUNAS INDEPENDENTES (vale para 2 e 3 colunas). Na grade antiga,
+         align-items:stretch esticava a etiqueta de um horário com uma só
+         medicação até a altura da vizinha com oito — adesivo e papel gastos
+         em branco. Com multicolunas do CSS, cada coluna empilha as suas
+         etiquetas na altura do próprio conteúdo e as linhas não precisam
+         coincidir.
+         Corte: primeiro a tesoura desce pelas pontilhadas verticais
+         (column-rule), separando as tiras; depois cada tira é cortada nas
+         suas próprias pontilhadas horizontais. Por isso a tesourinha marca
+         todas as etiquetas, e não só as da primeira coluna.
+         Ordem: de cima para baixo em cada coluna, da esquerda para a direita,
+         página a página — os horários do mesmo paciente ficam empilhados.
+         O espaço entre etiquetas continua sendo 5mm (2,5mm de cada lado). */
+      .grid{column-count:${cols};column-gap:0;column-rule:1px dashed #9aa39a}
+      .cell{position:relative;display:block;padding:2.5mm;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
+      .cell::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
       .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:${cols === 3 ? "6px 7px" : "8px 10px"};min-height:${cols === 3 ? "34mm" : "40mm"};display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid;font-size:${cols === 3 ? "9.5px" : "11px"}}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
       .lbl-p{font-weight:700;font-size:13px;margin-top:5px}.lbl-b{font-size:11px;color:#333}
