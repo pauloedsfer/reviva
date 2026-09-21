@@ -163,6 +163,22 @@ window.printLabels = function (opts) {
       .cell:nth-child(${cols}n){border-right:none}
       /* tesourinha só na coluna da esquerda, marcando o início da linha de corte */
       .cell:nth-child(${cols}n+1)::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
+      ${cols === 2 ? `
+      /* 2 COLUNAS INDEPENDENTES. Na grade, a etiqueta de um horário com uma
+         só medicação era esticada até a altura da vizinha com oito — adesivo
+         e papel gastos em branco. Aqui cada coluna empilha as suas etiquetas
+         na altura do próprio conteúdo (multicolunas do CSS), e as linhas não
+         precisam mais coincidir.
+         Consequência no corte: primeiro a tesoura desce pela pontilhada
+         vertical do meio (column-rule), separando as duas tiras; depois cada
+         tira é cortada nas suas próprias pontilhadas horizontais — por isso
+         a tesourinha passa a marcar todas as etiquetas, não só as da esquerda.
+         Consequência na ordem: a leitura é de cima para baixo na coluna da
+         esquerda e depois na da direita, página a página. Os horários do
+         mesmo paciente ficam empilhados um sob o outro. */
+      .grid{display:block;column-count:2;column-gap:0;column-rule:1px dashed #9aa39a}
+      .cell{display:block;border-right:none}
+      .cell::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}` : ""}
       .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:${cols === 3 ? "6px 7px" : "8px 10px"};min-height:${cols === 3 ? "34mm" : "40mm"};display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid;font-size:${cols === 3 ? "9.5px" : "11px"}}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
       .lbl-p{font-weight:700;font-size:13px;margin-top:5px}.lbl-b{font-size:11px;color:#333}

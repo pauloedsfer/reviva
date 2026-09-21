@@ -1,25 +1,20 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 17/09/2026
+Data: 18/09/2026
 
-  assets/dados.js
-  paginas/escrituracao.js
+  paginas/dose.js
 
-O QUE MUDOU (Folha de Registro Semanal)
+O QUE MUDOU (Etiquetas dos kits — 2 colunas)
 
-  1. Secao "Substancias sem movimentacao no periodo" passa a listar somente
-     lotes do estoque do estabelecimento. Lote em custodia de paciente
-     (trazido pela familia ou separado por transferencia) saiu da folha.
-     Antes as linhas somavam 130 e o total do grupo mostrava 75.
+  As duas colunas passam a ser independentes: cada etiqueta tem a altura
+  do proprio conteudo e nao e mais esticada ate a altura da vizinha.
+  Em teste com 20 etiquetas, a impressao caiu de 3 para 2 folhas.
 
-  2. A transferencia de lote da clinica para o paciente passa a sair sempre
-     como saida total para o paciente. Ela sumia do Livro e da folha quando
-     a clinica e a custodia daquele paciente tinham o mesmo numero de lote
-     de fabrica.
+  Corte: primeiro a pontilhada vertical do meio, separando as duas tiras;
+  depois as pontilhadas horizontais de cada tira.
 
-  3. Transferencia da custodia de volta para a clinica: a saida passa a
-     pertencer a custodia do paciente de origem (sai do Livro, entra no
-     Controle Paralelo) e a entrada no estoque continua escriturada.
-     Antes a saida entrava no Livro sem paciente e dobrava a baixa.
+  Ordem: de cima para baixo na coluna da esquerda, depois na da direita.
+
+  O modo de 3 colunas nao foi alterado.
 
 Nenhuma migracao de banco nesta entrega.
 
