@@ -5,18 +5,11 @@ Data: 21/09/2026
 
 O QUE MUDOU (Etiquetas dos kits — 2 e 3 colunas)
 
-  As colunas passam a ser independentes tambem no modo de 3 colunas:
-  cada etiqueta tem a altura do proprio conteudo e nao e mais esticada
-  ate a altura das vizinhas. Os dois modos agora usam o mesmo layout.
+  O botao "Imprimir / Salvar PDF" ficava atras das etiquetas e nao
+  recebia o clique. Agora fica sempre por cima.
 
-  Teste com 20 etiquetas:
-    3 colunas: pagina 1 passou de 12 para 15 etiquetas
-    2 colunas: de 3 para 2 folhas
-
-  Corte: primeiro as pontilhadas verticais, separando as tiras;
-  depois as pontilhadas horizontais de cada tira.
-
-  Ordem: de cima para baixo em cada coluna, da esquerda para a direita.
+  (Inclui tambem as colunas independentes da entrega anterior, no mesmo
+  arquivo.)
 
 Nenhuma migracao de banco nesta entrega.
 

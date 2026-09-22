@@ -183,7 +183,11 @@ window.printLabels = function (opts) {
       .lbl-m .mq{display:inline-block;min-width:22px;text-align:center;background:#EEF2EC;border:1px solid #cfd6cf;border-radius:4px;font-weight:700;font-size:10.5px;padding:0 3px}
       .lbl-m .cust{font-size:8.5px;color:#B07A2F;font-weight:600}
       .lbl-m .dsc{font-size:8.5px;color:#777}
-      .toolbar{position:fixed;top:12px;right:12px}.toolbar button{background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}
+      /* z-index: as células das etiquetas são position:relative (ancoram a
+         tesourinha) e vêm depois da barra no HTML; sem z-index elas eram
+         pintadas por cima do botão fixo, que ficava visível mas não recebia o
+         clique — só dava para imprimir com Ctrl+P. */
+      .toolbar{position:fixed;top:12px;right:12px;z-index:1000}.toolbar button{background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;box-shadow:0 2px 8px rgba(0,0,0,.25)}
       @media print{.toolbar{display:none}}</style></head><body>
       <div class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
       <div class="grid">${cards}</div></body></html>`;
