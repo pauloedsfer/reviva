@@ -337,8 +337,11 @@ function _folhaSemanalDados() {
      que o Livro deve mostrar. */
   const semMov = blocos.filter((b) => !b.entradas.length && !b.saidas.length && b.final !== 0).sort(porLista)
     .map((b) => ({ ...b, lotes: allLotes()
-      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && !l.restritoPaciente && saldoLoteChave(l.chave) > 0)
-      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChave(l.chave) }))
+      /* Saldo no FIM do período, não o de hoje: numa folha retroativa o saldo
+         atual não fecha com o total do grupo (b.final), que é apurado até
+         `fim`. Lote que só entrou depois de `fim` dá zero aqui e nem aparece. */
+      .filter((l) => b.g.subIds.indexOf(l.subId) !== -1 && !l.restritoPaciente && saldoLoteChaveEm(l.chave, fim) > 0)
+      .map((l) => ({ lote: l.lote, validade: l.validade, saldo: saldoLoteChaveEm(l.chave, fim) }))
       .sort((a, b2) => String(a.validade || "9999").localeCompare(String(b2.validade || "9999"))) }));
   return { ini, fim, blocos: comMov, semMov };
 }

@@ -1,17 +1,23 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 21/09/2026
+Data: 22/09/2026
 
-  paginas/dose.js
+  assets/dados.js
+  paginas/escrituracao.js
 
-O QUE MUDOU (Etiquetas dos kits — 2 e 3 colunas)
+O QUE MUDOU (Folha de Registro Semanal)
 
-  O botao "Imprimir / Salvar PDF" ficava atras das etiquetas e nao
-  recebia o clique. Agora fica sempre por cima.
+  A secao "Substancias sem movimentacao no periodo" mostrava o saldo por
+  lote de HOJE, mesmo numa folha retroativa. Passa a mostrar o saldo no
+  fim da semana impressa, fechando com o total do grupo.
+  Lote que so entrou depois daquela semana nao aparece mais na folha.
 
-  (Inclui tambem as colunas independentes da entrega anterior, no mesmo
-  arquivo.)
+  Novo em assets/dados.js: saldoLoteChaveEm(chave, ate) e _mapaSaldosEm(ate),
+  que calculam saldo por lote em uma data. Mesma aritmetica do mapa de hoje,
+  ignorando o que tem data posterior. Cache por data.
+  saldoLoteChave() continua igual — nenhuma outra tela muda.
 
 Nenhuma migracao de banco nesta entrega.
 
 Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
-O zip completo (reviva-app.zip) continua disponivel, caso prefira.
+O zip completo (reviva-app.zip) traz tambem paginas/dose.js das entregas
+anteriores desta conversa, caso ainda nao tenha subido.

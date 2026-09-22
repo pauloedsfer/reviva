@@ -665,6 +665,53 @@ function saldoLoteChave(chave) {
   const v = _mapaSaldos()[chave];
   return v === undefined ? 0 : v;
 }
+
+/* ---- Saldo por lote EM UMA DATA ----
+   _mapaSaldos() responde sempre "hoje". Impresso retroativo — a folha de uma
+   semana passada, por exemplo — precisa do saldo como estava no fim daquele
+   período, senão o papel mostra número de hoje ao lado de movimentação antiga
+   e não fecha com o Livro.
+   Mesma aritmética do mapa de hoje, só que ignorando tudo com data posterior
+   a `ate`. A identidade do lote (_chaveDaSaida) continua vindo dos buckets
+   atuais de propósito: quem é dono de qual lote não muda com o tempo, e
+   recalcular os buckets por data custaria caro sem mudar o resultado.
+   Cache por data, invalidado pelo mesmo selo de _mapaSaldos(). */
+let _cacheSaldosEm = {}, _seloSaldosEm = null;
+function _mapaSaldosEm(ate) {
+  if (!ate) return _mapaSaldos();
+  const selo = _selo();
+  if (_seloSaldosEm !== selo) { _cacheSaldosEm = {}; _seloSaldosEm = selo; }
+  if (_cacheSaldosEm[ate]) return _cacheSaldosEm[ate];
+  const ateAqui = (d) => !d || d <= ate;
+  const m = {};
+  _entradasBrutas().forEach((l) => {
+    if (!ateAqui(l.data)) return;
+    const k = loteChaveDe(l);
+    m[k] = (m[k] || 0) + l.qtd;
+  });
+  dispensations.forEach((x) => { if (!ateAqui(x.data)) return;
+    const k = _chaveDaSaida(x.subId, x.lote, x.paciente); m[k] = (m[k] || 0) - x.qtd; });
+  returns.forEach((x) => { if (!ateAqui(x.data)) return;
+    const k = _chaveDaSaida(x.subId, x.lote, x.paciente); m[k] = (m[k] || 0) + x.qtd; });
+  ajustes.forEach((x) => { if (!ateAqui(x.data)) return;
+    const k = _chaveDoAjuste(x); m[k] = (m[k] || 0) + x.delta; });
+  transferenciasCustodia.forEach((t) => { if (!ateAqui(t.data)) return;
+    const k = loteChave(t.subId, t.loteOrigem, t.pacienteOrigem || null);
+    if (m[k] !== undefined) m[k] -= t.qtd; });
+  const buckets = _lotesAgrupados();
+  Object.keys(buckets).forEach((k) => {
+    const d = (buckets[k].itensCustodia || []).reduce((a, id) => a +
+      destinosDoItem(id).filter((x) => x.tipo !== "integracao_estoque" && ateAqui(x.data))
+        .reduce((n, x) => n + x.qtd, 0), 0);
+    if (d && m[k] !== undefined) m[k] -= d;
+  });
+  _cacheSaldosEm[ate] = m;
+  return m;
+}
+function saldoLoteChaveEm(chave, ate) {
+  const v = _mapaSaldosEm(ate)[chave];
+  return v === undefined ? 0 : v;
+}
 // invalida os caches após gravar algo
 /* ---- Alocação em vários lotes ----
    Uma dose pode não caber num lote só: se restam 1 comprimido no lote antigo
