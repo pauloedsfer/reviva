@@ -975,17 +975,15 @@ function buildMovements() {
     });
   });
   dispensations.forEach((d) => {
-    const lote = allLotes().find((l) => l.lote === d.lote);
     list.push({
       data: d.data, tipo: "saida", subId: d.subId, qtd: d.qtd, ref: d.ref,
-      paciente: d.paciente, lote: d.lote, custoUnit: lote ? lote.custoUnit : custoMedio(d.subId),
+      paciente: d.paciente, lote: d.lote, custoUnit: custoUnitDaSaida(d.subId, d.lote, d.paciente),
     });
   });
   returns.forEach((r) => {
-    const lote = allLotes().find((l) => l.lote === r.lote);
     list.push({
       data: r.data, tipo: "devolucao", subId: r.subId, qtd: r.qtd, ref: `Devolução — ${r.motivo}`,
-      paciente: r.paciente, lote: r.lote, custoUnit: lote ? lote.custoUnit : custoMedio(r.subId),
+      paciente: r.paciente, lote: r.lote, custoUnit: custoUnitDaSaida(r.subId, r.lote, r.paciente),
     });
   });
   custodiaDestinos.forEach((d) => {
@@ -1031,6 +1029,21 @@ function _lotesTransferidos() {
    paciente NO MOMENTO DA TRANSFERÊNCIA. As doses administradas depois saem
    desse lote e NÃO são cobradas outra vez — do contrário o mesmo comprimido
    seria contado duas vezes. */
+/* Custo unitário de uma saída, pelo LOTE CERTO.
+   Antes era allLotes().find(l => l.lote === lote): casava só pelo número do
+   lote, que não é único — o mesmo número existe na clínica e na custódia de
+   um paciente, e substâncias diferentes podem repeti-lo. A dose da clínica
+   podia ser valorizada pelo lote da família (custo zero) e vice-versa, o que
+   falseia toda a tela de custos. _chaveDaSaida() é a mesma chave que o saldo
+   usa: substância + lote + dono. De quebra sai o find() dentro do laço, que
+   percorria todos os lotes para cada dispensação.
+   Sem lote correspondente — lançamento antigo, lote apagado — cai no custo
+   médio da substância, como antes. */
+function custoUnitDaSaida(subId, lote, pacienteId) {
+  const b = _lotesAgrupados()[_chaveDaSaida(subId, lote, pacienteId)];
+  return b ? b.custoUnit : custoMedio(subId);
+}
+
 function custoMedicamentosPaciente(patId) {
   const transf = _lotesTransferidos();
   return movements
@@ -1053,39 +1066,70 @@ function consumoMedioDiario(subId) {
 /* ---------------- mini gráficos SVG (sem dependências) ---------------- */
 const CHART_COLORS = { primary: "#2C5F5A", accent: "#A9784F", success: "#5C7F58", warn: "#8B4A3A", line: "#DEDACD", ink: "#1E2A28", muted: "#8A928F" };
 
+/* Barras de série temporal.
+   O svgBarChart antigo desenhava rótulo de valor e rótulo de eixo em TODAS
+   as barras: com 30 dias na tela os textos se sobrepunham e viravam um
+   borrão. Aqui o número sobre a barra só sai quando cabe, o rótulo do eixo
+   é ralo (um a cada N), há linhas de grade para leitura por altura e cada
+   barra tem <title>, que o navegador mostra ao passar o mouse — é onde
+   ficam os valores que não couberam. */
 function svgBarChart(data, opts = {}) {
-  const width = opts.width || 600, height = opts.height || 190;
-  const pad = { top: 26, right: 14, bottom: 30, left: 14 };
+  const width = opts.width || 720, height = opts.height || 220;
+  const pad = { top: 22, right: 10, bottom: 34, left: 52 };
   const chartW = width - pad.left - pad.right, chartH = height - pad.top - pad.bottom;
   const max = Math.max(...data.map((d) => d.value), 1);
+  const fmt = opts.valueFmt || ((v) => String(v));
   const gap = chartW / (data.length || 1);
-  const barW = Math.min(gap * 0.5, 46);
+  const barW = Math.max(Math.min(gap * 0.66, 42), 1);
+  const passo = Math.ceil(data.length / (opts.maxLabels || 14));
+  const mostrarValor = data.length <= (opts.maxValores || 12);
+
+  let grade = "";
+  for (let i = 0; i <= 3; i++) {
+    const v = (max / 3) * i, y = pad.top + chartH - (chartH / 3) * i;
+    grade += `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="${CHART_COLORS.line}" stroke-width="1"/>
+      <text x="${pad.left - 6}" y="${y + 4}" text-anchor="end" font-size="10" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.muted}">${opts.axisFmt ? opts.axisFmt(v) : fmt(v)}</text>`;
+  }
   let bars = "";
   data.forEach((d, i) => {
-    const h = max ? (d.value / max) * chartH : 0;
+    const h = (d.value / max) * chartH;
     const x = pad.left + i * gap + (gap - barW) / 2;
     const y = pad.top + chartH - h;
-    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h, 1).toFixed(1)}" rx="5" fill="${opts.color || CHART_COLORS.primary}"/>
-      <text x="${(x + barW / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${opts.valueFmt ? opts.valueFmt(d.value) : d.value}</text>
-      <text x="${(x + barW / 2).toFixed(1)}" y="${height - 10}" text-anchor="middle" font-size="10.5" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.muted}">${d.label}</text>`;
+    bars += `<g><title>${d.label}: ${fmt(d.value)}</title>
+      <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h, 1).toFixed(1)}" rx="4" fill="${d.color || opts.color || CHART_COLORS.primary}"/></g>`;
+    if (mostrarValor && d.value > 0) {
+      bars += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" text-anchor="middle" font-size="10.5" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${fmt(d.value)}</text>`;
+    }
+    if (i % passo === 0) {
+      bars += `<text x="${(x + barW / 2).toFixed(1)}" y="${height - 12}" text-anchor="middle" font-size="10" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.muted}">${d.label}</text>`;
+    }
   });
-  return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:${height}px;display:block">${bars}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:${height}px;display:block">${grade}${bars}</svg>`;
 }
 
+/* Barras horizontais para ranking (substância, paciente, categoria).
+   Mudanças em relação à versão antiga: o rótulo é truncado em vez de
+   invadir a barra, e o valor entra DENTRO da barra quando ela é longa
+   demais para o texto caber fora — era o outro ponto de sobreposição. */
 function svgHBarChart(data, opts = {}) {
-  const width = opts.width || 600;
-  const barH = opts.barHeight || 24, rowGap = opts.gap || 16;
-  const labelW = opts.labelWidth || 168;
-  const chartW = width - labelW - 74;
+  const width = opts.width || 720;
+  const barH = opts.barHeight || 22, rowGap = opts.gap || 12;
+  const labelW = opts.labelWidth || 210;
+  const valorW = 92;
+  const chartW = width - labelW - valorW;
   const max = Math.max(...data.map((d) => d.value), 1);
   const height = (data.length || 1) * (barH + rowGap);
+  const fmt = opts.valueFmt || ((v) => String(v));
+  const corta = (t, n) => (String(t).length > n ? String(t).slice(0, n - 1) + "…" : String(t));
   let rows = "";
   data.forEach((d, i) => {
     const y = i * (barH + rowGap);
     const w = Math.max((d.value / max) * chartW, 2);
-    rows += `<text x="0" y="${y + barH / 2 + 4}" font-size="12" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.ink}">${d.label}</text>
-      <rect x="${labelW}" y="${y}" width="${w.toFixed(1)}" height="${barH}" rx="5" fill="${opts.color || CHART_COLORS.primary}"/>
-      <text x="${(labelW + w + 8).toFixed(1)}" y="${y + barH / 2 + 4}" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="${CHART_COLORS.ink}">${opts.valueFmt ? opts.valueFmt(d.value) : d.value}</text>`;
+    const dentro = w > chartW * 0.72;   // sem espaço à direita: número vai para dentro
+    rows += `<g><title>${d.label}: ${fmt(d.value)}</title>
+      <text x="0" y="${y + barH / 2 + 4}" font-size="12" font-family="Public Sans, sans-serif" fill="${CHART_COLORS.ink}">${corta(d.label, Math.floor(labelW / 6.4))}</text>
+      <rect x="${labelW}" y="${y}" width="${w.toFixed(1)}" height="${barH}" rx="4" fill="${d.color || opts.color || CHART_COLORS.primary}"/>
+      <text x="${(dentro ? labelW + w - 8 : labelW + w + 8).toFixed(1)}" y="${y + barH / 2 + 4}" text-anchor="${dentro ? "end" : "start"}" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="${dentro ? "#fff" : CHART_COLORS.ink}">${fmt(d.value)}</text></g>`;
   });
   return `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:${height}px;display:block">${rows}</svg>`;
 }

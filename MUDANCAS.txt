@@ -1,30 +1,35 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 29/09/2026
 
-  separacao.html          (NOVO — vai na raiz, junto com dose.html)
-  paginas/separacao.js    (NOVO)
-  assets/layout.js
-  paginas/dose.js
+  paginas/financeiro.js   (reescrito)
+  assets/dados.js
 
 O QUE MUDOU
 
-  1. Separacao da farmacia virou tela propria (separacao.html), no menu
-     Operacao, logo abaixo de Dispensacao. Como modal ela fechava a cada
-     impressao. Agora a selecao fica na tela e cada impresso tem o seu
-     botao: checklist, etiquetas dos kits, etiquetas dos sacos, folha de
-     preparo e SOS, e "Tudo".
-     A tela tambem mostra uma previa: periodo, quantos pacientes e quantas
-     etiquetas de kit vao sair.
-     Os horarios oferecidos passam a ser os do periodo escolhido, nao os
-     de hoje.
+  1. Tela Custos & Indicadores reescrita:
+     - filtros de periodo (Hoje, 7, 30, Este mes, Mes passado, Tudo, ou
+       datas livres), agrupamento Diario / Semanal / Mensal / Total,
+       filtro por paciente (inclusive os que ja tiveram alta) e por
+       medicamento/material;
+     - 6 indicadores: custo no periodo, custo por paciente-dia, doses
+       dispensadas com concentracao 80% do custo, valor em estoque,
+       economia com doacoes e economia com custodia;
+     - graficos: serie do custo no periodo, ranking por paciente e
+       ranking por substancia (top 10 + "outras");
+     - extrato com detalhe linha a linha quando ha paciente escolhido;
+     - impressao do extrato em A4, com cabecalho do paciente e rodape
+       do RT.
 
-  2. Menu: "Dispensacao (dose unitaria)" -> "Dispensacao"
-           "Mapa de Medicacao (impressao)" -> "Mapa de Medicacao"
-
-  3. Em dose.js o botao "Separacao da farmacia" agora leva para a tela
-     nova; a funcao abrirSeparacao() foi removida. As funcoes de impressao
-     continuam em dose.js (tambem servem a dispensacao), por isso
-     separacao.html carrega dose.js ANTES de separacao.js.
+  2. assets/dados.js
+     - svgBarChart e svgHBarChart reescritos. Era a causa da
+       sobreposicao: desenhavam rotulo de valor e de eixo em todas as
+       barras. Agora ha grade, rotulo ralo, valor so quando cabe,
+       <title> no hover e rotulo truncado nas barras horizontais.
+     - NOVO custoUnitDaSaida(subId, lote, paciente): o custo da
+       dispensacao era buscado por allLotes().find(l => l.lote === lote),
+       que casa so pelo numero do lote. Dose da clinica podia ser
+       valorizada pelo lote da familia (custo zero) e vice-versa.
+       Agora usa a chave substancia + lote + dono, a mesma do saldo.
 
 Nenhuma migracao de banco nesta entrega.
 
