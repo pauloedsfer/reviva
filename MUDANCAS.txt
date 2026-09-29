@@ -1,35 +1,35 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 29/09/2026
 
-  paginas/financeiro.js   (reescrito)
-  assets/dados.js
+  paginas/financeiro.js
 
-O QUE MUDOU
+O QUE MUDOU — 5 indicadores novos em Custos & Indicadores
 
-  1. Tela Custos & Indicadores reescrita:
-     - filtros de periodo (Hoje, 7, 30, Este mes, Mes passado, Tudo, ou
-       datas livres), agrupamento Diario / Semanal / Mensal / Total,
-       filtro por paciente (inclusive os que ja tiveram alta) e por
-       medicamento/material;
-     - 6 indicadores: custo no periodo, custo por paciente-dia, doses
-       dispensadas com concentracao 80% do custo, valor em estoque,
-       economia com doacoes e economia com custodia;
-     - graficos: serie do custo no periodo, ranking por paciente e
-       ranking por substancia (top 10 + "outras");
-     - extrato com detalhe linha a linha quando ha paciente escolhido;
-     - impressao do extrato em A4, com cabecalho do paciente e rodape
-       do RT.
+  1. Perdas em R$ — card no topo e painel "Perdas e devolucoes":
+     ajuste de inventario negativo valorizado pelo lote, % do custo,
+     e a lista dos lotes VENCIDOS que ainda tem saldo (perda que ja
+     aconteceu e nao foi baixada).
 
-  2. assets/dados.js
-     - svgBarChart e svgHBarChart reescritos. Era a causa da
-       sobreposicao: desenhavam rotulo de valor e de eixo em todas as
-       barras. Agora ha grade, rotulo ralo, valor so quando cabe,
-       <title> no hover e rotulo truncado nas barras horizontais.
-     - NOVO custoUnitDaSaida(subId, lote, paciente): o custo da
-       dispensacao era buscado por allLotes().find(l => l.lote === lote),
-       que casa so pelo numero do lote. Dose da clinica podia ser
-       valorizada pelo lote da familia (custo zero) e vice-versa.
-       Agora usa a chave substancia + lote + dono, a mesma do saldo.
+  2. Validade a vencer, em dinheiro — faixas de 30 / 60 / 90 dias e a
+     lista dos 15 lotes mais proximos do vencimento, com valor.
+     So estoque do estabelecimento; custodia do paciente fica de fora.
+
+  3. Execucao do mapa (prescrito x dispensado) — % por dia/semana/mes,
+     com a lista dos periodos abaixo do previsto e quantas doses faltam.
+     SOS fora da conta. Ressalva na propria tela: a prescricao e lida na
+     versao atual, entao dias antigos podem ser recontados com a regra
+     de hoje.
+
+  4. Devolucoes — quantidade e valor do que voltou ao estoque, em % do
+     custo, dentro do painel de perdas. Aparece como credito, nao perda.
+
+  5. Evolucao mensal — ultimos 12 meses com grafico e variacao % mes a
+     mes. Independe do periodo escolhido nos filtros. Meses zerados do
+     inicio da serie sao cortados.
+
+  Todos respeitam os filtros de paciente e de medicamento/material.
+
+  Render completo da tela com 2504 doses e periodo "Tudo": 22 ms.
 
 Nenhuma migracao de banco nesta entrega.
 

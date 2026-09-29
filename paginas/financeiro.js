@@ -170,6 +170,7 @@ function renderPage() {
   const doacoesPeriodo = donations.filter((d) => d.data >= _fnIni && d.data <= _fnFim)
     .reduce((a, d) => a + d.itens.reduce((x, it) => x + it.qtd * (it.valorEstimado || 0), 0), 0);
   const economiaCustodia = _fnEconomiaCustodia(linhas);
+  const perdas = _fnPerdasAjuste().reduce((a, x) => a + x.valor, 0);
   const pac = _fnPac ? patById(_fnPac) : null;
 
   // ---- rankings ----
@@ -211,6 +212,8 @@ function renderPage() {
       <div class="card-note">entradas sem desembolso no período</div></div>
     <div class="card"><div class="card-label">Economia com custódia</div><div class="card-value" style="color:var(--accent)">${fmtBRL(economiaCustodia)}</div>
       <div class="card-note">doses da medicação da família, a custo médio</div></div>
+    <div class="card"><div class="card-label">Perdas no período</div><div class="card-value" style="color:${perdas > 0 ? "var(--warn)" : "var(--primary-dark)"}">${fmtBRL(perdas)}</div>
+      <div class="card-note">${custoTotal ? ((perdas / custoTotal) * 100).toFixed(1) + "% do custo" : "ajustes negativos de inventário"}</div></div>
   </div>
 
   ${pac ? _fnCabecalhoPaciente(pac, custoTotal, linhas) : ""}
@@ -249,6 +252,14 @@ function renderPage() {
         : '<div style="color:var(--muted);font-size:13px;padding:8px 0">Sem custo por substância no período.</div>'}
     </div>
   </div>
+
+  ${_fnPainelExecucao(grupos)}
+
+  ${_fnPainelPerdas(custoTotal)}
+
+  ${_fnPainelAVencer()}
+
+  ${_fnPainelMensal()}
 
   ${_fnExtrato(grupos, custoTotal, doses)}
   `;
@@ -442,4 +453,262 @@ function imprimirExtratoCustos() {
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
   win.document.open(); win.document.write(html); win.document.close();
+}
+
+/* ============================================================
+   INDICADORES DE QUALIDADE E PERDA
+   Tudo abaixo responde a uma pergunta que a tela antiga não fazia:
+   quanto do dinheiro NÃO virou tratamento, e quanto do tratamento
+   prescrito não chegou ao paciente.
+   ============================================================ */
+
+const _FN_SOS = /\bSOS\b|S\.?O\.?S\.?|SE\s+NECESS/i;
+function _fnInternadoEm(p, d) {
+  if (!p.admissao || p.admissao > d) return false;
+  if (p.dataAlta && p.dataAlta < d) return false;
+  return true;
+}
+// O lote é do estabelecimento? Perda de medicação da família não é perda
+// do hospital — quem pagou foi a família.
+function _fnLoteDaCasa(subId, lote, dono) {
+  const b = _lotesAgrupados()[_chaveDaSaida(subId, lote, dono)];
+  return !!b && !b.restritoPaciente;
+}
+
+/* ---- 3. Prescrito × dispensado ----
+   Doses esperadas por dia: prescrições vigentes naquele dia, dos pacientes
+   internados naquele dia, sem SOS (que não é previsível).
+   Ressalva honesta: a prescrição é lida na versão de HOJE. Se uma dose foi
+   suspensa ontem, o passado é recontado com a regra de agora. Serve para
+   olhar os últimos dias, não para auditar meses fechados. */
+/* Prescrições já filtradas e agrupadas por paciente, com o número de
+   horários fixos pré-contado. Montado UMA vez: percorrer a lista inteira
+   de prescrições para cada dia do período era quadrático e, num período
+   longo com o banco cheio, é o tipo de conta que trava a tela. */
+function _fnPrescPorPaciente() {
+  const m = {};
+  prescriptions.filter((pr) => {
+    if (_fnPac && pr.paciente !== _fnPac) return false;
+    if (_fnTipo === "todos") return true;
+    const s = subById(pr.subId);
+    return _fnTipo === "material" ? ehMaterial(s) : !ehMaterial(s);
+  }).forEach((pr) => {
+    const n = (pr.horarios || []).filter((h) => !_FN_SOS.test(String(h))).length;
+    if (!n) return;
+    (m[pr.paciente] = m[pr.paciente] || []).push({ pr, n });
+  });
+  return m;
+}
+function _fnEsperadasNoDia(d, porPac, alvos) {
+  let n = 0;
+  alvos.forEach((p) => {
+    if (!_fnInternadoEm(p, d)) return;
+    (porPac[p.id] || []).forEach((x) => { if (prescVigenteEm(x.pr, d)) n += x.n; });
+  });
+  return n;
+}
+function _fnExecucao(grupos) {
+  const porPac = _fnPrescPorPaciente();
+  const alvos = patients.filter((p) => !_fnPac || p.id === _fnPac);
+  const esperadoPorDia = {};
+  for (let d = _fnIni; d <= _fnFim; d = _fnAdd(d, 1)) esperadoPorDia[d] = _fnEsperadasNoDia(d, porPac, alvos);
+  return grupos.map((g) => {
+    const dias = _fnGrupo === "total" ? Object.keys(esperadoPorDia)
+      : Object.keys(esperadoPorDia).filter((d) => _fnChaveGrupo(d) === g.k);
+    const esperado = dias.reduce((a, d) => a + esperadoPorDia[d], 0);
+    const feito = g.linhas.filter((l) => l.dose && !_FN_SOS.test(String(l.ref || ""))).length;
+    return { k: g.k, esperado, feito, pct: esperado ? (feito / esperado) * 100 : null };
+  });
+}
+
+/* ---- 1 e 4. Perdas e devoluções ---- */
+function _fnPerdasAjuste() {
+  return movements.filter((m) => m.tipo === "ajuste_saida" && m.data >= _fnIni && m.data <= _fnFim)
+    .filter((m) => _fnLoteDaCasa(m.subId, m.lote, m.dono))
+    .map((m) => ({ ...m, valor: m.qtd * custoUnitDaSaida(m.subId, m.lote, m.dono) }));
+}
+function _fnDevolucoes() {
+  return movements.filter((m) => m.tipo === "devolucao" && m.data >= _fnIni && m.data <= _fnFim)
+    .filter((m) => !_fnPac || m.paciente === _fnPac)
+    .map((m) => ({ ...m, valor: m.qtd * (m.custoUnit || 0) }));
+}
+/* Lotes vencidos ainda com saldo: perda que já aconteceu mas ninguém
+   lançou. Não é ajuste — é dinheiro parado na prateleira esperando baixa. */
+function _fnVencidosEmEstoque() {
+  return allLotes().filter((l) => !l.restritoPaciente && l.validade && l.validade < HOJE)
+    .map((l) => ({ ...l, saldo: saldoLoteChave(l.chave) }))
+    .filter((l) => l.saldo > 0)
+    .map((l) => ({ ...l, valor: l.saldo * (l.custoUnit || 0) }))
+    .sort((a, b) => b.valor - a.valor);
+}
+
+/* ---- 2. Validade a vencer ---- */
+function _fnAVencer() {
+  return allLotes().filter((l) => !l.restritoPaciente && l.validade && l.validade >= HOJE)
+    .map((l) => ({ ...l, saldo: saldoLoteChave(l.chave), dias: diffDias(HOJE, l.validade) }))
+    .filter((l) => l.saldo > 0 && l.dias <= 90)
+    .map((l) => ({ ...l, valor: l.saldo * (l.custoUnit || 0) }))
+    .sort((a, b) => a.dias - b.dias);
+}
+
+/* ---- 5. Evolução mensal ----
+   Independe do período escolhido de propósito: a comparação com os meses
+   anteriores é o contexto que diz se o mês atual está caro ou normal. */
+function _fnEvolucaoMensal(n) {
+  const transf = _lotesTransferidos();
+  const fim = _fnFim.slice(0, 7);
+  const meses = [];
+  let [y, m] = fim.split("-").map(Number);
+  for (let i = 0; i < n; i++) { meses.unshift(`${y}-${String(m).padStart(2, "0")}`); if (--m === 0) { m = 12; y--; } }
+  const soma = {};
+  meses.forEach((k) => (soma[k] = 0));
+  movements.filter((m2) => m2.tipo === "saida")
+    .filter((m2) => !_fnPac || m2.paciente === _fnPac)
+    .filter((m2) => {
+      if (_fnTipo === "todos") return true;
+      const s = subById(m2.subId);
+      return _fnTipo === "material" ? ehMaterial(s) : !ehMaterial(s);
+    })
+    .forEach((m2) => {
+      const k = String(m2.data).slice(0, 7);
+      if (soma[k] === undefined) return;
+      if (transf.has(m2.lote) && !_fnEhTransfer(m2)) return;
+      soma[k] += m2.qtd * (m2.custoUnit || 0);
+    });
+  return meses.map((k, i) => {
+    const ant = i ? soma[meses[i - 1]] : null;
+    return { k, valor: soma[k], varPct: ant ? ((soma[k] - ant) / ant) * 100 : null };
+  });
+}
+
+/* ---- painéis ---- */
+function _fnPainelExecucao(grupos) {
+  if (_fnGrupo === "total") return "";
+  const ex = _fnExecucao(grupos).filter((x) => x.esperado > 0);
+  if (!ex.length) return "";
+  const totEsp = ex.reduce((a, x) => a + x.esperado, 0);
+  const totFeito = ex.reduce((a, x) => a + x.feito, 0);
+  const pct = totEsp ? (totFeito / totEsp) * 100 : 0;
+  // Abaixo de 95% costuma ser baixa não lançada, não dose não administrada.
+  const cor = (p) => (p >= 98 ? CHART_COLORS.success : p >= 90 ? CHART_COLORS.accent : CHART_COLORS.warn);
+  const serie = ex.map((x) => ({ label: _fnRotuloCurto(x.k), value: +x.pct.toFixed(1), color: cor(x.pct) }));
+  const piores = ex.filter((x) => x.pct < 100).sort((a, b) => a.pct - b.pct).slice(0, 8);
+  return `
+  <div class="panel">
+    <div class="panel-head"><div>
+      <div class="panel-title">Execução do mapa — prescrito × dispensado</div>
+      <div class="panel-title-sub">${totFeito} de ${totEsp} doses previstas (${pct.toFixed(1)}%) · SOS fora da conta, por não ser previsível</div>
+    </div></div>
+    <div class="panel-body">
+      ${svgBarChart(serie, { valueFmt: (v) => v.toFixed(0) + "%", axisFmt: (v) => Math.round(v) + "%" })}
+      ${piores.length ? `
+      <table style="margin-top:14px">
+        <thead><tr><th>Período abaixo do previsto</th><th class="num">Previstas</th><th class="num">Dispensadas</th><th class="num">Faltam</th><th class="num">%</th></tr></thead>
+        <tbody>${piores.map((x) => `<tr>
+          <td>${_fnRotuloGrupo(x.k)}</td>
+          <td class="num mono">${x.esperado}</td><td class="num mono">${x.feito}</td>
+          <td class="num mono"><b>${x.esperado - x.feito}</b></td>
+          <td class="num mono">${x.pct.toFixed(1)}%</td></tr>`).join("")}</tbody>
+      </table>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px">Lacuna quase sempre é baixa não lançada, não dose não administrada. A prescrição é lida na versão atual, então dias antigos podem ser recontados com regra de hoje.</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function _fnPainelPerdas(custoTotal) {
+  const ajustes = _fnPerdasAjuste();
+  const devol = _fnDevolucoes();
+  const vencidos = _fnVencidosEmEstoque();
+  const vAj = ajustes.reduce((a, x) => a + x.valor, 0);
+  const vDev = devol.reduce((a, x) => a + x.valor, 0);
+  const vVenc = vencidos.reduce((a, x) => a + x.valor, 0);
+  if (!vAj && !vDev && !vVenc) return "";
+  return `
+  <div class="panel">
+    <div class="panel-head"><div>
+      <div class="panel-title">Perdas e devoluções</div>
+      <div class="panel-title-sub">O que não virou tratamento — e o que voltou para o estoque</div>
+    </div></div>
+    <div class="panel-body">
+      <table>
+        <thead><tr><th>Indicador</th><th class="num">Qtd</th><th class="num">Valor</th><th class="num">% do custo</th></tr></thead>
+        <tbody>
+          <tr><td><b>Perda lançada no período</b><div style="font-size:12px;color:var(--muted)">ajuste de inventário negativo — quebra, extravio, descarte</div></td>
+            <td class="num mono">${ajustes.length}</td><td class="num mono"><b>${fmtBRL(vAj)}</b></td>
+            <td class="num mono">${custoTotal ? ((vAj / custoTotal) * 100).toFixed(1) + "%" : "—"}</td></tr>
+          <tr><td><b>Devolvido ao estoque</b><div style="font-size:12px;color:var(--muted)">kit não usado, alta ou mudança de prescrição — crédito, não perda</div></td>
+            <td class="num mono">${devol.length}</td><td class="num mono" style="color:var(--accent)"><b>${fmtBRL(vDev)}</b></td>
+            <td class="num mono">${custoTotal ? ((vDev / custoTotal) * 100).toFixed(1) + "%" : "—"}</td></tr>
+          <tr><td><b>Vencido ainda em estoque</b><div style="font-size:12px;color:var(--muted)">já perdido, sem baixa lançada — conferir e ajustar</div></td>
+            <td class="num mono">${vencidos.length}</td><td class="num mono" style="color:var(--warn)"><b>${fmtBRL(vVenc)}</b></td>
+            <td class="num mono">—</td></tr>
+        </tbody>
+      </table>
+      ${vencidos.length ? `<details class="fn-det" style="margin-top:10px"><summary>Ver os ${vencidos.length} lote${vencidos.length > 1 ? "s" : ""} vencido${vencidos.length > 1 ? "s" : ""} com saldo</summary>
+        <table><thead><tr><th>Medicamento</th><th>Lote</th><th>Venceu em</th><th class="num">Saldo</th><th class="num">Valor</th></tr></thead>
+        <tbody>${vencidos.map((l) => `<tr><td>${_esc(subNomeExibicao(subById(l.subId)))}</td><td class="mono">${_esc(l.lote)}</td>
+          <td class="mono">${fmtDate(l.validade)}</td><td class="num mono">${fmtDose(l.saldo)}</td>
+          <td class="num mono">${fmtBRL(l.valor)}</td></tr>`).join("")}</tbody></table></details>` : ""}
+    </div>
+  </div>`;
+}
+
+function _fnPainelAVencer() {
+  const lotes = _fnAVencer();
+  if (!lotes.length) return "";
+  const faixa = (d) => (d <= 30 ? "30" : d <= 60 ? "60" : "90");
+  const tot = { "30": 0, "60": 0, "90": 0 };
+  lotes.forEach((l) => (tot[faixa(l.dias)] += l.valor));
+  const rot = { "30": "Vence em até 30 dias", "60": "31 a 60 dias", "90": "61 a 90 dias" };
+  const cor = { "30": CHART_COLORS.warn, "60": CHART_COLORS.accent, "90": CHART_COLORS.primary };
+  return `
+  <div class="panel">
+    <div class="panel-head"><div>
+      <div class="panel-title">Validade a vencer, em dinheiro</div>
+      <div class="panel-title-sub">Estoque do estabelecimento com vencimento nos próximos 90 dias — consumir antes de virar perda</div>
+    </div></div>
+    <div class="panel-body">
+      ${svgHBarChart(["30", "60", "90"].filter((f) => tot[f] > 0).map((f) => ({ label: rot[f], value: +tot[f].toFixed(2), color: cor[f] })), { valueFmt: fmtBRL })}
+      <table style="margin-top:14px">
+        <thead><tr><th>Medicamento</th><th>Lote</th><th>Validade</th><th class="num">Dias</th><th class="num">Saldo</th><th class="num">Valor</th></tr></thead>
+        <tbody>${lotes.slice(0, 15).map((l) => `<tr>
+          <td>${_esc(subNomeExibicao(subById(l.subId)))}</td>
+          <td class="mono">${_esc(l.lote)}</td>
+          <td class="mono">${fmtDate(l.validade)}</td>
+          <td class="num mono" style="${l.dias <= 30 ? "color:var(--warn);font-weight:700" : ""}">${l.dias}</td>
+          <td class="num mono">${fmtDose(l.saldo)}</td>
+          <td class="num mono"><b>${fmtBRL(l.valor)}</b></td></tr>`).join("")}</tbody>
+      </table>
+      ${lotes.length > 15 ? `<div style="font-size:12px;color:var(--muted);margin-top:8px">Mostrando os 15 mais próximos do vencimento, de ${lotes.length}.</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function _fnPainelMensal() {
+  /* Corta os meses zerados do começo: antes da primeira compra o gráfico
+     ficava com uma fileira de barras vazias que não dizem nada. Zero no
+     meio da série permanece — aí é informação. */
+  const todos = _fnEvolucaoMensal(12);
+  const primeiro = todos.findIndex((x) => x.valor > 0);
+  const meses = primeiro === -1 ? [] : todos.slice(primeiro);
+  if (meses.length < 2) return "";
+  const serie = meses.map((x) => ({ label: `${_FN_MES[+x.k.slice(5, 7) - 1]}/${x.k.slice(2, 4)}`, value: +x.valor.toFixed(2) }));
+  const seta = (v) => (v == null ? "—" : `<span style="color:${v > 0 ? "var(--warn)" : "var(--success)"}">${v > 0 ? "▲" : "▼"} ${Math.abs(v).toFixed(1)}%</span>`);
+  return `
+  <div class="panel">
+    <div class="panel-head"><div>
+      <div class="panel-title">Evolução mensal</div>
+      <div class="panel-title-sub">Últimos ${meses.length} meses${_fnPac ? " — " + _esc(patById(_fnPac).nome) : ""} · independe do período escolhido acima</div>
+    </div></div>
+    <div class="panel-body">
+      ${svgBarChart(serie, { valueFmt: (v) => "R$ " + v.toFixed(2).replace(".", ","), axisFmt: (v) => "R$" + Math.round(v) })}
+      <table style="margin-top:14px">
+        <thead><tr><th>Mês</th><th class="num">Custo</th><th class="num">Variação</th></tr></thead>
+        <tbody>${meses.slice().reverse().map((x) => `<tr>
+          <td>${_FN_MES[+x.k.slice(5, 7) - 1]}/${x.k.slice(0, 4)}</td>
+          <td class="num mono"><b>${fmtBRL(x.valor)}</b></td>
+          <td class="num mono">${seta(x.varPct)}</td></tr>`).join("")}</tbody>
+      </table>
+    </div>
+  </div>`;
 }
