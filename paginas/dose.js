@@ -510,7 +510,7 @@ function renderPage() {
         <div class="toolbar">
           <label style="font-size:12px;color:var(--muted);align-self:center">Dia:</label>
           <input type="date" value="${d}" max="${HOJE}" onchange="mudarDataDisp(this.value)" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit" title="A baixa no estoque é do dia ou retroativa. Para separar kits de dias futuros, use Separação da farmácia.">
-          <button class="btn ghost sm" onclick="abrirSeparacao()">🖶 Separação da farmácia</button>
+          <a class="btn ghost sm" href="separacao.html">🖶 Separação da farmácia</a>
         </div>
       </div>
     </div>
@@ -593,80 +593,10 @@ function abrirFormDevolucao() {
    quantidade de cada medicamento, para conferir enquanto separa.
    Etiquetas: um pacote por paciente e por horário.
    ============================================================ */
-/* A separação é ANTECIPADA por natureza: hoje se separa o que será
-   administrado amanhã e, nas sextas, o fim de semana inteiro, porque a
-   farmácia fecha. Por isso a separação tem período próprio, independente
-   da data de dispensação (que baixa estoque e só aceita hoje ou retroativo). */
-function abrirSeparacao() {
-  const d = dataRef();
-  const internados = patients.filter((p) => _pacienteInternadoNaData(p, d))
-    .sort((a, b) => (a.leito || "").localeCompare(b.leito || "", "pt-BR", { numeric: true }) || a.nome.localeCompare(b.nome, "pt-BR"));
-  if (!internados.length) { alert("Nenhum paciente internado nesta data."); return; }
-
-  const horTodos = [...new Set(_dosesEsperadas().map((x) => x.horario))].sort((a, b) => _horValor(a) - _horValor(b));
-  const chips = horTodos.filter((h) => !_ehSOSHor(h)).map((h) =>
-    `<label style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;margin:0 10px 6px 0">
-      <input type="checkbox" class="sep-hor" value="${_esc(h)}"${!_dispFiltro.length || _dispFiltro.indexOf(h) !== -1 ? " checked" : ""}> ${_esc(h)}</label>`).join("");
-
-  abrirModal(`Separação da farmácia — ${fmtDate(d)}`, `
-    <div class="note-box" style="margin-top:0">Gera o material para montar os kits do dia. O <b>checklist</b> é a folha de conferência da farmácia (uma por paciente); as <b>etiquetas</b> identificam cada pacote — um por paciente e por horário.</div>
-    <div class="ff row2">
-      <div><label>A partir de *</label><input id="sepIni" type="date" value="${_sepAmanha()}"></div>
-      <div><label>Quantos dias</label>
-        <select id="sepDias">
-          <option value="1">1 dia</option>
-          <option value="2">2 dias</option>
-          <option value="3" selected>3 dias (fim de semana)</option>
-          <option value="4">4 dias</option>
-          <option value="7">7 dias (semana)</option>
-        </select></div>
-    </div>
-    <div class="note-box" style="margin:0 0 12px">Separação é <b>antecipada</b>: normalmente se separa o dia seguinte, e nas sextas o fim de semana inteiro. Isto <b>não baixa estoque</b> — a baixa continua sendo feita no dia da administração, na tela de dispensação.</div>
-    <div class="ff"><label>Paciente</label>
-      <select id="sepPac">
-        <option value="">★ TODOS os internados (${internados.length})</option>
-        ${internados.map((p) => `<option value="${p.id}">${_esc(p.nome)}${p.leito ? " · leito " + _esc(p.leito) : ""}</option>`).join("")}
-      </select></div>
-    <div class="ff"><label>Horários a incluir</label>
-      <div style="padding:4px 0">${chips || '<span style="color:var(--muted);font-size:12.5px">Nenhum horário com prescrição nesta data.</span>'}</div>
-      <label style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px">
-        <input type="checkbox" id="sepSOS"> Incluir SOS <span style="color:var(--muted)">(normalmente não entra no kit)</span></label></div>
-    <div class="ff row2">
-      <div><label>O que imprimir</label>
-        <select id="sepTipo">
-          <option value="check">Checklist de separação (folha por paciente)</option>
-          <option value="etiq">Etiquetas dos kits (uma por horário)</option>
-          <option value="ambos">Checklist + etiquetas</option>
-          <option value="prep">Folha de preparo na hora e SOS (uma por dia)</option>
-          <option value="sacos">Etiquetas dos sacos (dia e período)</option>
-          <option value="tudo">Tudo — checklist, etiquetas, sacos e folha de preparo</option>
-        </select></div>
-      <div><label>Colunas das etiquetas</label>
-        <select id="sepCols">
-          <option value="2">2 colunas — etiqueta maior</option>
-          <option value="3" selected>3 colunas — aproveita melhor a folha</option>
-        </select></div>
-    </div>
-    <div class="note-box" style="margin:0">Insulina, gotas, xarope e pomada <b>não geram etiqueta</b>: aparecem no checklist marcadas como preparo na hora e saem na folha própria, com espaço para a enfermagem registrar glicemia, quantidade e rubrica. O SOS sai só nessa folha.</div>
-  `, async () => {
-    const pac = fv("sepPac");
-    const horarios = Array.from(document.querySelectorAll(".sep-hor:checked")).map((c) => c.value);
-    const incluirSOS = document.getElementById("sepSOS").checked;
-    if (!horarios.length && !incluirSOS && fv("sepTipo") !== "prep") throw new Error("Selecione ao menos um horário.");
-    const tipo = fv("sepTipo");
-    const ini = fv("sepIni") || _sepAmanha();
-    const nd = Math.max(1, Math.min(14, parseInt(fv("sepDias"), 10) || 1));
-    const dias = Array.from({ length: nd }, (_, i) => _fsAddDiasLocal(ini, i));
-    const colunas = parseInt(fv("sepCols"), 10) === 2 ? 2 : 3;
-    const opts = { pac: pac || null, horarios, incluirSOS, dias, colunas };
-    setTimeout(() => {
-      if (tipo === "check" || tipo === "ambos" || tipo === "tudo") imprimirChecklistSeparacao(opts);
-      if (tipo === "etiq" || tipo === "ambos" || tipo === "tudo") setTimeout(() => window.printLabels(opts), 400);
-      if (tipo === "sacos" || tipo === "tudo") setTimeout(() => imprimirEtiquetasSacos(opts), 800);
-      if (tipo === "prep" || tipo === "tudo") setTimeout(() => imprimirFolhaPreparo(opts), 1200);
-    }, 60);
-  }, "Gerar");
-}
+/* A tela de Separação virou página própria (paginas/separacao.js): como
+   modal, ela fechava a cada impressão, e a rotina gera quatro impressos
+   seguidos do mesmo período. As funções de impressão continuam aqui, porque
+   também servem à dispensação, e separacao.html carrega os dois arquivos. */
 
 /* ---- ETIQUETAS DOS SACOS (período e dia) ----
    Os kits individuais vão em três sacos por período, e os três num saco do

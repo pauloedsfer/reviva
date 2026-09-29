@@ -10,8 +10,9 @@ const NAV = [
   { group: "Operação", items: [
     { id: "dashboard", label: "Painel", href: "index.html" },
     { id: "pacientes", label: "Pacientes", href: "pacientes.html" },
-    { id: "dose", label: "Dispensação (dose unitária)", href: "dose.html" },
-    { id: "mapa", label: "Mapa de Medicação (impressão)", href: "mapa.html" },
+    { id: "dose", label: "Dispensação", href: "dose.html" },
+    { id: "separacao", label: "Separação da Farmácia", href: "separacao.html" },
+    { id: "mapa", label: "Mapa de Medicação", href: "mapa.html" },
   ]},
   { group: "Enfermagem", items: [
     { id: "enfermagem", label: "Documentos e Registros", href: "enfermagem.html" },
@@ -47,6 +48,7 @@ const TITLES = {
   dashboard: ["Sistema de Controle de Estoque e Escrituração de Medicamentos da Farmácia Hospitalar", "Visão geral da farmácia e da ocupação"],
   pacientes: ["Pacientes", "Cadastro ativo — capacidade e ocupação atual"],
   dose: ["Dispensação — Dose Unitária", "Dê baixa por data — selecione o dia, inclusive retroativo, a partir dos mapas"],
+  separacao: ["Separação da Farmácia", "Gera checklist, etiquetas dos kits, etiquetas dos sacos e folha de preparo — não baixa estoque"],
   mapa: ["Mapa de Medicação", "Mapa diário para a enfermagem — imprima por dia, com espaço para anotações à mão"],
   enfermagem: ["Documentos e Registros da Enfermagem", "Folhas para impressão e preenchimento à mão — o impresso assinado é o documento do prontuário"],
   estoque: ["Substâncias, Lotes & Validade", "Saldo por lote calculado a partir das movimentações"],
