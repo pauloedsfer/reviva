@@ -1,35 +1,31 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 29/09/2026
+Data: 30/09/2026
 
-  paginas/financeiro.js
+  paginas/dose.js
 
-O QUE MUDOU — 5 indicadores novos em Custos & Indicadores
+O QUE MUDOU — Folha de preparo e SOS (aba Separacao)
 
-  1. Perdas em R$ — card no topo e painel "Perdas e devolucoes":
-     ajuste de inventario negativo valorizado pelo lote, % do custo,
-     e a lista dos lotes VENCIDOS que ainda tem saldo (perda que ja
-     aconteceu e nao foi baixada).
+  As duas secoes voltaram para UMA folha por dia, separadas por tarja
+  preta em caixa alta, no mesmo estilo das etiquetas dos sacos:
 
-  2. Validade a vencer, em dinheiro — faixas de 30 / 60 / 90 dias e a
-     lista dos 15 lotes mais proximos do vencimento, com valor.
-     So estoque do estabelecimento; custodia do paciente fica de fora.
+     QUINTA — REGISTRO DE PREPARO NA HORA
+     QUINTA — REGISTRO DE ADMINISTRACAO FORA DO KIT
 
-  3. Execucao do mapa (prescrito x dispensado) — % por dia/semana/mes,
-     com a lista dos periodos abaixo do previsto e quantas doses faltam.
-     SOS fora da conta. Ressalva na propria tela: a prescricao e lida na
-     versao atual, entao dias antigos podem ser recontados com a regra
-     de hoje.
+  O dia da semana vem antes do titulo porque e o primeiro filtro que a
+  enfermagem faz na bancada. A tarja e de linha unica: o titulo mais
+  comprido foi medido para caber na largura util da A4.
 
-  4. Devolucoes — quantidade e valor do que voltou ao estoque, em % do
-     custo, dentro do painel de perdas. Aparece como credito, nao perda.
+  Cabecalho enxuto no topo (hospital, data grande, plantao e
+  responsavel), uma assinatura e um rodape no fim — em vez de repetir
+  tudo duas vezes como nas duas folhas separadas.
 
-  5. Evolucao mensal — ultimos 12 meses com grafico e variacao % mes a
-     mes. Independe do periodo escolhido nos filtros. Meses zerados do
-     inicio da serie sao cortados.
+  As linhas em branco do registro sao elasticas: ocupam o que sobrar
+  depois do preparo na hora, com piso de 7 e teto de 20. Em dia com
+  muito preparo na hora a folha passa para a segunda pagina em vez de
+  espremer o espaco de escrita.
 
-  Todos respeitam os filtros de paciente e de medicamento/material.
-
-  Render completo da tela com 2504 doses e periodo "Tudo": 22 ms.
+  Quadro de consulta do SOS vai para duas colunas quando ha mais de 6
+  pacientes com SOS prescrito.
 
 Nenhuma migracao de banco nesta entrega.
 

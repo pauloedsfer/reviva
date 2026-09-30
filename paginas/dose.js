@@ -733,6 +733,30 @@ function imprimirEtiquetasSacos(opts) {
    enfermagem prepara a dose sozinha, e por isso são os dois que precisam de
    registro próprio, com o que foi realmente preparado e administrado.
    Uma folha por dia, para ficar no posto junto do mapa. */
+/* Folha de preparo na hora + registro de SOS e sintomáticos.
+
+   Por que o modelo mudou: o anterior punha as duas coisas numa folha só,
+   com oito colunas e linha de 19px, e a enfermagem não usava. São dois
+   documentos de natureza diferente e por isso eles brigavam pelo espaço:
+   o preparo na hora é LISTA DE TAREFA por horário, lida de cima para
+   baixo no início do plantão; SOS e sintomático são REGISTRO DE EVENTO,
+   escrito quando acontece, a qualquer hora. Misturar tarefa e registro
+   na mesma tabela é o que deixava a folha cheia e intimidante.
+
+   Agora saem duas folhas por dia:
+   A — Preparo na hora: poucas colunas, linha alta, agrupada por horário.
+       Saiu a coluna de glicemia; sinal vital é registro de enfermagem e
+       tem lugar próprio, não precisa ser recolhido pela farmácia.
+   B — Registro de administração fora do kit: quase toda em branco, de
+       propósito. Cabe o SOS prescrito E o sintomático que a enfermagem
+       libera por conta (dipirona para dor de cabeça, antitérmico), que
+       antes não tinha onde ser anotado e saía do estoque sem registro.
+       O SOS prescrito de cada paciente vai num quadro de consulta ao
+       lado, pequeno, só para a enfermagem saber quem tem o quê.
+
+   A coluna Origem (F/P) existe para a farmácia saber de qual saldo
+   baixar: estoque da casa ou custódia do próprio paciente. Sem ela, a
+   escrituração vira adivinhação na segunda-feira. */
 function imprimirFolhaPreparo(opts) {
   opts = opts || {};
   const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
@@ -743,120 +767,175 @@ function imprimirFolhaPreparo(opts) {
     const alvos = patients.filter((p) => _pacienteInternadoNaData(p, dia))
       .filter((p) => !opts.pac || p.id === opts.pac);
     const pres = _prescricoesNaData(dia);
-    const fixos = [], sos = [];
+    const porHorario = {}, sos = [];
     alvos.forEach((p) => {
       pres.filter((pr) => pr.paciente === p.id).forEach((pr) => {
         const sub = subById(pr.subId);
         (pr.horarios || []).forEach((h) => {
           if (_ehSOSHor(h)) { sos.push({ p, pr, sub }); return; }
-          if (ehPreparoNaHora(sub)) fixos.push({ p, pr, sub, hor: h });
+          if (!ehPreparoNaHora(sub)) return;
+          (porHorario[h] = porHorario[h] || []).push({ p, pr, sub });
         });
       });
     });
-    fixos.sort((a, b) => (_horValor(a.hor) - _horValor(b.hor))
-      || (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true })
-      || a.p.nome.localeCompare(b.p.nome, "pt-BR"));
-    sos.sort((a, b) => a.p.nome.localeCompare(b.p.nome, "pt-BR") || a.sub.nome.localeCompare(b.sub.nome, "pt-BR"));
-    return { dia, fixos, sos };
-  }).filter((x) => x.fixos.length || x.sos.length);
+    Object.keys(porHorario).forEach((h) => porHorario[h].sort((a, b) =>
+      (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true }) ||
+      a.p.nome.localeCompare(b.p.nome, "pt-BR")));
+    const horarios = Object.keys(porHorario).sort((a, b) => _horValor(a) - _horValor(b));
+    // SOS agrupado por paciente: o quadro de consulta é lido por leito
+    const sosPorPac = {};
+    sos.forEach((x) => { (sosPorPac[x.p.id] = sosPorPac[x.p.id] || { p: x.p, itens: [] }).itens.push(x); });
+    const sosLista = Object.values(sosPorPac).sort((a, b) =>
+      (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true }) ||
+      a.p.nome.localeCompare(b.p.nome, "pt-BR"));
+    return { dia, porHorario, horarios, sosLista, alvos };
+  });
 
-  if (!dados.length) { alert("Nenhuma medicação de preparo na hora ou SOS prescrita nesse período."); return; }
+  const cab = (g) => `
+    <div class="cab">
+      <div class="cab-nome">${_esc(hosp)} — FARMÁCIA</div>
+      <div class="cab-dt">${fmtDate(g.dia)}</div>
+    </div>
+    <div class="ref">
+      <div class="campo"><span class="rot">Plantão</span><span class="val"></span></div>
+      <div class="campo"><span class="rot">Responsável pelo plantão</span><span class="val"></span></div>
+    </div>`;
+  /* Tarja preta, mesma linguagem das etiquetas dos sacos: é o que a
+     enfermagem lê de longe e o que diz, sem ler nada mais, de que folha se
+     trata. O dia da semana vem antes do título porque é o primeiro filtro
+     que eles fazem na bancada — "isto é de hoje?". */
+  const tarja = (dia, titulo) => `<div class="tarja">${_diaSemana(dia)} — ${titulo}</div>`;
 
-  const linhaFixo = (f) => `<tr>
-    <td class="c-hor mono"><b>${_esc(f.hor)}</b></td>
-    <td class="c-pac">${_esc(f.p.nome)}${f.p.leito ? `<span class="leito"> · leito ${_esc(f.p.leito)}</span>` : ""}</td>
-    <td>${_esc(subNomeExibicao(f.sub))}</td>
-    <td class="c-dose mono">${_esc(f.pr.dose || fmtDose(qtdPorHorario(f.pr)))}</td>
-    <td class="c-via">${_esc(f.pr.via || "—")}</td>
-    <td class="c-br"></td><td class="c-br"></td><td class="c-ass"></td></tr>`;
+  /* ---- FOLHA A: lista de tarefa ---- */
+  const folhaPreparo = (g) => {
+    if (!g.horarios.length) return "";
+    const blocos = g.horarios.map((h) => `
+      <tr class="faixa"><td colspan="5">${_esc(h)}</td></tr>
+      ${g.porHorario[h].map((f) => `<tr>
+        <td class="c-leito mono">${_esc(f.p.leito || "—")}</td>
+        <td class="c-pac">${_esc(f.p.nome)}</td>
+        <td>${_esc(subNomeExibicao(f.sub))}<span class="dose"> · ${_esc(f.pr.dose || fmtDose(qtdPorHorario(f.pr)))}${f.pr.via ? " · " + _esc(f.pr.via) : ""}</span></td>
+        <td class="c-hora"></td>
+        <td class="c-ass"></td></tr>`).join("")}`).join("");
+    return `
+      ${tarja(g.dia, "REGISTRO DE PREPARO NA HORA")}
+      <div class="inst">Estas medicações <b>não vêm no kit</b>: são preparadas na hora, a partir do frasco identificado do paciente. Marque a hora em que administrou e rubrique.</div>
+      <table>
+        <thead><tr>
+          <th class="c-leito">Leito</th><th class="c-pac">Paciente</th><th>Medicamento · dose · via</th>
+          <th class="c-hora">Hora</th><th class="c-ass">Rubrica</th>
+        </tr></thead>
+        <tbody>${blocos}</tbody>
+      </table>
+      `;
+  };
 
-  // SOS: duas linhas em branco por prescrição — pode ser usado mais de uma vez
-  const linhaSos = (x) => `<tr>
-    <td class="c-pac">${_esc(x.p.nome)}${x.p.leito ? `<span class="leito"> · leito ${_esc(x.p.leito)}</span>` : ""}</td>
-    <td>${_esc(subNomeExibicao(x.sub))}</td>
-    <td class="c-dose mono">${_esc(x.pr.dose || fmtDose(qtdPorHorario(x.pr)))}</td>
-    <td class="c-via">${_esc(x.pr.via || "—")}</td>
-    <td class="c-br"></td><td class="c-motivo"></td><td class="c-br"></td><td class="c-ass"></td></tr>
-    <tr><td class="c-pac vazio"></td><td class="vazio"></td><td class="c-dose vazio"></td><td class="c-via vazio"></td>
-    <td class="c-br"></td><td class="c-motivo"></td><td class="c-br"></td><td class="c-ass"></td></tr>`;
+  /* ---- FOLHA B: registro de evento ---- */
+  /* As duas tabelas dividem uma folha só. O bloco de registro é elástico: o
+     preparo na hora tem o tamanho que tiver (depende das prescrições do dia)
+     e as linhas em branco do registro ocupam o que sobrar, com piso de 6 —
+     abaixo disso a enfermagem fica sem onde escrever e volta a anotar em
+     papel solto, que foi o problema que gerou esta folha. */
+  const folhaRegistro = (g) => {
+    const ocupadas = g.horarios.length + g.horarios.reduce((a, h) => a + g.porHorario[h].length, 0);
+    const linhas = Math.max(7, Math.min(20, 26 - ocupadas - Math.min(g.sosLista.length, 6)));
+    return `
+      ${tarja(g.dia, "REGISTRO DE ADMINISTRAÇÃO FORA DO KIT")}
+      <div class="inst"><b>Anote aqui tudo o que for administrado fora do kit do horário:</b> SOS prescrito e também o sintomático que a enfermagem libera — dor de cabeça, febre, dor leve, cólica. Uma linha por administração.
+        Em <b>Origem</b>, escreva <b>F</b> se saiu do estoque da farmácia e <b>P</b> se saiu da caixa do próprio paciente — é por aqui que a farmácia dá a baixa.</div>
 
-  const folha = (g) => `
-    <section class="folha">
-      <div class="cab">
-        <div class="cab-txt"><div class="cab-nome">${_esc(hosp)}</div>
-          <div class="cab-sub">${est.cnpj ? "CNPJ " + _esc(est.cnpj) : ""}</div></div>
-      </div>
-      <h1>PREPARO NA HORA E MEDICAÇÃO SOS</h1>
-      <div class="ref">
-        <div class="campo"><span class="rot">Data:</span><span class="val">${fmtDate(g.dia)} · ${_diaSemana(g.dia)}</span></div>
-        <div class="campo"><span class="rot">Plantão:</span><span class="val"></span></div>
-        <div class="campo"><span class="rot">Responsável pelo plantão:</span><span class="val"></span></div>
-      </div>
-      <div class="inst">Estas medicações <b>não vêm em kit</b> — são preparadas pela enfermagem no momento da administração, a partir do frasco identificado do paciente.
-        A administração continua sendo rubricada no <b>Mapa de Medicação</b>; esta folha registra o que foi efetivamente preparado.
-        <b>SOS</b> é administrado apenas quando necessário e registrado somente aqui: anotar data, hora, motivo e quantidade.</div>
+      <table class="reg">
+        <thead><tr>
+          <th class="c-hora">Hora</th><th class="c-leito">Leito</th><th class="c-pac">Paciente</th>
+          <th class="c-queixa">Queixa / motivo</th><th>Medicamento e dose</th>
+          <th class="c-org">Origem<br>F / P</th><th class="c-ass">Rubrica</th>
+        </tr></thead>
+        <tbody>${Array.from({ length: linhas }, () => `<tr>
+          <td class="c-hora"></td><td class="c-leito"></td><td class="c-pac"></td>
+          <td class="c-queixa"></td><td></td><td class="c-org"></td><td class="c-ass"></td></tr>`).join("")}</tbody>
+      </table>
 
-      <div class="sec">Medicação de preparo na hora — horários fixos</div>
-      ${g.fixos.length ? `<table><thead><tr>
-        <th class="c-hor">Horário</th><th class="c-pac">Paciente</th><th>Medicamento</th>
-        <th class="c-dose">Dose prescrita</th><th class="c-via">Via</th>
-        <th class="c-br">Glicemia<br>(mg/dL)</th><th class="c-br">Qtd. administrada</th><th class="c-ass">Rubrica</th>
-      </tr></thead><tbody>${g.fixos.map(linhaFixo).join("")}</tbody></table>`
-      : `<div class="vazio-msg">Nenhuma medicação de preparo na hora prescrita para este dia.</div>`}
+      ${g.sosLista.length ? `
+      <div class="sec">Consulta — SOS já prescrito hoje</div>
+      <div class="sos-box${g.sosLista.length > 6 ? " duas" : ""}">${g.sosLista.map((x) => `<div class="sos-l">
+          <span class="sos-p">${_esc(x.p.leito || "—")} · ${_esc(x.p.nome)}</span>
+          <span class="sos-m">${x.itens.map((i) => `${_esc(subNomeExibicao(i.sub))} ${_esc(i.pr.dose || fmtDose(qtdPorHorario(i.pr)))}${i.pr.via ? " " + _esc(i.pr.via) : ""}`).join(" · ")}</span>
+        </div>`).join("")}</div>`
+      : '<div class="sem-sos">Nenhum SOS prescrito para hoje. O sintomático liberado pela enfermagem continua sendo registrado na tabela acima.</div>'}
+      `;
+  };
 
-      <div class="sec">Medicação SOS — administrar se necessário</div>
-      ${g.sos.length ? `<table><thead><tr>
-        <th class="c-pac">Paciente</th><th>Medicamento</th><th class="c-dose">Dose</th><th class="c-via">Via</th>
-        <th class="c-br">Hora</th><th class="c-motivo">Motivo / queixa</th><th class="c-br">Qtd.</th><th class="c-ass">Rubrica</th>
-      </tr></thead><tbody>${g.sos.map(linhaSos).join("")}</tbody></table>`
-      : `<div class="vazio-msg">Nenhuma medicação SOS prescrita para este dia.</div>`}
+  const rodape = () => `
+    <div class="assin">
+      <div class="sig"><div class="l"></div>Enfermagem — plantão</div>
+      <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico RT</div>
+    </div>
+    <div class="rod">Devolver à farmácia preenchida ao fim do plantão · POP-FAR-SEP-01</div>`;
 
-      <div class="oc"><div class="bl">Ocorrências, recusas e comunicações à farmácia</div>
-        ${Array.from({ length: 3 }, () => `<div class="linha"></div>`).join("")}</div>
-      <div class="assin">
-        <div class="sig"><div class="l"></div>Enfermagem — plantão</div>
-        <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico RT</div>
-      </div>
-      <div class="rod">Folha do dia — devolver à farmácia preenchida. POP-FAR-SEP-01 · A medicação SOS é escriturada pela farmácia a partir deste registro.</div>
-    </section>`;
+  const corpo = dados.map((g) => `<section class="folha">
+    ${cab(g)}${folhaPreparo(g)}${folhaRegistro(g)}${rodape()}
+  </section>`).join("");
 
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Preparo na hora e SOS — ${fmtDate(dados[0].dia)}</title>
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+  <title>Preparo na hora e registro de SOS — ${fmtDate(dados[0].dia)}</title>
   <style>
-  @page{size:A4 portrait;margin:9mm}
+  @page{size:A4 portrait;margin:11mm}
   *{box-sizing:border-box}
-  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:10.5px;margin:0}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:12px;margin:0}
   .folha{page-break-after:always}.folha:last-child{page-break-after:auto}
-  .cab{border:1px solid #1E2A28;border-bottom:none;padding:5px 10px;text-align:center}
-  .cab-nome{font-size:13px;font-weight:700}.cab-sub{font-size:8.5px;color:#4a544f}
-  h1{font-size:12px;letter-spacing:.06em;text-align:center;margin:0;padding:3px 0;border:1px solid #1E2A28;border-bottom:none;background:#EEF2EC;font-weight:700}
-  .ref{display:flex;gap:12px;border:1px solid #1E2A28;border-bottom:none;padding:5px 10px}
-  .campo{display:flex;align-items:baseline;gap:5px;border-bottom:1px dotted #9aa39d;min-height:15px;flex:1}
-  .campo .rot{font-size:8.5px;text-transform:uppercase;color:#6a736e;font-weight:600;white-space:nowrap}
-  .campo .val{flex:1;font-weight:600}
-  .inst{border:1px solid #1E2A28;padding:4px 10px;font-size:8.5px;color:#4a544f;line-height:1.4;background:#F7F9F6}
-  .sec{margin-top:9px;background:#2C5F5A;color:#fff;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 10px}
+  .cab{padding:0 2px 4px;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .cab-nome{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#3d4743}
+  .cab-dt{font-size:17px;font-weight:800;letter-spacing:.02em}
+  /* Tarja preta — mesma da etiqueta do saco. nowrap porque o título quebrado
+     em duas linhas perde justamente o efeito de ser lido de longe; o
+     tamanho foi escolhido para o título mais comprido caber na largura útil. */
+  .tarja{background:#000;color:#fff;font-size:19px;font-weight:800;letter-spacing:.03em;text-align:center;
+         padding:2mm 0;margin:0 0 4px;line-height:1.05;white-space:nowrap;overflow:hidden}
+  .ref{display:flex;gap:14px;border:1.5px solid #1E2A28;padding:6px 12px;margin-bottom:7px}
+  .campo{display:flex;align-items:baseline;gap:6px;border-bottom:1px dotted #9aa39d;min-height:20px;flex:1}
+  .campo .rot{font-size:9px;text-transform:uppercase;color:#6a736e;font-weight:700;white-space:nowrap}
+  .campo .val{flex:1;font-weight:600;font-size:12px}
+  .inst{border:1.5px solid #1E2A28;border-bottom:none;padding:5px 12px;font-size:10px;color:#3d4743;line-height:1.45;background:#F7F9F6}
   table{width:100%;border-collapse:collapse}
-  th,td{border:1px solid #1E2A28;padding:1px 4px;font-size:9.5px;height:19px;text-align:left}
-  th{background:#EEF2EC;font-size:7.5px;text-transform:uppercase;font-weight:700;text-align:center;line-height:1.2}
-  .mono{font-variant-numeric:tabular-nums}
-  .c-hor{width:11%;text-align:center}.c-pac{width:24%}.c-dose{width:12%;text-align:center}
-  .c-via{width:7%;text-align:center}.c-br{width:10%;background:#FCFDFB}.c-motivo{width:16%;background:#FCFDFB}
-  .c-ass{width:13%;background:#FCFDFB}
-  .leito{color:#6a736e;font-size:8.5px}
-  td.vazio{border-top:none;color:#b9c1ba}
-  .vazio-msg{border:1px solid #1E2A28;border-top:none;padding:6px 10px;font-size:9px;color:#8a938d;font-style:italic}
-  .oc{border:1px solid #1E2A28;border-top:none;padding:5px 10px;margin-top:9px}
-  .oc .bl{font-size:8px;text-transform:uppercase;color:#6a736e;font-weight:700;margin-bottom:3px}
-  .oc .linha{border-bottom:1px solid #b9c1ba;height:16px}
-  .assin{display:flex;justify-content:space-between;gap:24px;margin-top:16px}
-  .assin .sig{text-align:center;font-size:8.5px;color:#6a736e;flex:1}
-  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:3px;color:#1E2A28;font-size:10.5px;min-height:14px}
-  .rod{margin-top:6px;font-size:8px;color:#8a938d;text-align:center}
-  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}
+  th,td{border:1px solid #1E2A28;padding:3px 6px;font-size:11.5px;text-align:left}
+  /* linha alta de propósito: a enfermagem escreve com caneta, em pé, no
+     corredor — 26px é o mínimo para caber letra de adulto sem apertar */
+  tbody td{height:26px}
+  th{background:#EEF2EC;font-size:8.5px;text-transform:uppercase;font-weight:700;text-align:center;line-height:1.25;padding:4px}
+  .faixa td{background:#2C5F5A;color:#fff;font-weight:700;font-size:12px;letter-spacing:.06em;height:20px;padding:2px 10px}
+  .mono{font-variant-numeric:tabular-nums;text-align:center}
+  .c-leito{width:7%;text-align:center}
+  .c-pac{width:26%}
+  .c-hora{width:9%;background:#FCFDFB}
+  .c-ass{width:14%;background:#FCFDFB}
+  .c-queixa{width:20%}
+  .c-org{width:7%;text-align:center;background:#FCFDFB}
+  .dose{color:#4a544f;font-size:10.5px}
+  table + .tarja{margin-top:9px}
+  .sec{margin-top:8px;background:#2C5F5A;color:#fff;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 12px}
+  .sos-box{border:1.5px solid #1E2A28;border-top:none;padding:5px 12px}
+  /* Com muitos pacientes o quadro de consulta empurrava a folha para uma
+     segunda página só com assinatura. Em duas colunas ele cabe. */
+  .sos-box.duas{column-count:2;column-gap:14px}
+  .sos-l{display:flex;gap:10px;padding:2.5px 0;border-bottom:1px dotted #d6dad3;font-size:10.5px;line-height:1.35;break-inside:avoid}
+  .sos-box.duas .sos-l{display:block}
+  .sos-box.duas .sos-p{min-width:0;display:block}
+  .sos-l:last-child{border-bottom:none}
+  .sos-p{font-weight:700;min-width:33%}
+  .sos-m{color:#3d4743;flex:1}
+  .sem-sos{border:1.5px solid #1E2A28;border-top:none;padding:6px 12px;font-size:10.5px;color:#6a736e;font-style:italic}
+  .oc{border:1.5px solid #1E2A28;border-top:none;padding:6px 12px}
+  .oc .bl{font-size:8.5px;text-transform:uppercase;color:#6a736e;font-weight:700;margin-bottom:4px}
+  .oc .linha{border-bottom:1px solid #b9c1ba;height:22px}
+  .assin{display:flex;justify-content:space-between;gap:28px;margin-top:14px}
+  .assin .sig{text-align:center;font-size:9px;color:#6a736e;flex:1}
+  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:4px;color:#1E2A28;font-size:11px;min-height:15px}
+  .rod{margin-top:8px;font-size:8.5px;color:#8a938d;text-align:center}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:1000}
   @media print{.btn{display:none}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
-  ${dados.map(folha).join("")}
+  ${corpo}
   </body></html>`;
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir."); return; }
