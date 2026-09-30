@@ -2,31 +2,54 @@ ARQUIVOS ALTERADOS NESTA ENTREGA
 Data: 30/09/2026
 
   paginas/dose.js
+  db/pop_far_007_separacao.sql   (NOVO — rodar no SQL Editor)
 
-O QUE MUDOU — Folha de preparo e SOS (aba Separacao)
+1) ETIQUETA DO KIT COM LOTE E VALIDADE
 
-  As duas secoes voltaram para UMA folha por dia, separadas por tarja
-  preta em caixa alta, no mesmo estilo das etiquetas dos sacos:
+   Cada medicamento da etiqueta passa a trazer, embaixo do nome:
+      lote CLZ-2607 · val 08/2027
+   Medicacao da custodia do paciente volta a ser marcada com ★, e a
+   legenda aparece no rodape da etiqueta so quando ha custodia no kit.
+   Sem saldo no estoque, a linha diz "sem saldo — conferir na farmacia"
+   em vermelho, em vez de omitir.
+   Dose que atravessa dois lotes mostra os dois, com a quantidade de
+   cada um.
 
-     QUINTA — REGISTRO DE PREPARO NA HORA
-     QUINTA — REGISTRO DE ADMINISTRACAO FORA DO KIT
+   O lote e calculado por SIMULACAO ao longo da impressao: o saldo e
+   debitado etiqueta a etiqueta, na mesma ordem em que os kits serao
+   montados. Numa separacao de 3 dias, um lote com 5 comprimidos
+   aparece nas 5 primeiras doses e a virada para o lote seguinte sai na
+   etiqueta certa. Chamar alocarLotes() por item nao serviria: ele le
+   sempre o saldo de hoje e repetiria o mesmo lote nos tres dias.
 
-  O dia da semana vem antes do titulo porque e o primeiro filtro que a
-  enfermagem faz na bancada. A tarja e de linha unica: o titulo mais
-  comprido foi medido para caber na largura util da A4.
+   Continua sendo PREVISAO. Devolucao, ajuste ou troca manual de lote
+   mudam o que sera usado. O POP manda conferir contra a cartela.
 
-  Cabecalho enxuto no topo (hospital, data grande, plantao e
-  responsavel), uma assinatura e um rodape no fim — em vez de repetir
-  tudo duas vezes como nas duas folhas separadas.
+   Checklist e etiquetas dos sacos nao mudaram: o calculo de lote so
+   roda quando a impressao de etiquetas pede.
 
-  As linhas em branco do registro sao elasticas: ocupam o que sobrar
-  depois do preparo na hora, com piso de 7 e teto de 20. Em dia com
-  muito preparo na hora a folha passa para a segunda pagina em vez de
-  espremer o espaco de escrita.
+2) POP-FAR-007 — SEPARACAO DA DOSE UNITARIA E CORTE DE CARTELAS
 
-  Quadro de consulta do SOS vai para duas colunas quando ha mais de 6
-  pacientes com SOS prescrito.
+   POP novo. O antigo "Preparo e Etiquetagem da Dose Unitaria" virou
+   POP-ENF-001 (administracao pela enfermagem) no pops_conteudo_v2, e
+   a separacao pela farmacia ficou sem POP.
 
-Nenhuma migracao de banco nesta entrega.
+   Documenta: conferencia antes de cortar; corte preservando a faixa
+   impressa com lote e validade da sobra; sobra sem identificacao nao
+   volta ao estoque; unidade cortada nunca fica solta; kit exclusivo do
+   dia; custodia so para o dono; devolucao; registro fora do kit.
 
-Suba estes arquivos no GitHub mantendo o mesmo caminho de pasta.
+   Afirma corte SEM rompimento da embalagem primaria (validade do
+   fabricante, RDC 67/2007 Anexo VI item 3.9 a) e declara que a clinica
+   NAO faz fracionamento com rompimento, subdivisao de forma
+   farmaceutica nem transformacao.
+
+   O SQL e idempotente e comeca com uma consulta de conferencia previa
+   do codigo POP-FAR-007, para o caso de ele ja estar em uso.
+   LEIA O PROCEDIMENTO ANTES DE RODAR e ajuste o que nao corresponder a
+   rotina real.
+
+   O rodape da folha de preparo passou a citar POP-FAR-007 (antes citava
+   um codigo que nao existia).
+
+Suba os arquivos no GitHub mantendo o mesmo caminho de pasta.

@@ -73,6 +73,45 @@ function _sosLancados(pac, subId) {
    Cada item leva a quantidade a separar — sem ela a etiqueta não serve
    para montar o kit. Doses fracionadas mostram o que administrar e o que
    sai do estoque, e a medicação de custódia vem sinalizada. */
+/* ---- Qual lote cada dose vai consumir, na hora de imprimir ----
+   A etiqueta precisa dizer lote e validade porque a cartela cortada em
+   unidades perde o impresso do fabricante: a identificação passa a viver no
+   invólucro, e o invólucro é o kit. Sem isso, a unidade cortada fica sem
+   nome, lote e validade — que é justamente o que a fiscalização cobra.
+
+   Por que SIMULAR em vez de chamar alocarLotes() por item: a separação cobre
+   vários dias e vários pacientes de uma vez, e alocarLotes() lê sempre o
+   saldo de hoje. Numa separação de três dias, um lote com 2 comprimidos
+   apareceria nas três etiquetas. Aqui o saldo é debitado à medida que as
+   etiquetas são geradas, na mesma ordem em que os kits serão montados, então
+   a virada de lote aparece na etiqueta certa.
+
+   O saldo simulado nasce preguiçoso (só o lote tocado entra no mapa) para
+   não copiar o mapa inteiro de saldos a cada impressão.
+
+   Continua sendo PREVISÃO: devolução, ajuste ou troca manual de lote mudam o
+   que será usado de fato. Por isso a etiqueta traz o lote esperado, e o POP
+   manda conferir contra a cartela na montagem do kit. */
+function _simAloca(subId, pacienteId, qtd, sim, consome) {
+  const cand = lotesCustodiaDoPaciente(subId, pacienteId).map((l) => ({ ...l, custodia: true }))
+    .concat(lotesDisponiveis(subId).map((l) => ({ ...l, custodia: false })));
+  const usados = [];
+  let resta = qtd;
+  cand.forEach((l) => {
+    if (resta <= 0) return;
+    if (sim[l.chave] === undefined) sim[l.chave] = saldoLoteChave(l.chave);
+    const disp = sim[l.chave];
+    if (disp <= 0) return;
+    const leva = Math.min(disp, resta);
+    /* SOS não debita o simulado: pode não ser administrado, e descontar
+       empurraria as doses fixas para o lote seguinte sem motivo. */
+    if (consome) sim[l.chave] = disp - leva;
+    usados.push({ lote: l.lote, validade: l.validade, qtd: leva, custodia: l.custodia });
+    resta -= leva;
+  });
+  return { usados, faltando: Math.max(0, resta) };
+}
+
 function _gerarEtiquetas(opts) {
   opts = opts || {};
   const d = opts.data || dataRef();   // separação pode ser de um dia futuro
@@ -90,8 +129,12 @@ function _gerarEtiquetas(opts) {
       const items = pres.filter((pr) => pr.horarios.includes(slot)).map((pr) => {
         const cust = lotesCustodiaDoPaciente(pr.subId, p.id).reduce((a, l) => a + l.saldo, 0) > 0;
         const sub = subById(pr.subId);
+        /* `opts.sim` só vem da impressão de etiquetas. Checklist e etiquetas
+           dos sacos não precisam de lote e não pagam o custo do cálculo. */
+        const al = opts.sim ? _simAloca(pr.subId, p.id, qtdConsumida(pr), opts.sim, !_ehSOSHor(slot)) : null;
         return { pr, sub, qtdAdm: qtdPorHorario(pr), qtd: qtdConsumida(pr),
-                 descarte: temDescarte(pr), custodia: cust, preparo: ehPreparoNaHora(sub) };
+                 descarte: temDescarte(pr), custodia: cust, preparo: ehPreparoNaHora(sub),
+                 lotes: al ? al.usados : null, faltando: al ? al.faltando : 0 };
       }).sort((a, b) => a.sub.nome.localeCompare(b.sub.nome, "pt-BR"));
       if (items.length) labels.push({ patient: p, slot, items });
     });
@@ -122,6 +165,23 @@ function loteSugeridoParaPaciente(subId, pacienteId) {
   return null;
 }
 
+/* Validade em mês/ano, como a norma pede no rótulo da dose. */
+function _mesAno(v) { if (!v) return "—"; const [y, m] = String(v).split("-"); return `${m}/${y}`; }
+
+/* Linha de identificação sob cada medicamento da etiqueta.
+   Quando a dose atravessa dois lotes, os dois saem com a quantidade de cada,
+   porque é assim que o kit vai ser montado — e é o que a conferência precisa
+   enxergar. Sem saldo, a etiqueta diz isso em vez de omitir: descobrir a
+   falta na bancada é melhor do que descobrir no horário da dose. */
+function _lblLote(it) {
+  if (!it.lotes) return "";
+  if (!it.lotes.length) return '<div class="ml falta">sem saldo — conferir na farmácia</div>';
+  const varios = it.lotes.length > 1;
+  const txt = it.lotes.map((x) =>
+    `lote ${_esc(x.lote)}${varios ? ` (${fmtDose(x.qtd)})` : ""} · val ${_mesAno(x.validade)}${x.custodia ? " ★" : ""}`).join(" + ");
+  return `<div class="ml${it.lotes.some((x) => x.custodia) ? " cust" : ""}">${txt}${it.faltando ? ` · faltam ${fmtDose(it.faltando)}` : ""}</div>`;
+}
+
 window.printLabels = function (opts) {
   opts = opts || {};
   const est = window.ESTAB || {};
@@ -131,8 +191,11 @@ window.printLabels = function (opts) {
   /* Medicação de preparo na hora não vai em kit — sai da etiqueta para não
      gastar adesivo com item que a enfermagem vai preparar do frasco. Horário
      que fica sem nenhum item depois disso não gera etiqueta. */
+  /* Um único saldo simulado para toda a impressão: os dias são percorridos em
+     ordem, então o débito acompanha a ordem real de montagem dos kits. */
+  const sim = {};
   const labels = dias.flatMap((dia) =>
-    _gerarEtiquetas({ ...opts, data: dia })
+    _gerarEtiquetas({ ...opts, data: dia, sim })
       .map((l) => ({ ...l, dia, items: l.items.filter((it) => !it.preparo) }))
       .filter((l) => l.items.length));
   if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nesse período (medicação de preparo na hora não gera etiqueta)."); return; }
@@ -144,8 +207,8 @@ window.printLabels = function (opts) {
       <div class="lbl-p">${l.patient.nome}</div>
       <div class="lbl-b">${l.patient.leito || ""}</div>
       <div class="lbl-t"><b class="lbl-hora">${l.slot}</b>${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(l.dia)}</span></div>
-      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>`).join("")}</div>
-      <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.</div>
+      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>${_lblLote(it)}`).join("")}</div>
+      <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.${l.items.some((it) => (it.lotes || []).some((x) => x.custodia)) ? '<br><span class="cust">★ medicação do próprio paciente (custódia).</span>' : ""}</div>
     </div>
     </div>`).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas — Dose Unitária</title>
@@ -182,6 +245,13 @@ window.printLabels = function (opts) {
       .lbl-m .mi{margin:2px 0;display:flex;gap:4px;align-items:baseline;flex-wrap:wrap}
       .lbl-m .mq{display:inline-block;min-width:22px;text-align:center;background:#EEF2EC;border:1px solid #cfd6cf;border-radius:4px;font-weight:700;font-size:10.5px;padding:0 3px}
       .lbl-m .cust{font-size:8.5px;color:#B07A2F;font-weight:600}
+      /* Identificação da dose: recuada sob o nome do medicamento, alinhada
+         com ele e não com o número da quantidade, para o olho separar o que
+         é dose do que é rastreabilidade. */
+      .lbl-m .ml{font-size:${cols === 3 ? "8px" : "8.5px"};color:#555;line-height:1.2;margin:0 0 3px 26px;font-variant-numeric:tabular-nums}
+      .lbl-m .ml.cust{color:#B07A2F}
+      .lbl-m .ml.falta{color:#B04A3F;font-weight:700}
+      .lbl-f .cust{color:#B07A2F;font-weight:600}
       .lbl-m .dsc{font-size:8.5px;color:#777}
       /* z-index: as células das etiquetas são position:relative (ancoram a
          tesourinha) e vêm depois da barra no HTML; sem z-index elas eram
@@ -778,15 +848,15 @@ function imprimirFolhaPreparo(opts) {
         });
       });
     });
+    // ordem alfabética dentro de cada horário: sem o leito na folha, o nome
+    // é o único ponto de busca da enfermagem
     Object.keys(porHorario).forEach((h) => porHorario[h].sort((a, b) =>
-      (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true }) ||
       a.p.nome.localeCompare(b.p.nome, "pt-BR")));
     const horarios = Object.keys(porHorario).sort((a, b) => _horValor(a) - _horValor(b));
     // SOS agrupado por paciente: o quadro de consulta é lido por leito
     const sosPorPac = {};
     sos.forEach((x) => { (sosPorPac[x.p.id] = sosPorPac[x.p.id] || { p: x.p, itens: [] }).itens.push(x); });
     const sosLista = Object.values(sosPorPac).sort((a, b) =>
-      (a.p.leito || "").localeCompare(b.p.leito || "", "pt-BR", { numeric: true }) ||
       a.p.nome.localeCompare(b.p.nome, "pt-BR"));
     return { dia, porHorario, horarios, sosLista, alvos };
   });
@@ -807,25 +877,37 @@ function imprimirFolhaPreparo(opts) {
   const tarja = (dia, titulo) => `<div class="tarja">${_diaSemana(dia)} — ${titulo}</div>`;
 
   /* ---- FOLHA A: lista de tarefa ---- */
+  /* O horário prescrito ficou na PRIMEIRA COLUNA, no lugar do leito, e as
+     faixas verdes que separavam cada horário saíram. Numa clínica de
+     reabilitação o paciente não é identificado pelo leito — ele circula o dia
+     inteiro e mora em apartamento —, então o leito só ocupava a coluna mais
+     visível sem ajudar ninguém a achar a linha. Repetir o horário em cada
+     linha custa pouco e dispensa a faixa: a tabela vira uma lista corrida,
+     que é como ela é percorrida de cima para baixo no início do plantão.
+     A coluna de horário só mostra o valor quando ele muda, para a repetição
+     não virar ruído visual. */
   const folhaPreparo = (g) => {
     if (!g.horarios.length) return "";
-    const blocos = g.horarios.map((h) => `
-      <tr class="faixa"><td colspan="5">${_esc(h)}</td></tr>
-      ${g.porHorario[h].map((f) => `<tr>
-        <td class="c-leito mono">${_esc(f.p.leito || "—")}</td>
+    let anterior = null;
+    const linhas = g.horarios.map((h) => g.porHorario[h].map((f) => {
+      const novo = h !== anterior;
+      anterior = h;
+      return `<tr${novo ? ' class="troca"' : ""}>
+        <td class="c-hor mono"><b>${novo ? _esc(h) : ""}</b></td>
         <td class="c-pac">${_esc(f.p.nome)}</td>
         <td>${_esc(subNomeExibicao(f.sub))}<span class="dose"> · ${_esc(f.pr.dose || fmtDose(qtdPorHorario(f.pr)))}${f.pr.via ? " · " + _esc(f.pr.via) : ""}</span></td>
         <td class="c-hora"></td>
-        <td class="c-ass"></td></tr>`).join("")}`).join("");
+        <td class="c-ass"></td></tr>`;
+    }).join("")).join("");
     return `
       ${tarja(g.dia, "REGISTRO DE PREPARO NA HORA")}
       <div class="inst">Estas medicações <b>não vêm no kit</b>: são preparadas na hora, a partir do frasco identificado do paciente. Marque a hora em que administrou e rubrique.</div>
       <table>
         <thead><tr>
-          <th class="c-leito">Leito</th><th class="c-pac">Paciente</th><th>Medicamento · dose · via</th>
-          <th class="c-hora">Hora</th><th class="c-ass">Rubrica</th>
+          <th class="c-hor">Horário</th><th class="c-pac">Paciente</th><th>Medicamento · dose · via</th>
+          <th class="c-hora">Administrado<br>às</th><th class="c-ass">Rubrica</th>
         </tr></thead>
-        <tbody>${blocos}</tbody>
+        <tbody>${linhas}</tbody>
       </table>
       `;
   };
@@ -846,19 +928,19 @@ function imprimirFolhaPreparo(opts) {
 
       <table class="reg">
         <thead><tr>
-          <th class="c-hora">Hora</th><th class="c-leito">Leito</th><th class="c-pac">Paciente</th>
+          <th class="c-hora">Hora</th><th class="c-pac">Paciente</th>
           <th class="c-queixa">Queixa / motivo</th><th>Medicamento e dose</th>
           <th class="c-org">Origem<br>F / P</th><th class="c-ass">Rubrica</th>
         </tr></thead>
         <tbody>${Array.from({ length: linhas }, () => `<tr>
-          <td class="c-hora"></td><td class="c-leito"></td><td class="c-pac"></td>
+          <td class="c-hora"></td><td class="c-pac"></td>
           <td class="c-queixa"></td><td></td><td class="c-org"></td><td class="c-ass"></td></tr>`).join("")}</tbody>
       </table>
 
       ${g.sosLista.length ? `
       <div class="sec">Consulta — SOS já prescrito hoje</div>
       <div class="sos-box${g.sosLista.length > 6 ? " duas" : ""}">${g.sosLista.map((x) => `<div class="sos-l">
-          <span class="sos-p">${_esc(x.p.leito || "—")} · ${_esc(x.p.nome)}</span>
+          <span class="sos-p">${_esc(x.p.nome)}</span>
           <span class="sos-m">${x.itens.map((i) => `${_esc(subNomeExibicao(i.sub))} ${_esc(i.pr.dose || fmtDose(qtdPorHorario(i.pr)))}${i.pr.via ? " " + _esc(i.pr.via) : ""}`).join(" · ")}</span>
         </div>`).join("")}</div>`
       : '<div class="sem-sos">Nenhum SOS prescrito para hoje. O sintomático liberado pela enfermagem continua sendo registrado na tabela acima.</div>'}
@@ -870,7 +952,7 @@ function imprimirFolhaPreparo(opts) {
       <div class="sig"><div class="l"></div>Enfermagem — plantão</div>
       <div class="sig"><div class="l">${rtLinha()}</div>Conferido pelo Farmacêutico RT</div>
     </div>
-    <div class="rod">Devolver à farmácia preenchida ao fim do plantão · POP-FAR-SEP-01</div>`;
+    <div class="rod">Devolver à farmácia preenchida ao fim do plantão · POP-FAR-007</div>`;
 
   const corpo = dados.map((g) => `<section class="folha">
     ${cab(g)}${folhaPreparo(g)}${folhaRegistro(g)}${rodape()}
@@ -902,9 +984,11 @@ function imprimirFolhaPreparo(opts) {
      corredor — 26px é o mínimo para caber letra de adulto sem apertar */
   tbody td{height:26px}
   th{background:#EEF2EC;font-size:8.5px;text-transform:uppercase;font-weight:700;text-align:center;line-height:1.25;padding:4px}
-  .faixa td{background:#2C5F5A;color:#fff;font-weight:700;font-size:12px;letter-spacing:.06em;height:20px;padding:2px 10px}
   .mono{font-variant-numeric:tabular-nums;text-align:center}
-  .c-leito{width:7%;text-align:center}
+  /* No lugar da faixa verde, um fio mais grosso onde o horário muda: separa
+     os blocos sem gastar uma linha inteira da folha. */
+  tbody tr.troca td{border-top:2px solid #1E2A28}
+  .c-hor{width:11%;text-align:center;font-size:12.5px}
   .c-pac{width:26%}
   .c-hora{width:9%;background:#FCFDFB}
   .c-ass{width:14%;background:#FCFDFB}
