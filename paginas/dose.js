@@ -223,11 +223,12 @@ window.printLabels = function (opts) {
           : `<div class="lbl-p">${selo}${_esc(l.patient.nome)}</div>${pilula}`;
       })()}
       <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}${cols === 2 ? _lblLote(it, true) : ""}</span></div>${cols === 3 ? _lblLote(it, false) : ""}`).join("")}</div>
-      <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.${l.items.some((it) => (it.lotes || []).some((x) => x.custodia)) ? '<br><span class="cust">★ medicação do próprio paciente (custódia).</span>' : ""}</div>
+      <div class="lbl-f">Exclusivo deste dia · devolver se não usado${l.items.some((it) => (it.lotes || []).some((x) => x.custodia)) ? ' · <span class="cust">★ do próprio paciente</span>' : ""}</div>
     </div>
     </div>`).join("");
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas — Dose Unitária</title>
-    <style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;margin:0}
+    <style id="regra-pagina">@page{size:A4;margin:10mm}</style>
+    <style>*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;margin:0}
       /* Altura AUTOMÁTICA: com altura fixa de 46mm, horários com muitas
          medicações estouravam a etiqueta e o texto era cortado. A etiqueta
          cresce conforme o conteúdo; o min-height só evita tira fina demais
@@ -245,22 +246,32 @@ window.printLabels = function (opts) {
          Ordem: de cima para baixo em cada coluna, da esquerda para a direita,
          página a página — os horários do mesmo paciente ficam empilhados.
          O espaço entre etiquetas continua sendo 5mm (2,5mm de cada lado). */
-      /* PREENCHE LARGURA ANTES DE ALTURA. Com multicolunas do CSS o
-         preenchimento é por coluna: a folha final podia terminar com uma
-         coluna inteira em branco, e sobra em pé não se aproveita — teria de
-         cortar a folha ao meio. Em grade, as etiquetas caminham da esquerda
-         para a direita e descem; o que sobra fica numa faixa no rodapé da
-         última folha, que é papel reaproveitável.
-         align-items:start é o que impede o defeito antigo: sem ele, a grade
-         estica a etiqueta de um horário com uma medicação até a altura da
-         vizinha com oito. Cada célula mantém a altura do próprio conteúdo, e
-         a diferença dentro da linha é só um respiro, não uma etiqueta
-         inflada. */
-      .grid{display:grid;grid-template-columns:repeat(${cols},1fr);align-items:start}
-      .cell{position:relative;display:block;padding:2.5mm;border-right:1px dashed #9aa39a;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
-      .cell:nth-child(${cols}n){border-right:none}
+      /* EMPACOTAMENTO MEDIDO (ver o script no fim do documento).
+         Tanto a grade quanto as multicolunas do CSS desperdiçavam papel, por
+         motivos opostos: a grade alinha em LINHAS, e a linha toma a altura da
+         célula mais alta — uma etiqueta de uma medicação ao lado de outra com
+         seis deixava um vão morto de meia folha; as multicolunas empacotam
+         denso, mas enchem uma coluna antes da outra e a última folha saía com
+         uma coluna inteira em branco.
+         Aqui as etiquetas são medidas depois de renderizadas e distribuídas
+         por um algoritmo: cada uma vai para a coluna mais curta da folha que
+         ainda tiver espaço. Isso empacota denso COMO as multicolunas e
+         equilibra as colunas em TODAS as folhas, inclusive a última, sem vão
+         entre etiquetas vizinhas.
+         A linha pontilhada vertical passou a ser da coluna, não da célula:
+         corta-se a folha nas verticais e depois cada tira nas horizontais. */
+      .pagina{display:grid;grid-template-columns:repeat(${cols},1fr);page-break-after:always;break-after:page}
+      .pagina:last-child{page-break-after:auto;break-after:auto}
+      .col{min-width:0}
+      .col:not(:last-child){border-right:1px dashed #9aa39a}
+      /* align-items:start na área de medição é obrigatório: sem ele a grade
+         estica cada célula até a altura da linha, e as alturas medidas saem
+         maiores que as reais — o empacotador fecharia a folha com um terço
+         dela vazio, achando que não cabe mais nada. */
+      #pool{position:absolute;left:-9999px;top:0;width:190mm;display:grid;grid-template-columns:repeat(${cols},1fr);align-items:start}
+      .cell{position:relative;display:block;padding:2.5mm;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
       .cell::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
-      .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:${cols === 3 ? "6px 7px" : "8px 10px"};min-height:${cols === 3 ? "34mm" : "40mm"};display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid;font-size:${cols === 3 ? "9.5px" : "11px"}}
+      .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:${cols === 3 ? "6px 7px" : "8px 10px"};min-height:${cols === 3 ? "22mm" : "24mm"};display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid;font-size:${cols === 3 ? "9.5px" : "11px"}}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
       .lbl-p{font-weight:700;font-size:13px;margin-top:5px}
       /* O leito saiu da linha de baixo e virou um selo antes do nome: uma
@@ -295,10 +306,117 @@ window.printLabels = function (opts) {
          tesourinha) e vêm depois da barra no HTML; sem z-index elas eram
          pintadas por cima do botão fixo, que ficava visível mas não recebia o
          clique — só dava para imprimir com Ctrl+P. */
-      .toolbar{position:fixed;top:12px;right:12px;z-index:1000}.toolbar button{background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+      .toolbar{position:fixed;top:12px;right:12px;z-index:1000;background:#fff;border:1px solid #cfd6cf;border-radius:10px;padding:8px 10px;box-shadow:0 2px 10px rgba(0,0,0,.18);font-size:12px;text-align:right}
+      .toolbar label{margin-right:8px;color:#3d4743}
+      .toolbar select{font:inherit;padding:3px 5px;border:1px solid #cfd6cf;border-radius:6px}
+      .toolbar button{background:#2C5F5A;color:#fff;border:none;padding:7px 13px;border-radius:8px;cursor:pointer;font:inherit}
+      .toolbar .dica{font-size:10.5px;color:#777;margin-top:5px}
       @media print{.toolbar{display:none}}</style></head><body>
-      <div class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
-      <div class="grid">${cards}</div></body></html>`;
+      <div class="toolbar">
+        <label>Papel
+          <select id="papel" onchange="repaginar()">
+            <option value="A4" selected>A4</option>
+            <option value="letter">Carta</option>
+          </select></label>
+        <button onclick="window.print()">Imprimir / Salvar PDF</button>
+        <div class="dica">Escolha o MESMO papel na janela de impressão.</div>
+      </div>
+      <div id="pool">${cards}</div>
+      <div id="folhas"></div>
+      <script>
+      var COLS = ${cols};
+      /* Altura útil de cada papel, já descontadas as margens de 10mm.
+         A impressão que motivou esta mudança saiu em CARTA, porque é o padrão
+         do "Microsoft Print to PDF", e um empacotamento calculado para A4 num
+         papel 18mm menor joga a última etiqueta de cada folha para a seguinte.
+         Por isso o papel é escolhido aqui e aplicado também ao @page: as duas
+         coisas têm de concordar. */
+      var UTIL_MM = { A4: 275, letter: 257 };
+      var _cells = [], _alturas = [], _pxPorMm = 0;
+
+      function repaginar() {
+        var papel = document.getElementById("papel").value;
+        document.getElementById("regra-pagina").textContent =
+          "@page{size:" + papel + ";margin:10mm}";
+        var limite = UTIL_MM[papel] * _pxPorMm;
+        var saida = document.getElementById("folhas");
+        saida.innerHTML = "";
+
+        var folha = null, colunas = [], usado = [];
+        function novaFolha() {
+          folha = document.createElement("div");
+          folha.className = "pagina";
+          colunas = []; usado = [];
+          for (var i = 0; i < COLS; i++) {
+            var col = document.createElement("div");
+            col.className = "col";
+            folha.appendChild(col); colunas.push(col); usado.push(0);
+          }
+          saida.appendChild(folha);
+        }
+        function maisCurta() {
+          var a = 0;
+          for (var k = 1; k < COLS; k++) if (usado[k] < usado[a]) a = k;
+          return a;
+        }
+
+        /* Fila com folga de encaixe: quando a próxima etiqueta não cabe no
+           vão que restou, o empacotador olha até 6 adiante e puxa a primeira
+           que couber, em vez de fechar a folha com um palmo em branco. A
+           etiqueta pulada não se perde — volta a ser a primeira da fila na
+           folha seguinte. Olhar só 6 à frente mantém os kits praticamente na
+           ordem de montagem; olhar a lista toda encheria melhor a folha e
+           embaralharia a sequência. */
+        var fila = _cells.map(function (c, i) { return { c: c, h: _alturas[i] }; });
+        var LOOK = 10;
+        novaFolha();
+        while (fila.length) {
+          var alvo = maisCurta();
+          var idx = -1;
+          for (var j = 0; j < Math.min(fila.length, LOOK); j++) {
+            if (usado[alvo] + fila[j].h <= limite) { idx = j; break; }
+          }
+          if (idx === -1) {
+            // etiqueta mais alta que a folha inteira: entra assim mesmo, senão
+            // o laço nunca termina e a impressão sai vazia
+            if (usado[alvo] === 0) idx = 0;
+            else { novaFolha(); continue; }
+          }
+          var it = fila.splice(idx, 1)[0];
+          colunas[alvo].appendChild(it.c);
+          usado[alvo] += it.h;
+        }
+      }
+
+      (function () {
+        try {
+          var pool = document.getElementById("pool");
+          /* Converte mm em px medindo de fato, em vez de assumir 96dpi: o
+             navegador pode estar com zoom, e aí a conta fixa erraria. */
+          var regua = document.createElement("div");
+          regua.style.cssText = "position:absolute;visibility:hidden;height:100mm";
+          document.body.appendChild(regua);
+          _pxPorMm = regua.getBoundingClientRect().height / 100;
+          document.body.removeChild(regua);
+
+          _cells = Array.prototype.slice.call(pool.children);
+          _alturas = _cells.map(function (c) { return c.getBoundingClientRect().height; });
+          repaginar();
+          pool.parentNode.removeChild(pool);
+        } catch (e) {
+          /* Se a medição falhar, a impressão não pode sumir: as etiquetas
+             voltam a sair em multicolunas, que é denso e sempre funciona,
+             mesmo deixando a última folha desequilibrada. */
+          var p = document.getElementById("pool");
+          if (p) {
+            p.id = "";
+            p.style.cssText = "column-count:" + COLS + ";column-gap:0;column-rule:1px dashed #9aa39a";
+          }
+          var sel = document.getElementById("papel");
+          if (sel) sel.disabled = true;
+        }
+      })();
+      <\/script></body></html>`;
   const win = window.open("", "_blank");
   if (!win) { alert("Permita pop-ups para imprimir as etiquetas."); return; }
   win.document.open(); win.document.write(html); win.document.close();

@@ -5,33 +5,43 @@ Data: 01/10/2026
 
 O QUE MUDOU — Etiquetas dos kits
 
-  1. PREENCHIMENTO: LARGURA ANTES DE ALTURA
-     As multicolunas do CSS foram trocadas por grade com
-     align-items:start. As etiquetas agora caminham da esquerda para a
-     direita e descem, em vez de descer uma coluna inteira antes de
-     passar para a outra. A sobra fica numa faixa no rodape da ultima
-     folha, nao numa coluna em pe.
-     align-items:start e o que preserva a altura independente de cada
-     etiqueta — sem ele volta o defeito antigo, de esticar a etiqueta
-     pequena ate a altura da vizinha.
-     Vale para 2 e 3 colunas.
+  Diagnostico da folha que voce enviou: dois desperdicios somados.
+  (a) altura minima de 40mm inflava a etiqueta de uma medicacao, que
+      ficava com um palmo em branco antes do rodape;
+  (b) a grade alinha em LINHAS, e a linha toma a altura da celula mais
+      alta — etiqueta de 1 medicacao ao lado de outra com 6 deixava um
+      vao morto do tamanho da diferenca.
+  Alem disso, a sua impressao saiu em CARTA (padrao do "Microsoft Print
+  to PDF"), 18mm menor que a A4 para a qual o layout era calculado.
 
-  2. CABECALHO EM LINHA UNICA (so 2 colunas)
-     Leito, pilula de horario/dia e nome do paciente na MESMA linha.
-     Em 3 colunas nao cabe: la o horario continua em linha propria.
+  1. EMPACOTAMENTO MEDIDO
+     Saiu a grade. As etiquetas sao renderizadas, MEDIDAS e distribuidas
+     por um algoritmo: cada uma vai para a coluna mais curta da folha que
+     ainda tiver espaco. Empacota denso como as multicolunas e equilibra
+     as colunas em todas as folhas, inclusive a ultima.
+     Folga de encaixe: quando a proxima nao cabe no vao que restou, olha
+     ate 10 adiante e puxa a primeira que couber. A pulada volta a ser a
+     primeira da fila na folha seguinte.
+     Se a medicao falhar por qualquer motivo, cai em multicolunas — a
+     impressao nunca sai vazia.
 
-  MEDICAO — 36 etiquetas, 3 dias, 6 pacientes, 2 colunas:
-     modelo original ................ 5 folhas
-     + lote e validade em linha ..... 4 folhas
-     + leito antes do nome .......... 4 folhas
-     + grade e horario na linha ..... 3 folhas
+  2. SELETOR DE PAPEL (A4 / Carta) na barra da janela de impressao
+     Troca a regra @page e reempacota na hora. Escolha o MESMO papel na
+     janela de impressao do navegador.
 
-  Piso de altura da etiqueta testado de novo em 36, 34, 32 e 30mm:
-  todos deram 3 folhas. Mantido em 40mm, que e a tira confortavel de
-  manusear.
+  3. ALTURA MINIMA: 40mm -> 24mm (2 colunas) e 34mm -> 22mm (3 colunas)
 
-  3 colunas conferido depois da mudanca: 36 etiquetas, 3 folhas, ordem
-  correta, linha de lote separada preservada, sem erro de JS.
+  4. RODAPE EM UMA LINHA
+     "Kit exclusivo deste dia — nao abrir em outro dia; devolver a
+     farmacia se nao usado." + legenda da custodia em linha separada
+     viraram "Exclusivo deste dia · devolver se nao usado · ★ do proprio
+     paciente". Eram 2 a 3 linhas em TODA etiqueta.
+
+  MEDICAO — 48 etiquetas com nomes longos, 1 a 7 medicacoes por kit e
+  muita custodia (dados parecidos com os seus):
+     2 colunas: 6 folhas -> 5
+     3 colunas: 6 folhas -> 4
+     colunas chegam a ~87% da altura util, contra vaos de ate meia folha
 
 Nenhuma migracao de banco nesta entrega.
 
