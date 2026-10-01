@@ -173,13 +173,20 @@ function _mesAno(v) { if (!v) return "—"; const [y, m] = String(v).split("-");
    porque é assim que o kit vai ser montado — e é o que a conferência precisa
    enxergar. Sem saldo, a etiqueta diz isso em vez de omitir: descobrir a
    falta na bancada é melhor do que descobrir no horário da dose. */
-function _lblLote(it) {
+function _lblLote(it, inline) {
   if (!it.lotes) return "";
-  if (!it.lotes.length) return '<div class="ml falta">sem saldo — conferir na farmácia</div>';
+  /* `inline` = etiqueta de 2 colunas: lote e validade entram na MESMA linha
+     do medicamento, logo após o nome, em vez de ocupar uma linha própria.
+     Com a etiqueta larga sobra espaço horizontal, e cada linha economizada
+     encurta a etiqueta — menos etiqueta alta, mais etiqueta por folha. Em 3
+     colunas a largura não permite: ali a linha separada continua. */
+  const cls = `ml${inline ? " in" : ""}`;
+  const tag = inline ? "span" : "div";
+  if (!it.lotes.length) return `<${tag} class="${cls} falta">sem saldo — conferir</${tag}>`;
   const varios = it.lotes.length > 1;
   const txt = it.lotes.map((x) =>
     `lote ${_esc(x.lote)}${varios ? ` (${fmtDose(x.qtd)})` : ""} · val ${_mesAno(x.validade)}${x.custodia ? " ★" : ""}`).join(" + ");
-  return `<div class="ml${it.lotes.some((x) => x.custodia) ? " cust" : ""}">${txt}${it.faltando ? ` · faltam ${fmtDose(it.faltando)}` : ""}</div>`;
+  return `<${tag} class="${cls}${it.lotes.some((x) => x.custodia) ? " cust" : ""}">${txt}${it.faltando ? ` · faltam ${fmtDose(it.faltando)}` : ""}</${tag}>`;
 }
 
 window.printLabels = function (opts) {
@@ -204,10 +211,18 @@ window.printLabels = function (opts) {
     <div class="cell">
     <div class="lbl">
       <div class="lbl-h">${hosp} — Dose Unitária · ${fmtDate(l.dia)}</div>
-      <div class="lbl-p">${l.patient.nome}</div>
-      <div class="lbl-b">${l.patient.leito || ""}</div>
-      <div class="lbl-t"><b class="lbl-hora">${l.slot}</b>${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(l.dia)}</span></div>
-      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}</span></div>${_lblLote(it)}`).join("")}</div>
+      ${(() => {
+        const selo = l.patient.leito ? `<span class="lbl-b">${_esc(l.patient.leito)}</span>` : "";
+        const pilula = `<span class="lbl-t"><b class="lbl-hora">${l.slot}</b>${l.slot === "SOS" ? " — se necessário" : ""}<span class="lbl-dia">${_diaSemana(l.dia)}</span></span>`;
+        /* Em 2 colunas, leito, horário e nome cabem na mesma linha: a etiqueta
+           é larga e isso economiza mais uma linha de altura. Em 3 colunas não
+           cabe — a pílula sozinha já ocupa boa parte da largura —, então lá
+           horário e nome continuam em linhas separadas. */
+        return cols === 2
+          ? `<div class="lbl-p uma-linha">${selo}${pilula}${_esc(l.patient.nome)}</div>`
+          : `<div class="lbl-p">${selo}${_esc(l.patient.nome)}</div>${pilula}`;
+      })()}
+      <div class="lbl-m">${l.items.map((it) => `<div class="mi"><span class="mq">${fmtDose(it.qtdAdm)}</span> <span class="mn">${_esc(subNomeExibicao(it.sub))}${it.descarte ? ` <span class="dsc">(separar ${fmtDose(it.qtd)})</span>` : ""}${cols === 2 ? _lblLote(it, true) : ""}</span></div>${cols === 3 ? _lblLote(it, false) : ""}`).join("")}</div>
       <div class="lbl-f">Kit exclusivo deste dia — não abrir em outro dia; devolver à farmácia se não usado.${l.items.some((it) => (it.lotes || []).some((x) => x.custodia)) ? '<br><span class="cust">★ medicação do próprio paciente (custódia).</span>' : ""}</div>
     </div>
     </div>`).join("");
@@ -230,13 +245,33 @@ window.printLabels = function (opts) {
          Ordem: de cima para baixo em cada coluna, da esquerda para a direita,
          página a página — os horários do mesmo paciente ficam empilhados.
          O espaço entre etiquetas continua sendo 5mm (2,5mm de cada lado). */
-      .grid{column-count:${cols};column-gap:0;column-rule:1px dashed #9aa39a}
-      .cell{position:relative;display:block;padding:2.5mm;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
+      /* PREENCHE LARGURA ANTES DE ALTURA. Com multicolunas do CSS o
+         preenchimento é por coluna: a folha final podia terminar com uma
+         coluna inteira em branco, e sobra em pé não se aproveita — teria de
+         cortar a folha ao meio. Em grade, as etiquetas caminham da esquerda
+         para a direita e descem; o que sobra fica numa faixa no rodapé da
+         última folha, que é papel reaproveitável.
+         align-items:start é o que impede o defeito antigo: sem ele, a grade
+         estica a etiqueta de um horário com uma medicação até a altura da
+         vizinha com oito. Cada célula mantém a altura do próprio conteúdo, e
+         a diferença dentro da linha é só um respiro, não uma etiqueta
+         inflada. */
+      .grid{display:grid;grid-template-columns:repeat(${cols},1fr);align-items:start}
+      .cell{position:relative;display:block;padding:2.5mm;border-right:1px dashed #9aa39a;border-bottom:1px dashed #9aa39a;page-break-inside:avoid;break-inside:avoid}
+      .cell:nth-child(${cols}n){border-right:none}
       .cell::after{content:"✂";position:absolute;left:0;bottom:-4.5px;font-size:8px;line-height:1;color:#9aa39a;background:#fff;padding:0 1px}
       .lbl{flex:1;min-width:0;border:1px solid #333;border-radius:6px;padding:${cols === 3 ? "6px 7px" : "8px 10px"};min-height:${cols === 3 ? "34mm" : "40mm"};display:flex;flex-direction:column;page-break-inside:avoid;break-inside:avoid;font-size:${cols === 3 ? "9.5px" : "11px"}}
       .lbl-h{font-size:8.5px;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px}
-      .lbl-p{font-weight:700;font-size:13px;margin-top:5px}.lbl-b{font-size:11px;color:#333}
+      .lbl-p{font-weight:700;font-size:13px;margin-top:5px}
+      /* O leito saiu da linha de baixo e virou um selo antes do nome: uma
+         linha a menos por etiqueta, e o nome continua sendo o que o olho
+         pega primeiro, que é como a enfermagem procura o kit. */
+      .lbl-b{display:inline-block;font-size:10px;font-weight:700;color:#444;background:#EEF2EC;border:1px solid #cfd6cf;border-radius:4px;padding:0 4px;margin-right:5px;vertical-align:1px}
       .lbl-t{display:inline-block;align-self:flex-start;background:#1E2A28;color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin:5px 0;font-weight:600}
+      /* Cabeçalho em linha única: a pílula perde a margem vertical e o nome
+         desce inteiro para a linha de baixo se não couber, em vez de partir. */
+      .lbl-p.uma-linha{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+      .lbl-p.uma-linha .lbl-b,.lbl-p.uma-linha .lbl-t{margin:0}
       .lbl-m{font-size:11px;line-height:1.35;flex:1}
       .lbl-f{font-size:8px;color:#B04A3F;border-top:1px dashed #ccc;padding-top:4px;margin-top:5px;font-weight:600;line-height:1.3}
       .lbl-hora{font-size:13px;font-weight:800;letter-spacing:.03em}
@@ -250,6 +285,9 @@ window.printLabels = function (opts) {
          é dose do que é rastreabilidade. */
       .lbl-m .ml{font-size:${cols === 3 ? "8px" : "8.5px"};color:#555;line-height:1.2;margin:0 0 3px 26px;font-variant-numeric:tabular-nums}
       .lbl-m .ml.cust{color:#B07A2F}
+      /* in-line: nowrap para "lote X · val mm/aaaa" não quebrar no meio —
+         se não couber ao lado do nome, desce inteiro para a linha seguinte. */
+      .lbl-m .ml.in{display:inline;margin:0 0 0 5px;white-space:nowrap}
       .lbl-m .ml.falta{color:#B04A3F;font-weight:700}
       .lbl-f .cust{color:#B07A2F;font-weight:600}
       .lbl-m .dsc{font-size:8.5px;color:#777}

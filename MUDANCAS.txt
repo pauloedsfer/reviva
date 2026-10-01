@@ -1,55 +1,38 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 30/09/2026
+Data: 01/10/2026
 
   paginas/dose.js
-  db/pop_far_007_separacao.sql   (NOVO — rodar no SQL Editor)
 
-1) ETIQUETA DO KIT COM LOTE E VALIDADE
+O QUE MUDOU — Etiquetas dos kits
 
-   Cada medicamento da etiqueta passa a trazer, embaixo do nome:
-      lote CLZ-2607 · val 08/2027
-   Medicacao da custodia do paciente volta a ser marcada com ★, e a
-   legenda aparece no rodape da etiqueta so quando ha custodia no kit.
-   Sem saldo no estoque, a linha diz "sem saldo — conferir na farmacia"
-   em vermelho, em vez de omitir.
-   Dose que atravessa dois lotes mostra os dois, com a quantidade de
-   cada um.
+  1. PREENCHIMENTO: LARGURA ANTES DE ALTURA
+     As multicolunas do CSS foram trocadas por grade com
+     align-items:start. As etiquetas agora caminham da esquerda para a
+     direita e descem, em vez de descer uma coluna inteira antes de
+     passar para a outra. A sobra fica numa faixa no rodape da ultima
+     folha, nao numa coluna em pe.
+     align-items:start e o que preserva a altura independente de cada
+     etiqueta — sem ele volta o defeito antigo, de esticar a etiqueta
+     pequena ate a altura da vizinha.
+     Vale para 2 e 3 colunas.
 
-   O lote e calculado por SIMULACAO ao longo da impressao: o saldo e
-   debitado etiqueta a etiqueta, na mesma ordem em que os kits serao
-   montados. Numa separacao de 3 dias, um lote com 5 comprimidos
-   aparece nas 5 primeiras doses e a virada para o lote seguinte sai na
-   etiqueta certa. Chamar alocarLotes() por item nao serviria: ele le
-   sempre o saldo de hoje e repetiria o mesmo lote nos tres dias.
+  2. CABECALHO EM LINHA UNICA (so 2 colunas)
+     Leito, pilula de horario/dia e nome do paciente na MESMA linha.
+     Em 3 colunas nao cabe: la o horario continua em linha propria.
 
-   Continua sendo PREVISAO. Devolucao, ajuste ou troca manual de lote
-   mudam o que sera usado. O POP manda conferir contra a cartela.
+  MEDICAO — 36 etiquetas, 3 dias, 6 pacientes, 2 colunas:
+     modelo original ................ 5 folhas
+     + lote e validade em linha ..... 4 folhas
+     + leito antes do nome .......... 4 folhas
+     + grade e horario na linha ..... 3 folhas
 
-   Checklist e etiquetas dos sacos nao mudaram: o calculo de lote so
-   roda quando a impressao de etiquetas pede.
+  Piso de altura da etiqueta testado de novo em 36, 34, 32 e 30mm:
+  todos deram 3 folhas. Mantido em 40mm, que e a tira confortavel de
+  manusear.
 
-2) POP-FAR-007 — SEPARACAO DA DOSE UNITARIA E CORTE DE CARTELAS
+  3 colunas conferido depois da mudanca: 36 etiquetas, 3 folhas, ordem
+  correta, linha de lote separada preservada, sem erro de JS.
 
-   POP novo. O antigo "Preparo e Etiquetagem da Dose Unitaria" virou
-   POP-ENF-001 (administracao pela enfermagem) no pops_conteudo_v2, e
-   a separacao pela farmacia ficou sem POP.
+Nenhuma migracao de banco nesta entrega.
 
-   Documenta: conferencia antes de cortar; corte preservando a faixa
-   impressa com lote e validade da sobra; sobra sem identificacao nao
-   volta ao estoque; unidade cortada nunca fica solta; kit exclusivo do
-   dia; custodia so para o dono; devolucao; registro fora do kit.
-
-   Afirma corte SEM rompimento da embalagem primaria (validade do
-   fabricante, RDC 67/2007 Anexo VI item 3.9 a) e declara que a clinica
-   NAO faz fracionamento com rompimento, subdivisao de forma
-   farmaceutica nem transformacao.
-
-   O SQL e idempotente e comeca com uma consulta de conferencia previa
-   do codigo POP-FAR-007, para o caso de ele ja estar em uso.
-   LEIA O PROCEDIMENTO ANTES DE RODAR e ajuste o que nao corresponder a
-   rotina real.
-
-   O rodape da folha de preparo passou a citar POP-FAR-007 (antes citava
-   um codigo que nao existia).
-
-Suba os arquivos no GitHub mantendo o mesmo caminho de pasta.
+Suba este arquivo no GitHub mantendo o mesmo caminho de pasta.
