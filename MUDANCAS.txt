@@ -1,48 +1,65 @@
 ARQUIVOS ALTERADOS NESTA ENTREGA
-Data: 01/10/2026
+Data: 06/10/2026
 
-  paginas/dose.js
+  db/migration_prescricao_versao.sql   (NOVO — rodar PRIMEIRO no SQL Editor)
+  assets/dados.js
+  paginas/prescricoes.js
+  paginas/mapa.js
 
-O QUE MUDOU — Etiquetas dos kits
+ORDEM: rodar a migracao ANTES de subir os arquivos. Sem as colunas novas,
+a tela de prescricoes da erro ao salvar.
 
-  Diagnostico da folha que voce enviou: dois desperdicios somados.
-  (a) altura minima de 40mm inflava a etiqueta de uma medicacao, que
-      ficava com um palmo em branco antes do rodape;
-  (b) a grade alinha em LINHAS, e a linha toma a altura da celula mais
-      alta — etiqueta de 1 medicacao ao lado de outra com 6 deixava um
-      vao morto do tamanho da diferenca.
-  Alem disso, a sua impressao saiu em CARTA (padrao do "Microsoft Print
-  to PDF"), 18mm menor que a A4 para a qual o layout era calculado.
+1) MIGRACAO — 3 colunas em prescricoes
+   data_suspensao   : primeiro dia em que a prescricao NAO vale mais
+   substituida_por  : liga a versao antiga a nova, na alteracao
+   motivo_suspensao : texto livre
+   `ativo` continua existindo e sendo gravado. Idempotente, com consulta de
+   conferencia no fim.
 
-  1. EMPACOTAMENTO MEDIDO
-     Saiu a grade. As etiquetas sao renderizadas, MEDIDAS e distribuidas
-     por um algoritmo: cada uma vai para a coluna mais curta da folha que
-     ainda tiver espaco. Empacota denso como as multicolunas e equilibra
-     as colunas em todas as folhas, inclusive a ultima.
-     Folga de encaixe: quando a proxima nao cabe no vao que restou, olha
-     ate 10 adiante e puxa a primeira que couber. A pulada volta a ser a
-     primeira da fila na folha seguinte.
-     Se a medicao falhar por qualquer motivo, cai em multicolunas — a
-     impressao nunca sai vazia.
+2) REGRA DE VIGENCIA (assets/dados.js) — a correcao de fundo
+   Antes: `if (!pr || pr.ativo === false) return false;` decidia ANTES de
+   olhar a data. Suspender hoje apagava a prescricao do passado inteiro: o
+   mapa da semana passada saia sem a medicacao, como se nunca tivesse sido
+   prescrita.
+   Agora a vigencia considera data_suspensao. Suspensas ANTES da migracao
+   (sem data) continuam sumindo de tudo, de proposito — nao da para adivinhar
+   quando foram suspensas.
+   Afeta mapa, dose, separacao, previsao, cotacao e financeiro. Todas as 6
+   telas foram abertas e testadas apos a mudanca, sem erro.
 
-  2. SELETOR DE PAPEL (A4 / Carta) na barra da janela de impressao
-     Troca a regra @page e reempacota na hora. Escolha o MESMO papel na
-     janela de impressao do navegador.
+3) EDITAR AGORA VERSIONA (paginas/prescricoes.js)
+   "Salvar alteracao" encerra a prescricao atual e cria uma nova no lugar.
+   Data padrao: AMANHA, porque a separacao de hoje foi montada ontem.
+   Editavel, aceita retroativa. A mesma data serve para as duas pontas: a
+   antiga vale ate a vespera, a nova comeca nela — sem buraco nem
+   sobreposicao. Campo de motivo, que fica na versao encerrada.
+   A nova e criada ANTES de encerrar a antiga: se a criacao falhar, o
+   paciente nao fica sem a medicacao no sistema.
 
-  3. ALTURA MINIMA: 40mm -> 24mm (2 colunas) e 34mm -> 22mm (3 colunas)
+4) SUSPENDER COM DATA + REATIVAR
+   Suspender virou modal com data (padrao amanha, aceita retroativa) e
+   motivo. Reativar cria uma NOVA prescricao com os mesmos dados, em vez de
+   ressuscitar a linha antiga — assim o periodo suspenso continua registrado.
 
-  4. RODAPE EM UMA LINHA
-     "Kit exclusivo deste dia — nao abrir em outro dia; devolver a
-     farmacia se nao usado." + legenda da custodia em linha separada
-     viraram "Exclusivo deste dia · devolver se nao usado · ★ do proprio
-     paciente". Eram 2 a 3 linhas em TODA etiqueta.
+5) PAINEL DE HISTORICO na tela do paciente
+   Recolhido por padrao. Mostra o que foi suspenso ou alterado, quando
+   vigorou, o motivo, e para o que mudou. Botao de reativar em cada linha.
+   O `incluirSuspensas` ja existia na funcao e nunca era usado.
 
-  MEDICAO — 48 etiquetas com nomes longos, 1 a 7 medicacoes por kit e
-  muita custodia (dados parecidos com os seus):
-     2 colunas: 6 folhas -> 5
-     3 colunas: 6 folhas -> 4
-     colunas chegam a ~87% da altura util, contra vaos de ate meia folha
+6) MAPA REALIZADO (paginas/mapa.js) — terceiro botao
+   Monta o mapa a partir das DISPENSACOES, nao da prescricao: imune a
+   qualquer alteracao posterior. Mesmo formato (medicacao x periodos), com a
+   quantidade dispensada em cada horario. Dose nao dispensada fica em branco,
+   como hoje. Dia sem lancamento diz isso explicitamente.
+   Cabecalho avisa que nao e folha para rubricar. Rodape com linha de
+   conferencia e o RT.
 
-Nenhuma migracao de banco nesta entrega.
+TESTE FEITO (cenario: clonazepam alterado de 1cp 8h+22h para 2cp 22h em
+05/10; quetiapina suspensa em 04/10; carbamazepina suspensa sem data)
+   Mapa normal de 02/10 : CLONAZEPAM 1 CP 08:00 22:00 + QUETIAPINA  (correto)
+   Mapa normal de 06/10 : CLONAZEPAM 2 CP 22:00                     (correto)
+   Mapa realizado 02/10 : as 3, pelas dispensacoes reais
+   Dispensacao em 02/10 : 3 doses esperadas, qtd 1
+   Dispensacao em 06/10 : 1 dose esperada, qtd 2
 
-Suba este arquivo no GitHub mantendo o mesmo caminho de pasta.
+Suba os arquivos no GitHub mantendo o mesmo caminho de pasta.

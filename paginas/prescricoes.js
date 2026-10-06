@@ -117,17 +117,45 @@ function abrirFormPrescricao(pacientePre) {
   addMedRow();
 }
 
-/* -------- edição individual de um item -------- */
+/* -------- edição de um item: VERSIONA, não sobrescreve --------
+   Salvar alteração encerra a prescrição atual e cria uma nova no lugar. A
+   antiga fica inteira, com a dose e o horário originais, e continua vigente
+   nos dias anteriores — é o que mantém o mapa de um dia passado igual ao que
+   a enfermagem rubricou.
+
+   A data padrão é AMANHÃ, não hoje: a separação de hoje foi montada ontem,
+   então uma alteração lançada agora só pode valer a partir da próxima
+   separação. A data é editável porque o médico pode ter alterado ontem e o
+   lançamento só acontecer hoje.
+
+   A mesma data serve para as duas pontas — a antiga vale até a véspera, a
+   nova começa nela —, de modo que não existe dia sem prescrição nem dia com
+   as duas valendo ao mesmo tempo. */
+function _amanha() {
+  const d = new Date(HOJE + "T12:00:00");
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function abrirEditarPrescricao(id) {
   const pr = prescriptions.find((x) => x.id === id); if (!pr) return;
+  const nomeSub = subById(pr.subId).nome;
   const corpo = `
+    <div class="note-box" style="margin-top:0">A prescrição atual de <b>${_esc(nomeSub)}</b> será <b>encerrada</b> e uma nova entra no lugar, a partir da data abaixo. A versão antiga continua no histórico e os mapas já impressos continuam valendo.</div>
+    <div class="ff"><label>A nova prescrição passa a valer em *</label>
+      <input id="eVigor" type="date" value="${_amanha()}">
+      <div class="dica">Padrão amanhã: a separação de hoje foi montada ontem, então a alteração de hoje só entra na próxima. Pode ser retroativa se o médico alterou antes e você está lançando agora.</div></div>
+    <div class="ff"><label>Motivo da alteração</label>
+      <input id="eMotivo" placeholder="Ex.: ajuste de dose por ordem médica">
+      <div class="dica">Fica registrado na versão encerrada — é o que explica a mudança numa conferência.</div></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
     <div class="ff row2">
       <div><label>Paciente *</label><select id="ePac">${_optPats(pr.paciente)}</select></div>
-      <div><label>Data da prescrição *</label><input id="eData" type="date" value="${pr.dataInicio || new Date().toISOString().slice(0,10)}"></div>
+      <div><label>Data da prescrição *</label><input id="eData" type="date" value="${pr.dataInicio || HOJE}"></div>
     </div>
     <div class="ff"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, para tratamento com duração definida</span></label>
       <input id="eFim" type="date" value="${pr.dataFim || ""}">
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">Ex.: antimicrobiano por 7 dias. Passada a data, a prescrição sai do mapa e da dispensação automaticamente, sem precisar suspender à mão. Deixe em branco para uso contínuo.</div></div>
+      <div class="dica">Ex.: antimicrobiano por 7 dias. Passada a data, a prescrição sai do mapa e da dispensação automaticamente. Deixe em branco para uso contínuo.</div></div>
     <div class="ff"><label>Substância *</label><select id="eSub">${_optSubs(pr.subId, "medicamento")}</select></div>
     <div class="ff"><label>Médico prescritor</label>
       <select id="ePresc" onchange="_toggleBloco('ePresc','blocoNovoPresc')">${_optPresc(pr.prescritorId)}</select>
@@ -136,37 +164,92 @@ function abrirEditarPrescricao(id) {
     <div class="ff row2">
       <div><label>Dose (texto)</label><input id="eDose" value="${(pr.dose || "").replace(/"/g, "&quot;")}"></div>
       <div><label>Qtd. por horário *</label><input id="eQtd" type="number" min="0.25" step="0.25" value="${pr.qtdPorHorario || 1}">
-        <div style="font-size:11px;color:var(--muted);margin-top:3px">Aceita fração: 0,5 = meio comprimido. Em comprimido, o restante é descartado e o estoque baixa a unidade inteira.</div></div>
+        <div class="dica">Aceita fração: 0,5 = meio comprimido. Em comprimido, o restante é descartado e o estoque baixa a unidade inteira.</div></div>
     </div>
     <div class="ff row2">
       <div><label>Via</label><input id="eVia" value="${pr.via || "VO"}"></div>
       <div><label>Horários</label><input id="eHor" value="${(pr.horarios || []).join(", ")}">${_chipsHorario("#eHor")}</div>
     </div>
   `;
-  abrirModal("Editar prescrição", corpo, async () => {
+  abrirModal("Alterar prescrição", corpo, async () => {
     const pac = fv("ePac"); const sub = fv("eSub"); const data = fv("eData");
     if (!pac || !sub || !data) throw new Error("Paciente, substância e data são obrigatórios.");
+    const vigor = fv("eVigor");
+    if (!vigor) throw new Error("Informe a partir de quando a nova prescrição vale.");
     let prescritorId = fv("ePresc");
     if (prescritorId === "__novo__") prescritorId = await resolvePrescritor("ePresc");
-    const dados = {
+
+    /* A nova nasce primeiro. Se a ordem fosse inversa e a criação falhasse, o
+       paciente ficaria sem a medicação no sistema — pior do que ficar um
+       instante com as duas versões. */
+    const { data: nova, error: eNova } = await window.SB.from("prescricoes").insert({
       paciente_id: pac, substancia_id: sub, prescritor_id: prescritorId || null,
       dose: fvOrNull("eDose"), via: fvOrNull("eVia"),
       horarios: fv("eHor").split(",").map((h) => h.trim()).filter(Boolean),
       qtd_por_horario: Math.max(0.25, fvNum("eQtd") || 1),
-      data_fim: fvOrNull("eFim"),
-      data_inicio: data,
-    };
-    const { error } = await window.SB.from("prescricoes").update(dados).eq("id", id);
-    if (error) throw error;
-  }, "Salvar alterações");
+      data_inicio: vigor, data_fim: fvOrNull("eFim"), ativo: true, ...usuarioId(),
+    }).select("id").single();
+    if (eNova) throw eNova;
+
+    const { error: eVelha } = await window.SB.from("prescricoes").update({
+      ativo: false, data_suspensao: vigor,
+      motivo_suspensao: fvOrNull("eMotivo") || "Alterada",
+      substituida_por: nova ? nova.id : null,
+    }).eq("id", id);
+    if (eVelha) throw new Error("A nova prescrição foi criada, mas a anterior não foi encerrada. Suspenda-a manualmente. Erro: " + eVelha.message);
+  }, "Salvar alteração");
 }
 
-async function suspenderItem(id) {
+/* Suspender aceita data retroativa: alteração médica fora do expediente da
+   farmácia é lançada no dia seguinte, e a data real é a da ordem. */
+function suspenderItem(id) {
   const pr = prescriptions.find((x) => x.id === id); if (!pr) return;
-  if (!confirm(`Suspender ${subById(pr.subId).nome} de ${patById(pr.paciente).nome}?\n\nDeixa de aparecer no mapa e na dispensação. O histórico é mantido.`)) return;
-  const { error } = await window.SB.from("prescricoes").update({ ativo: false }).eq("id", id);
-  if (error) { alert("Erro: " + error.message); return; }
-  await recarregarTela();
+  const p = patById(pr.paciente);
+  abrirModal("Suspender prescrição", `
+    <div class="note-box" style="margin-top:0"><b>${_esc(subById(pr.subId).nome)}</b> — ${_esc(p ? p.nome : "")}<br>
+      Deixa de entrar no mapa e na separação a partir da data abaixo. O histórico fica, e os mapas dos dias anteriores continuam corretos.</div>
+    <div class="ff"><label>Suspensa a partir de *</label>
+      <input id="sData" type="date" value="${_amanha()}">
+      <div class="dica">Padrão amanhã, porque a separação de hoje já foi montada. Use data retroativa quando a ordem médica for anterior ao lançamento.</div></div>
+    <div class="ff"><label>Motivo</label>
+      <input id="sMotivo" placeholder="Ex.: suspensa por ordem médica"></div>
+  `, async () => {
+    const d = fv("sData");
+    if (!d) throw new Error("Informe a partir de quando a prescrição fica suspensa.");
+    const { error } = await window.SB.from("prescricoes").update({
+      ativo: false, data_suspensao: d, motivo_suspensao: fvOrNull("sMotivo"),
+    }).eq("id", id);
+    if (error) throw error;
+  }, "Suspender");
+}
+
+/* Reativar cria uma NOVA prescrição a partir dos dados da suspensa, em vez de
+   ressuscitar a mesma linha: assim o período em que ficou suspensa continua
+   registrado, e o mapa daqueles dias continua saindo sem a medicação. */
+function reativarItem(id) {
+  const pr = prescriptions.find((x) => x.id === id); if (!pr) return;
+  abrirModal("Reativar prescrição", `
+    <div class="note-box" style="margin-top:0">Volta <b>${_esc(subById(pr.subId).nome)}</b> para a prescrição de <b>${_esc((patById(pr.paciente) || {}).nome || "")}</b>, com a mesma dose e os mesmos horários.<br>
+      A versão suspensa permanece no histórico: os dias em que ficou suspensa continuam sem a medicação no mapa.</div>
+    <div class="ff"><label>Volta a valer em *</label>
+      <input id="rvData" type="date" value="${_amanha()}">
+      <div class="dica">Padrão amanhã, pela mesma razão da suspensão: a separação de hoje já foi montada.</div></div>
+    <div class="ff" style="margin-bottom:0"><label>Como estava</label>
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.6">
+        ${_esc(pr.dose || "sem dose descrita")} · ${fmtDose(qtdPorHorario(pr))}/horário · ${_esc(pr.via || "—")}<br>
+        Horários: ${(pr.horarios || []).join(", ") || "—"}
+      </div></div>
+  `, async () => {
+    const d = fv("rvData");
+    if (!d) throw new Error("Informe a partir de quando a prescrição volta a valer.");
+    const { error } = await window.SB.from("prescricoes").insert({
+      paciente_id: pr.paciente, substancia_id: pr.subId, prescritor_id: pr.prescritorId || null,
+      dose: pr.dose, via: pr.via, horarios: pr.horarios || [],
+      qtd_por_horario: qtdPorHorario(pr),
+      data_inicio: d, data_fim: pr.dataFim || null, ativo: true, ...usuarioId(),
+    });
+    if (error) throw error;
+  }, "Reativar");
 }
 
 /* -------- render: lista por paciente OU detalhe de um paciente -------- */
@@ -250,6 +333,54 @@ function _detalhePaciente(pacId) {
           <thead><tr><th>Substância</th><th>Dose</th><th>Via</th><th>Horários</th><th>Prescritor</th><th>Data</th><th></th></tr></thead>
           <tbody>${linhas}</tbody>
         </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Sem medicações. Use <b>+ Adicionar medicação</b>.</div>`}
+      </div>
+    </div>
+    ${_painelSuspensas(pacId)}`;
+}
+
+/* Histórico de suspensas e versões anteriores.
+   Fica recolhido: na rotina diária só interessa a prescrição vigente, e uma
+   lista de encerradas aberta por padrão competiria com ela pela atenção. */
+function _painelSuspensas(pacId) {
+  const sus = prescriptions.filter((pr) => pr.paciente === pacId && prescSuspensa(pr))
+    .sort((a, b) => String(b.dataSuspensao || "").localeCompare(String(a.dataSuspensao || "")));
+  if (!sus.length) return "";
+
+  const linhas = sus.map((pr) => {
+    const nova = pr.substituidaPor ? prescriptions.find((x) => x.id === pr.substituidaPor) : null;
+    /* Distingue os três fins possíveis: trocada por outra versão, suspensa em
+       data conhecida, ou suspensa antes do versionamento existir — esta
+       última não tem data e por isso não volta aos mapas antigos. */
+    const destino = nova
+      ? `<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">alterada</span> <span style="color:var(--muted)">→ ${_esc(nova.dose || "")} ${fmtDose(qtdPorHorario(nova))}/hor · ${(nova.horarios || []).join(", ")}</span>`
+      : pr.dataSuspensao
+      ? `<span class="tag" style="background:#F7E3E1;color:#B04A3F">suspensa</span>`
+      : `<span class="tag" style="background:#F1F3F1;color:#6a736e" title="Suspensa antes do registro de data: não volta aos mapas antigos">suspensa (sem data)</span>`;
+    return `<tr>
+      <td><b>${_esc(subById(pr.subId).nome)}</b></td>
+      <td>${_esc(pr.dose || "—")}${qtdPorHorario(pr) !== 1 ? ` <span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${fmtDose(qtdPorHorario(pr))}/horário</span>` : ""}</td>
+      <td>${(pr.horarios || []).map((h) => `<span class="tag" style="background:#F1F3F1;color:#6a736e">${_esc(h)}</span>`).join(" ")}</td>
+      <td class="mono" style="white-space:nowrap">${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"} <span style="color:var(--muted)">a</span> ${pr.dataSuspensao ? fmtDate(pr.dataSuspensao) : "—"}</td>
+      <td>${destino}${pr.motivoSuspensao ? `<div style="font-size:11.5px;color:var(--muted);margin-top:2px">${_esc(pr.motivoSuspensao)}</div>` : ""}</td>
+      <td style="text-align:right"><button class="btn ghost sm" onclick="reativarItem('${pr.id}')">Reativar</button></td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Histórico — suspensas e versões anteriores</div>
+          <div class="panel-title-sub">${sus.length} registro(s) · continuam valendo nos mapas dos dias em que estavam vigentes</div></div>
+      </div>
+      <div class="panel-body">
+        <details>
+          <summary style="cursor:pointer;color:var(--primary);font-weight:600;font-size:13px;padding:2px 0">Ver histórico</summary>
+          <table style="margin-top:10px">
+            <thead><tr><th>Substância</th><th>Dose</th><th>Horários</th><th>Vigorou</th><th>Situação</th><th></th></tr></thead>
+            <tbody>${linhas}</tbody>
+          </table>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px">Reativar cria uma nova prescrição com os mesmos dados — o período suspenso continua registrado.</div>
+        </details>
       </div>
     </div>`;
 }

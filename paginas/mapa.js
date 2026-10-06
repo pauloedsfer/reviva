@@ -341,6 +341,143 @@ function imprimirMapaPaciente() {
   win.document.open(); win.document.write(html); win.document.close();
 }
 
+/* ============================================================
+   MAPA REALIZADO — o que foi efetivamente dispensado
+   Montado a partir das DISPENSAÇÕES, não da prescrição. Reimprimir um dia
+   passado a partir da prescrição devolve o esquema de HOJE: se houve
+   alteração ou suspensão no meio do caminho, o papel sai diferente do que a
+   enfermagem rubricou naquele dia. A dispensação é registro de fato, com
+   data, substância, paciente, lote e horário — não muda depois.
+   Serve para conferir o lançamento contra o mapa rubricado e para arquivar
+   no prontuário o que de fato foi administrado.
+   ============================================================ */
+
+// "Dose 08:00" → "08:00"; "SOS — cefaleia" → "SOS". A referência é o que o
+// sistema grava no lançamento e é de onde sai o horário da coluna.
+function _horarioDaRef(ref) {
+  const t = String(ref || "").trim();
+  if (/^SOS/i.test(t)) return "SOS";
+  const m = t.match(/^Dose\s+(.+)$/i);
+  return m ? m[1].trim() : "";
+}
+
+/* Dispensações de um paciente num dia, agrupadas por substância.
+   Doses do mesmo medicamento alocadas em dois lotes geram dois lançamentos:
+   aqui elas somam numa linha só, como a enfermagem viu no kit. */
+function _realizadoNoDia(pacId, iso, comSOS) {
+  const porSub = new Map();
+  dispensations.filter((d) => d.paciente === pacId && d.data === iso).forEach((d) => {
+    const hor = _horarioDaRef(d.ref);
+    if (!hor) return;
+    if (_ehSOS(hor) && !comSOS) return;
+    if (!porSub.has(d.subId)) porSub.set(d.subId, new Map());
+    const m = porSub.get(d.subId);
+    m.set(hor, (m.get(hor) || 0) + d.qtd);
+  });
+  return porSub;
+}
+
+function _tabelaRealizado(p, periodos, iso, comSOS) {
+  const cols = periodos.length;
+  const porSub = _realizadoNoDia(p.id, iso, comSOS);
+  const linhas = [...porSub.entries()]
+    .sort((a, b) => subById(a[0]).nome.localeCompare(subById(b[0]).nome, "pt-BR"))
+    .map(([subId, horas]) => {
+      const sub = subById(subId);
+      const unid = formaSolida(sub) ? " comp." : "";
+      const cells = {};
+      periodos.forEach((per) => (cells[per.key] = []));
+      let temSOS = false;
+      [...horas.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).forEach(([hor, qtd]) => {
+        if (_ehSOS(hor)) { temSOS = true; if (cells.noite) cells.noite.push(`SOS <b>${fmtDose(qtd)}${unid}</b>`); return; }
+        const per = _periodoDe(hor, cols);
+        const rot = _ehJejum(hor) ? "JEJUM" : hor;
+        if (per && cells[per]) cells[per].push(`${rot} <b>${fmtDose(qtd)}${unid}</b>`);
+      });
+      const tds = periodos.map((per) => `<td class="chk">${cells[per.key].join("<br>")}</td>`).join("");
+      return `<tr><td class="med">${subNomeExibicao(subId)}${temSOS && comSOS ? " (SOS)" : ""}</td>${tds}</tr>`;
+    }).join("");
+  if (!linhas) return `<div class="vazio">Nenhuma dispensação lançada neste dia.</div>`;
+  const cabPer = periodos.map((per) => `<th>${per.label}</th>`).join("");
+  return `<table><thead><tr><th class="med">Medicação</th>${cabPer}</tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+function imprimirMapaRealizado() {
+  const nPer = document.getElementById("mapaPeriodos").value === "2" ? 2 : 3;
+  const periodos = nPer === 2
+    ? [{ key: "manha", label: "Manhã" }, { key: "noite", label: "Noite" }]
+    : [{ key: "manha", label: "Manhã" }, { key: "tarde", label: "Tarde" }, { key: "noite", label: "Noite" }];
+  const dataIni = document.getElementById("mapaData").value || new Date().toISOString().slice(0, 10);
+  const nDias = Math.max(1, Math.min(14, parseInt(document.getElementById("mapaDias").value, 10) || 5));
+  const comSOS = (document.getElementById("mapaSOS") || {}).value === "dentro";
+  const est = window.ESTAB || {};
+  const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
+  const dias = _diasSpan(dataIni, nDias);
+  const isos = dias.map((d) => d.toISOString().slice(0, 10));
+
+  /* Só pacientes com dispensação no período: num documento do que FOI feito,
+     paciente sem lançamento nenhum é folha em branco. */
+  const comMov = new Set(dispensations.filter((d) => isos.indexOf(d.data) !== -1).map((d) => d.paciente));
+  const pacs = patients.filter((p) => comMov.has(p.id))
+    .sort((a, b) => String(a.leito || "").localeCompare(String(b.leito || ""), "pt-BR", { numeric: true }) || a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!pacs.length) {
+    alert("Nenhuma dispensação lançada no período selecionado.\n\nEste mapa mostra o que foi efetivamente dispensado — se as baixas ainda não foram lançadas, ele sai vazio.");
+    return;
+  }
+
+  const paginas = pacs.map((p) => {
+    const blocos = isos.map((iso, i) => {
+      if (!_internadoEm(p, iso)) return "";
+      return `
+        <div class="dia-bloco">
+          <div class="dia-cab"><span class="dia-data">${_fmtDiaLongo(dias[i])}</span> <span class="dia-pac"><b>${p.nome}</b> · Leito: ${p.leito || "____"}${p.prontuario ? " · Prontuário: " + p.prontuario : ""}</span></div>
+          ${_tabelaRealizado(p, periodos, iso, comSOS)}
+        </div>`;
+    }).join("");
+    return `
+      <section class="folha">
+        <div class="cab">
+          <div class="cab-h">${hosp}</div>
+          <div class="cab-t">Mapa de Medicação — <b>realizado</b> — ${p.nome}</div>
+          <div class="cab-d">${fmtDate(isos[0])} a ${fmtDate(isos[isos.length - 1])}</div>
+        </div>
+        <div class="aviso">Documento do que foi <b>efetivamente dispensado</b>, montado a partir dos lançamentos do sistema — não é folha para rubricar. Confira contra o mapa rubricado pela enfermagem; divergência se corrige no lançamento, não aqui.</div>
+        ${blocos}
+        <div class="rodape">Conferido por: ____________________________ &nbsp;·&nbsp; Farmacêutico RT: ${rtLinha()}</div>
+      </section>`;
+  }).join("");
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Mapa Realizado</title>
+  <style>
+    @page{ size:A4 portrait; margin:12mm 10mm; }
+    *{ box-sizing:border-box; } body{ font-family:"Public Sans",Arial,sans-serif; color:#1E2A28; margin:0; font-size:12px; }
+    .folha{ page-break-after:always; } .folha:last-child{ page-break-after:auto; }
+    .cab{ border-bottom:2px solid #2C5F5A; padding-bottom:6px; margin-bottom:8px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+    .cab-h{ font-weight:700; font-size:14px; } .cab-t{ font-size:12.5px; } .cab-d{ margin-left:auto; font-size:12px; color:#4a544f; }
+    .aviso{ border-left:3px solid #2C5F5A; background:#F7F9F6; padding:5px 9px; font-size:10px; color:#4a544f; line-height:1.45; margin-bottom:10px; }
+    .dia-bloco{ margin-bottom:12px; page-break-inside:avoid; }
+    .dia-cab{ background:#EEF2EC; border-left:3px solid #2C5F5A; padding:4px 8px; font-size:12px; margin-bottom:4px; }
+    .dia-data{ font-weight:700; text-transform:capitalize; } .dia-pac{ color:#4a544f; margin-left:8px; }
+    table{ width:100%; border-collapse:collapse; }
+    th,td{ border:1px solid #b9c2b9; padding:4px 6px; font-size:11px; }
+    th{ background:#EEF2EC; text-transform:uppercase; font-size:9.5px; letter-spacing:.02em; }
+    th.med,td.med{ text-align:left; width:46%; }
+    td.chk{ height:22px; text-align:center; vertical-align:middle; }
+    .vazio{ border:1px solid #b9c2b9; padding:6px 9px; font-size:10.5px; color:#8a938d; font-style:italic; }
+    .rodape{ margin-top:10px; font-size:11px; color:#4a544f; }
+    .toolbar{ position:fixed; top:12px; right:12px; z-index:1000; }
+    .toolbar button{ background:#2C5F5A; color:#fff; border:none; padding:9px 15px; border-radius:8px; cursor:pointer; font:inherit; }
+    @media print{ .toolbar{ display:none; } }
+  </style></head><body>
+    <div class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
+    ${paginas}
+  </body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir o mapa."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
+}
+
 function renderPage() {
   const hoje = new Date().toISOString().slice(0, 10);
   return `
@@ -392,8 +529,9 @@ function renderPage() {
         <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn" onclick="imprimirMapaPaciente()">🖶 Mapa por paciente (prontuário)</button>
           <button class="btn ghost" onclick="imprimirMapa()">🖶 Mapa por dia (geral)</button>
+          <button class="btn ghost" onclick="imprimirMapaRealizado()">🖶 Mapa realizado (conferência)</button>
         </div>
-        <div style="margin-top:10px;font-size:12.5px;color:var(--muted)"><b>Por paciente:</b> uma folha por paciente, com o bloco do dia (Manhã/Tarde/Noite) repetido para cada dia do período — para a enfermagem marcar a administração e arquivar no prontuário. <b>Por dia:</b> uma folha por dia com todos os pacientes (visão geral do posto).</div>
+        <div style="margin-top:10px;font-size:12.5px;color:var(--muted)"><b>Por paciente:</b> uma folha por paciente, com o bloco do dia (Manhã/Tarde/Noite) repetido para cada dia do período — para a enfermagem marcar a administração e arquivar no prontuário. <b>Por dia:</b> uma folha por dia com todos os pacientes (visão geral do posto). <b>Realizado:</b> o que foi efetivamente dispensado, a partir dos lançamentos — para conferir contra o mapa rubricado e arquivar. Não é folha para rubricar.</div>
       </div>
     </div>
 

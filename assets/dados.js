@@ -128,6 +128,8 @@ async function carregarDados() {
     qtdPorHorario: x.qtd_por_horario != null ? Number(x.qtd_por_horario) : 1,
     prescritorId: x.prescritor_id, dataInicio: x.data_inicio, dataFim: x.data_fim, ativo: x.ativo,
     encerradaPorAlta: x.encerrada_por_alta === true,
+    dataSuspensao: x.data_suspensao || null, substituidaPor: x.substituida_por || null,
+    motivoSuspensao: x.motivo_suspensao || null,
   }));
 
   invoices = invs.map((nf) => ({
@@ -316,16 +318,32 @@ function teveRetorno(pacId) {
   return eventosDoPaciente(pacId).some((e) => e.tipo === "retorno");
 }
 
+/* Uma prescrição vale NUMA DATA, não "em geral".
+   A versão anterior decidia por `ativo === false` antes de olhar a data: uma
+   medicação suspensa hoje sumia também do mapa da semana passada, como se
+   nunca tivesse sido prescrita — e o mapa reimpresso deixava de bater com o
+   que a enfermagem rubricou no papel.
+   `dataSuspensao` é o PRIMEIRO dia em que a prescrição não vale mais; antes
+   dela, continua vigente. O fallback por `ativo` preserva o comportamento
+   antigo para o que foi suspenso antes desta mudança, sem data registrada:
+   não dá para adivinhar quando foi, e fazer essas prescrições reaparecerem em
+   mapas antigos seria inventar história. */
 function prescVigenteEm(pr, d) {
-  if (!pr || pr.ativo === false) return false;
+  if (!pr) return false;
   const dia = d || HOJE;
   if (pr.dataInicio && pr.dataInicio > dia) return false;
   if (pr.dataFim && pr.dataFim < dia) return false;
+  if (pr.dataSuspensao) return dia < pr.dataSuspensao;
+  if (pr.ativo === false) return false;
   return true;
+}
+// suspensa (por data ou pelo sinalizador antigo) — para a tela de suspensas
+function prescSuspensa(pr) {
+  return !!pr && (!!pr.dataSuspensao || pr.ativo === false);
 }
 // encerrada pela data limite (e não por suspensão manual)
 function prescEncerrada(pr, d) {
-  return !!(pr && pr.ativo !== false && pr.dataFim && pr.dataFim < (d || HOJE));
+  return !!(pr && pr.ativo !== false && !pr.dataSuspensao && pr.dataFim && pr.dataFim < (d || HOJE));
 }
 // dias restantes até a data limite (null se não houver)
 function prescDiasRestantes(pr, d) {
