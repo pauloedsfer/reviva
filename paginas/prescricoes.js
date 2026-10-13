@@ -130,7 +130,15 @@ function abrirFormPrescricao(pacientePre) {
 
    A mesma data serve para as duas pontas — a antiga vale até a véspera, a
    nova começa nela —, de modo que não existe dia sem prescrição nem dia com
-   as duas valendo ao mesmo tempo. */
+   as duas valendo ao mesmo tempo.
+
+   NÃO EXISTE "Data da prescrição" NESTE MODAL, de propósito — não reponha.
+   A tabela só tem data_inicio, e numa versão nova data_inicio É a data de
+   vigência do campo acima: são a mesma coluna. O campo existia aqui, era
+   exigido como obrigatório e era descartado, porque o insert sempre usou a
+   vigência. Quem mudasse aquela data não via efeito nenhum, e o campo
+   mentia sobre o que fazia. Ele continua no cadastro de prescrição nova,
+   onde data_inicio é de fato a data em que o médico prescreveu. */
 function _amanha() {
   const d = new Date(HOJE + "T12:00:00");
   d.setDate(d.getDate() + 1);
@@ -149,10 +157,7 @@ function abrirEditarPrescricao(id) {
       <input id="eMotivo" placeholder="Ex.: ajuste de dose por ordem médica">
       <div class="dica">Fica registrado na versão encerrada — é o que explica a mudança numa conferência.</div></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
-    <div class="ff row2">
-      <div><label>Paciente *</label><select id="ePac">${_optPats(pr.paciente)}</select></div>
-      <div><label>Data da prescrição *</label><input id="eData" type="date" value="${pr.dataInicio || HOJE}"></div>
-    </div>
+    <div class="ff"><label>Paciente *</label><select id="ePac">${_optPats(pr.paciente)}</select></div>
     <div class="ff"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, para tratamento com duração definida</span></label>
       <input id="eFim" type="date" value="${pr.dataFim || ""}">
       <div class="dica">Ex.: antimicrobiano por 7 dias. Passada a data, a prescrição sai do mapa e da dispensação automaticamente. Deixe em branco para uso contínuo.</div></div>
@@ -172,8 +177,8 @@ function abrirEditarPrescricao(id) {
     </div>
   `;
   abrirModal("Alterar prescrição", corpo, async () => {
-    const pac = fv("ePac"); const sub = fv("eSub"); const data = fv("eData");
-    if (!pac || !sub || !data) throw new Error("Paciente, substância e data são obrigatórios.");
+    const pac = fv("ePac"); const sub = fv("eSub");
+    if (!pac || !sub) throw new Error("Paciente e substância são obrigatórios.");
     const vigor = fv("eVigor");
     if (!vigor) throw new Error("Informe a partir de quando a nova prescrição vale.");
     let prescritorId = fv("ePresc");
