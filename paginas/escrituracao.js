@@ -142,7 +142,7 @@ function renderPage() {
           </div>
         </div>
         <div class="note-box" style="margin-top:14px">${_fsPrev.blocos.length
-          ? `<b>${_fsPrev.blocos.length} item(ns)</b> na folha desta semana (por princípio ativo + dosagem). O nome comercial é consolidado: mesmo princípio e dosagem contam como um único item no Livro e no BMPO.`
+          ? `<b>${_fsPrev.blocos.length} item(ns)</b> na folha desta semana (por princípio ativo + dosagem). O nome comercial é consolidado: mesmo princípio e dosagem contam como um único item no Livro.`
           : "Nenhuma movimentação ou saldo nesta semana."}</div>
       </div>
     </div>
@@ -217,7 +217,7 @@ function renderPage() {
 
 /* ============================================================
    FOLHA DE REGISTRO SEMANAL (para transcrição ao livro físico)
-   Agrupa por PRINCÍPIO ATIVO + DOSAGEM (identidade do Livro/BMPO).
+   Agrupa por PRINCÍPIO ATIVO + DOSAGEM (identidade do Livro).
    - Saldo anterior: saldo real acumulado até o dia anterior ao início.
    - Entradas: uma linha por lote (data, lote, validade, origem, qtd).
    - Saídas: total agregado da semana + "PACIENTE e outros".
@@ -446,7 +446,7 @@ function imprimirFolhaSemanal() {
       .conf{margin-top:5px;font-size:9.5px;color:#6a736e;text-align:right}
       .aviso{font-size:10px;color:#4a544f;border-left:3px solid #2C5F5A;padding:4px 8px;margin-bottom:10px;background:#F4F6F3}
     </style>
-    <div class="aviso">Agrupamento por <b>princípio ativo + dosagem</b> — identidade do medicamento para o Livro de Registro e o BMPO. Nomes comerciais distintos de mesmo princípio e dosagem são consolidados num único item. Entradas discriminadas por lote; saídas consolidadas no período.</div>
+    <div class="aviso">Agrupamento por <b>princípio ativo + dosagem</b> — identidade do medicamento para o Livro de Registro. Nomes comerciais distintos de mesmo princípio e dosagem são consolidados num único item. Entradas discriminadas por lote; saídas consolidadas no período.</div>
     ${blocos.length ? (() => {
       // insere um cabeçalho a cada mudança de lista, para transcrever um
       // livro de cada vez sem precisar procurar as substâncias na folha

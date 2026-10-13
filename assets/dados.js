@@ -510,9 +510,20 @@ function _saidaDestinos(itemId) {
 // status derivado de um item de custódia
 function statusCustodia(pm, it) {
   if (itemIntegrado(it.id)) return "integrado";
-  const saldoAtual = saldoLote(it.lote);
+  /* O saldo tem que vir do lote DA CUSTÓDIA — substância + lote + paciente —,
+     não do número do lote. saldoLote(it.lote) sem dono soma todos os buckets
+     que têm aquele número: o estoque da clínica e a custódia de outros
+     pacientes juntos. Era por isso que item já devolvido continuava marcado
+     como "aguardando retirada" sempre que o mesmo número de lote ainda tivesse
+     saldo em outro dono, e a tela pedia uma devolução impossível. */
+  const saldoAtual = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
   const devolvido = destinosDoItem(it.id).some((d) => d.tipo === "devolucao_familia");
   if (devolvido && saldoAtual <= 0) return "devolvido";
+  /* Zerado sem devolução registrada = consumido na internação (ou descartado).
+     Não é "em custódia", porque não há o que guardar, nem "aguardando
+     retirada", porque não há o que retirar: é histórico. Sem este estado, todo
+     lote que acabava durante a internação continuava aparecendo como ativo. */
+  if (saldoAtual <= 0) return "encerrado";
   const p = patById(pm.paciente);
   if (p && p.ativo === false) return "aguardando";
   return "custodia";
@@ -779,7 +790,7 @@ function validarSaidaLote(chave, qtd, rotulo) {
 }
 
 /* ---- Fechamento mensal ----
-   Após o fechamento do BMPO o período não aceita mais lançamentos: qualquer
+   Após o fechamento do mês o período não aceita mais lançamentos: qualquer
    correção passa a ser feita no mês aberto, preservando o que já foi
    escriturado e transmitido. */
 function mesFechado(data) {
@@ -789,7 +800,7 @@ function mesFechado(data) {
 function validarPeriodoAberto(data) {
   if (mesFechado(data)) {
     throw new Error(
-      `Período fechado. O BMPO já foi fechado até ${fmtDate((window.ESTAB || {}).fechamento_ate)}, ` +
+      `Período fechado. A escrituração já foi fechada até ${fmtDate((window.ESTAB || {}).fechamento_ate)}, ` +
       `e lançamentos nessa data não são mais aceitos.\n\n` +
       `Faça a correção em data do período aberto, ou reabra o fechamento em ` +
       `Configurações se ainda não transmitiu.`);
@@ -842,7 +853,7 @@ function movTipoTag(tipo) {
 function movSign(tipo) { return (tipo === "saida" || tipo === "ajuste_saida") ? "−" : "+"; }
 
 /* ---- Agrupamento por PRINCÍPIO ATIVO + DOSAGEM ----
-   Para o Livro de Registro e o BMPO, a identidade do medicamento é o
+   Para o Livro de Registro, a identidade do medicamento é o
    princípio ativo somado à dosagem. O nome comercial existe para facilitar
    a administração pela enfermagem e a prescrição médica, mas vários nomes
    comerciais de mesmo princípio e dosagem são UM único item na escrituração. */
@@ -931,7 +942,8 @@ function categoriasAlfabeticas() {
 /* Material hospitalar mora na mesma tabela dos medicamentos (tipo='material'),
    para reaproveitar nota fiscal, lote, validade, custo médio, ajuste e cotação.
    Só não pode aparecer onde a tela é clínica: prescrição, mapa, dose unitária.
-   No BMPO nunca entra — material tem lista '—' e o balanço filtra controlados. */
+   Na conferência de saldos nunca entra — material tem lista '—' e o quadro
+   filtra controlados. */
 function ehMaterial(s) { const x = typeof s === "object" ? s : subById(s); return !!(x && x.tipo === "material"); }
 function subsMedicamentos() { return substances.filter((s) => !ehMaterial(s)); }
 function subsMateriais() { return substances.filter((s) => ehMaterial(s)); }
@@ -1016,7 +1028,7 @@ function buildMovements() {
   });
   ajustes.forEach((a) => {
     /* O ajuste pertence ao SALDO do lote conferido, que pode ser a custódia de
-       um paciente. Sem essa informação o BMPO lançava toda conferência na
+       um paciente. Sem essa informação a conferência caía toda na
        coluna do estabelecimento — abrindo negativo lá e deixando sobra na
        custódia, com o total sob guarda certo. `dono` é só a propriedade do
        saldo; `paciente` continua nulo porque o ajuste não é entrega a

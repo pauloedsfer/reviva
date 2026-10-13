@@ -1,7 +1,7 @@
 /* ============================================================
    relatorios.js — Hospital Reviva
-   Geração da versão IMPRESSA (limpa) do Livro de Registro e do
-   BMPO para apresentação à fiscalização. Abre um documento A4
+   Geração da versão IMPRESSA (limpa) do Livro de Registro e da
+   conferência de saldos para apresentação à fiscalização. Abre um documento A4
    autossuficiente, com cabeçalho do estabelecimento e rodapé de
    identificação/assinatura do RT repetido em cada página.
    A escrituração oficial permanece no livro físico; isto organiza

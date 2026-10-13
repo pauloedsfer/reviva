@@ -28,10 +28,16 @@ async function salvarConfig() {
       if (error) throw error;
     }
 
-    // Responsável Técnico (linha ativa)
+    /* Responsável Técnico (linha ativa).
+       Sem autorizacao_mapa: autorização do Ministério da Agricultura é exigência
+       de farmácia veterinária, não de farmácia hospitalar. O campo existia na
+       tela como "(opcional)" e nunca teve uso aqui — pedir um dado que o
+       serviço não tem só gera dúvida sobre o que preencher. A coluna continua
+       no banco, intocada: derrubá-la não traria ganho e apagaria o que
+       estivesse gravado. */
     const rtData = {
       nome: _val("rtNome"), conselho: _val("rtConselho") || "CRF", uf: _val("rtUf"),
-      numero_registro: _val("rtNumero"), autorizacao_mapa: _val("rtMapa"),
+      numero_registro: _val("rtNumero"),
       identificacao_assinatura: _val("rtAssinatura"), ativo: true,
     };
     if (!rtData.nome || !rtData.uf || !rtData.numero_registro) {
@@ -67,7 +73,7 @@ function renderPage() {
   const rt = window.RT || {};
   const est = window.ESTAB || {};
   return `
-    <div class="note-box">Estes dados aparecem nos rodapés do sistema e nos relatórios impressos (Livro de Registro e BMPO). Preencha com seus dados reais — eles substituem qualquer identificação que antes ficava fixa no código.</div>
+    <div class="note-box">Estes dados aparecem nos rodapés do sistema e nos relatórios impressos (Livro de Registro). Preencha com seus dados reais — eles substituem qualquer identificação que antes ficava fixa no código.</div>
 
     <style>
       .cfg-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px 18px; }
@@ -85,7 +91,7 @@ function renderPage() {
           <div class="panel-title">Fechamento da escrituração</div>
           <div class="panel-title-sub">Trava lançamentos no período já escriturado e transmitido</div></div></div>
         <div class="panel-body">
-          <div class="note-box" style="margin-top:0">Depois de fechar o BMPO do mês, trave o período: lançamentos com data até o fechamento deixam de ser aceitos, preservando o que já foi escriturado. Correções passam a ser feitas no mês aberto.</div>
+          <div class="note-box" style="margin-top:0">Depois de concluir a conferência de saldos do mês, trave o período: lançamentos com data até o fechamento deixam de ser aceitos, preservando o que já foi escriturado. Correções passam a ser feitas no mês aberto.</div>
           <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
             <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Fechado até</label>
               <input id="cfgFech" type="date" value="${f || ""}" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
@@ -123,7 +129,6 @@ function renderPage() {
           ${_campo("rtConselho", "Conselho", rt.conselho || "CRF", "CRF")}
           ${_campo("rtUf", "UF", rt.uf, "GO")}
           ${_campo("rtNumero", "Número de registro", rt.numero_registro, "9303")}
-          ${_campo("rtMapa", "Autorização MAPA (opcional)", rt.autorizacao_mapa, "")}
         </div>
       </div>
     </div>
@@ -168,7 +173,7 @@ function renderPage() {
 async function salvarFechamento(reabrir) {
   const v = reabrir ? null : (fv("cfgFech") || null);
   if (!reabrir && !v) { alert("Informe a data até a qual a escrituração está fechada."); return; }
-  if (reabrir && !confirm("Reabrir o período?\n\nLançamentos retroativos voltam a ser aceitos. Faça isso apenas se o BMPO ainda não foi transmitido.")) return;
+  if (reabrir && !confirm("Reabrir o período?\n\nLançamentos retroativos voltam a ser aceitos. Faça isso apenas se a escrituração do período ainda não foi encerrada.")) return;
   const est = window.ESTAB || {};
   if (!est.id) { alert("Configure os dados do estabelecimento antes."); return; }
   const { error } = await window.SB.from("estabelecimento").update({ fechamento_ate: v }).eq("id", est.id);

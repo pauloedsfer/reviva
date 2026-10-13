@@ -86,7 +86,7 @@ Abra o site no Vercel e percorra a lista. Cada item tem o sinal visível que com
 
 ### Demais telas (base estável)
 - [ ] Estoque: lotes com validade e saldo; edição de substância preserva princípio ativo/concentração/forma.
-- [ ] Balanço (BMPO) e Livro de Registro abrem e imprimem com o RT e o estabelecimento das **Configurações** (nunca fixos no código).
+- [ ] Conferência de Saldos e Livro de Registro abrem e imprimem com o RT e o estabelecimento das **Configurações** (nunca fixos no código).
 - [ ] Financeiro: apenas custos de **farmácia** (sem diária de internação).
 
 ---

@@ -159,12 +159,58 @@ function imprimirTermoCustodia(pacienteId) {
   win.document.open(); win.document.write(html); win.document.close();
 }
 
+/* -------- filtro da tabela de custódia --------
+   O padrão é "com saldo", porque é o que ainda exige algo da farmácia:
+   guardar, administrar, devolver na alta. Item zerado é histórico — continua
+   consultável no filtro, mas sai do caminho.
+
+   Antes tudo vinha numa tabela só, e numa clínica com rotatividade ela crescia
+   sem parar: cada internação deixava suas linhas para sempre, inclusive lote
+   consumido até o fim, que aparecia como "EM CUSTÓDIA" sem ter o que guardar,
+   ou pedindo uma devolução de saldo zero. */
+let _fcFiltro = "saldo";
+function filtrarCustodia(v) {
+  _fcFiltro = v;
+  document.getElementById("viewport").innerHTML = renderPage();
+}
+
 function renderPage(){
+  /* Uma passada só: saldo e situação de cada item saem daqui e são
+     reaproveitados na contagem dos filtros e na linha da tabela. Antes o saldo
+     era recalculado dentro do map, e a situação chamava um segundo cálculo
+     próprio — dois por item, a cada render. */
+  const linhas = patientMeds.flatMap((pm) => pm.itens.map((it) => ({
+    pm, it,
+    bal: saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente)),
+    st: statusCustodia(pm, it),
+  })));
+
+  const grupos = {
+    saldo:      linhas.filter((r) => r.bal > 0),
+    aguardando: linhas.filter((r) => r.st === "aguardando"),
+    encerrados: linhas.filter((r) => r.bal <= 0),
+    todos:      linhas,
+  };
+  const visiveis = grupos[_fcFiltro] || grupos.saldo;
+
+  /* A contagem fica no próprio botão: é o que deixa claro que existe coisa
+     escondida, e quanta — filtro que esconde sem dizer quanto esconde faz o
+     usuário desconfiar do número que está vendo. */
+  const chip = (k, rotulo, dica) =>
+    `<button class="btn ${_fcFiltro === k ? "sm" : "ghost sm"}" title="${dica}" onclick="filtrarCustodia('${k}')">${rotulo} (${grupos[k].length})</button>`;
+
+  const vazio = {
+    saldo: "Nenhuma medicação de paciente com saldo em custódia.",
+    aguardando: "Nenhuma medicação aguardando retirada.",
+    encerrados: "Nenhum item com saldo zerado.",
+    todos: "Nenhuma medicação em custódia registrada.",
+  }[_fcFiltro];
+
   return `
     <div class="note-box"><b>Custódia, não é doação.</b> Medicação trazida pelo paciente/família continua sendo dele — o hospital apenas guarda e administra. Sem custo, fora do estoque geral, devolvida (se sobrar) na alta.</div>
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Medicações em custódia</div><div class="panel-title-sub">${patientMeds.reduce((a,pm)=>a+pm.itens.length,0)} item(ns) registrado(s)</div></div>
+        <div><div class="panel-title">Medicações em custódia</div><div class="panel-title-sub">${visiveis.length} de ${linhas.length} item(ns) registrado(s)</div></div>
         <div class="toolbar">
           <button class="btn ghost sm" onclick="abrirTermoCustodia()">🖶 Termo de Custódia</button>
           <button class="btn ghost sm" onclick="abrirTransferenciaCustodia()">⇄ Transferir medicação</button>
@@ -172,32 +218,41 @@ function renderPage(){
         </div>
       </div>
       <div class="panel-body">
-        ${patientMeds.length ? `<table>
+        <div class="toolbar" style="margin-bottom:10px">
+          ${chip("saldo", "Com saldo", "Em custódia de internado e aguardando retirada de quem saiu — o que ainda exige ação")}
+          ${chip("aguardando", "Aguardando retirada", "Paciente de alta com saldo a devolver ou integrar")}
+          ${chip("encerrados", "Saldo zerado", "Consumido na internação, devolvido à família, integrado ou descartado — histórico")}
+          ${chip("todos", "Todos", "Tudo que já passou pela custódia")}
+        </div>
+        ${visiveis.length ? `<table>
           <thead><tr><th>Paciente</th><th>Substância</th><th>Lote</th><th>Validade</th><th>Recebido</th><th>Saldo</th><th>Situação</th><th></th></tr></thead>
           <tbody>
-            ${patientMeds.flatMap(pm => pm.itens.map(it=>{
-              const bal = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
-              const st = statusCustodia(pm, it);
+            ${visiveis.map(({ pm, it, bal, st }) => {
+              const pac = patById(pm.paciente) || {};
               const stTag = st === "aguardando" ? '<span class="pill warn">● aguardando retirada</span>'
                 : st === "devolvido" ? '<span class="pill">● devolvido à família</span>'
                 : st === "integrado" ? '<span class="tag" style="background:var(--accent)">INTEGRADO AO ESTOQUE</span>'
+                : st === "encerrado" ? '<span class="tag" style="background:#F1F3F1;color:#6a736e" title="Saldo zerado: consumido na internação ou descartado. Não há o que guardar nem devolver.">SEM SALDO</span>'
                 : '<span class="tag tag-proprio">EM CUSTÓDIA</span>';
+              /* Devolver e integrar só aparecem com saldo — e agora o estado
+                 "aguardando" já implica saldo, porque statusCustodia passou a
+                 usar o lote da custódia. A condição de saldo fica como guarda. */
               const acoes = (st === "aguardando" && bal > 0) ? `
                 <button class="btn ghost sm" onclick="abrirDevolucaoFamilia('${it.id}')">Devolver à família</button>
                 <button class="btn ghost sm" onclick="integrarAoEstoque('${it.id}')">Integrar ao estoque</button>` : "";
               return `<tr>
-                <td><b>${patById(pm.paciente).nome}</b> <span style="color:var(--muted)">· ${patById(pm.paciente).leito}</span></td>
-                <td>${subById(it.subId).nome}</td>
-                <td><span class="folio">${it.lote}</span></td>
+                <td><b>${_esc(pac.nome || "—")}</b>${pac.leito ? ` <span style="color:var(--muted)">· ${_esc(pac.leito)}</span>` : ""}${pac.ativo === false ? ` <span class="tag" style="background:#F1F3F1;color:#6a736e">alta</span>` : ""}</td>
+                <td>${_esc(subById(it.subId).nome)}</td>
+                <td><span class="folio">${_esc(it.lote)}</span></td>
                 <td class="mono">${fmtDate(it.validade)}</td>
                 <td class="num mono">${it.qtd}</td>
                 <td class="num mono"><b>${bal}</b></td>
                 <td>${stTag}</td>
                 <td style="text-align:right;white-space:nowrap"><button class="btn ghost sm" onclick="abrirEditarCustodia('${it.id}')">Corrigir</button>${acoes}</td>
               </tr>`;
-            })).join('')}
+            }).join('')}
           </tbody>
-        </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma medicação em custódia registrada.</div>`}
+        </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">${vazio}</div>`}
       </div>
     </div>
   `;
@@ -240,7 +295,7 @@ function abrirDevolucaoFamilia(itemId) {
 async function integrarAoEstoque(itemId) {
   const f = _acharItemCustodia(itemId); if (!f) return;
   const saldoAtual = saldoLoteChave(loteChave(f.it.subId, f.it.lote, f.pm.paciente));
-  if (!confirm(`Integrar ao estoque geral o saldo de ${saldoAtual} de ${subById(f.it.subId).nome} (lote ${f.it.lote})?\n\nA medicação deixa de ser restrita ao paciente e passa a contar no estoque do hospital (entra no BMPO).`)) return;
+  if (!confirm(`Integrar ao estoque geral o saldo de ${saldoAtual} de ${subById(f.it.subId).nome} (lote ${f.it.lote})?\n\nA medicação deixa de ser restrita ao paciente e passa a contar no estoque do hospital e na escrituração da unidade.`)) return;
   const { error } = await window.SB.from("custodia_destinos").insert({
     data: new Date().toISOString().slice(0, 10), medicacao_propria_item_id: itemId,
     tipo: "integracao_estoque", quantidade: saldoAtual, obs: "Família não retirou — integrado por decisão do RT", ...usuarioId(),

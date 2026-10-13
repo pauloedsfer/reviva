@@ -12,7 +12,7 @@ A cada nova versão entregue, este documento é atualizado junto. Ele substitui 
 
 ## 1. Arquitetura em uma frase
 
-Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/Postgres. **No Livro de Registro e no BMPO, a identidade do medicamento é princípio ativo + dosagem** — o nome comercial é conveniência clínica e é consolidado na escrituração. Login único (Supabase Auth). O **razão é derivado** — saldos e Livro são calculados a partir dos eventos atômicos, nunca digitados à mão. RT e estabelecimento são **dados editáveis** (Configurações), nunca fixos no código. Migrações são **aditivas** e ficam na pasta `db/`.
+Frontend estático (HTML/JS, sem build) hospedado na Vercel + backend Supabase/Postgres. **No Livro de Registro e na Conferência de Saldos, a identidade do medicamento é princípio ativo + dosagem** — o nome comercial é conveniência clínica e é consolidado na escrituração. Login único (Supabase Auth). O **razão é derivado** — saldos e Livro são calculados a partir dos eventos atômicos, nunca digitados à mão. RT e estabelecimento são **dados editáveis** (Configurações), nunca fixos no código. Migrações são **aditivas** e ficam na pasta `db/`.
 
 ---
 
@@ -45,7 +45,7 @@ Mudanças mais recentes, da mais nova para a mais antiga:
 - **Padronização aprovada cadastrada (`migration_padronizacao.sql`).** 77 substâncias da padronização aprovada pela diretoria, com a **classificação da Portaria 344/98 conferida item a item**: 6 em **B1** (benzodiazepínicos → Notificação B azul), 33 em **C1** (antidepressivos, anticonvulsivantes, antipsicóticos, antiparkinsonianos → Receita de Controle Especial 2 vias) e 38 não controladas. A migração também cria a **primeira cotação (COT-2026-001)** já com os 77 itens e as quantidades aprovadas (comprimidos 1 caixa, líquidos 2 frascos, injetáveis 10 ampolas). Correções apuradas na conferência: **prometazina não é controlada** (exceção expressa da 344/98) e **bromazepam é B1**. *(Idempotente.)*
 
 - **Folha de Registro Semanal (para transcrição ao livro físico).** Nova impressão na tela de Escrituração: escolhe-se a semana (segunda a domingo, com navegação ◀ ▶) e o sistema gera uma folha com um bloco por medicamento contendo **saldo anterior**, **entradas discriminadas por lote** (data, lote, validade, origem/documento), **saídas consolidadas do período** (total + nome de um paciente seguido de "e outros" quando houver mais de um) e **saldo final**, além de campo "Transcrito no livro em ___ / Rubrica". Por padrão traz só os controlados, com opção de incluir os demais.
-- **Identidade do medicamento no Livro e no BMPO: PRINCÍPIO ATIVO + DOSAGEM.** Nomes comerciais distintos com mesmo princípio e dosagem passam a ser **um único item** na escrituração — o nome comercial serve à administração pela enfermagem e à prescrição médica. Novo agrupamento (`gruposSubstancias`) aplicado à Folha Semanal e ao **BMPO**, que antes emitia uma linha por nome comercial e agora emite **uma linha por princípio+dosagem**, listando os nomes comerciais como referência.
+- **Identidade do medicamento no Livro e na Conferência de Saldos: PRINCÍPIO ATIVO + DOSAGEM.** Nomes comerciais distintos com mesmo princípio e dosagem passam a ser **um único item** na escrituração — o nome comercial serve à administração pela enfermagem e à prescrição médica. Novo agrupamento (`gruposSubstancias`) aplicado à Folha Semanal e à **Conferência de Saldos**, que antes emitia uma linha por nome comercial e agora emite **uma linha por princípio+dosagem**, listando os nomes comerciais como referência.
 
 - **Padronização de entrada em MAIÚSCULAS.** A digitação de texto passa a ser normalizada para maiúsculo automaticamente em todos os cadastros, **exceto POPs** (texto livre) e **exceto** e-mail, senha, números, datas e seletores (que guardam os IDs). Preserva a posição do cursor e permite exceção pontual via classe `no-upper`. Para os dados já cadastrados, há o script opcional **`migration_maiusculas.sql`** (idempotente, não toca e-mails/IDs/POPs nem campos de valor controlado como o canal da NF). *(Front em layout.js + SQL opcional.)*
 
@@ -78,7 +78,7 @@ Mudanças mais recentes, da mais nova para a mais antiga:
 - **Quantidade por horário na prescrição.** Campo **Qtd. por horário** (padrão 1) permite dispensar mais de um comprimido por dose. A dispensação usa o número direto; tela e mapa exibem "2×/horário" / "2×/dose". *(Requer `migration_qtd_dose.sql`.)*
 - **Folha de contagem / inventário.** Botão na aba Ajuste de Estoque que gera folha A4 com Substância · Lote · Validade · Saldo no sistema + colunas em branco **Contagem física** e **Diferença**. Filtros: **substância**, **faixa de vencimento** (todas / vencidas / 30·60·90 dias / intervalo) e **ocultar zerados**.
 - **Mapa por paciente + opções.** Formato "por paciente" repete o bloco do dia (Manhã/Tarde/Noite) empilhado por dia, uma folha por paciente. Opção de **fichas em branco** para novos pacientes e liga/desliga para **ignorar pacientes sem prescrição**.
-- **Alta de paciente e destino da custódia.** Botão "Dar alta" (encerra prescrições, libera leito, arquiva). Custódia com saldo fica **aguardando retirada**; depois o RT decide item a item: **devolver à família** (com Termo de Devolução) ou **integrar ao estoque** (passa a contar no BMPO). Aba **Arquivo** com histórico preservado e **Extrato de Alta** em duas versões (com/sem valores). *(Requer `migration_alta.sql`.)*
+- **Alta de paciente e destino da custódia.** Botão "Dar alta" (encerra prescrições, libera leito, arquiva). Custódia com saldo fica **aguardando retirada**; depois o RT decide item a item: **devolver à família** (com Termo de Devolução) ou **integrar ao estoque** (passa a contar na escrituração da unidade). Aba **Arquivo** com histórico preservado e **Extrato de Alta** em duas versões (com/sem valores). *(Requer `migration_alta.sql`.)*
 - **Cotação de compras — Fase B.** Lançar preços por fornecedor (unid./caixa, preço/caixa, validade, indisponível), **comparativo por preço unitário** com o vencedor destacado, e **pedidos por fornecedor** imprimíveis. *(Requer `migration_cotacao.sql`.)*
 
 ### Base consolidada (fases anteriores)
@@ -89,7 +89,7 @@ Mudanças mais recentes, da mais nova para a mais antiga:
 - **Mapa de medicação — por dia.** Uma folha por dia com todos os pacientes; períodos Manhã/Tarde/Noite; linhas e fichas em branco.
 - **Inventário/ajustes.** Ajuste justificado (contagem física vs sistema) que reconcilia o saldo via movimentação. *(`migration_ajustes.sql`.)*
 - **Carrinho de emergência.** Itens, lacre, conferência.
-- **Escrituração / BMPO.** Livro de Registro derivado; balanço mensal; custódia fora do BMPO (salvo quando integrada).
+- **Escrituração / Conferência de Saldos.** Livro de Registro derivado; balanço mensal; custódia fora da escrituração (salvo quando integrada).
 - **Financeiro.** Somente custos de farmácia (sem diária de internação).
 - **Prescritor externo.** Vínculo interno/externo com tag. *(`migration_prescritor_externo.sql`.)*
 - **Consultoria — Padronização.** Planilha `Padronizacao_Reviva_v1.xlsx` (67 itens por DCB, controlados marcados, sugestões do RT).
@@ -155,7 +155,7 @@ Regras de ouro: migrações são **seguras de repetir** (`if not exists`); **nun
 - [ ] **Ajuste de Estoque**: "Folha de contagem" com 3 filtros (substância, vencimento, zerados).
 - [ ] **Cotação**: abas Itens / Lançar preços / Comparativo & Pedidos; **Qualificação de fornecedor** (habilitação + desempenho) com tags e alerta; itens **por categoria**, só da padronização; pedido impresso agrupado.
 - [ ] **Livro de Registro**: filtros (paciente, período, tipo, substância, lista, lote); colunas Lote e Validade; saldo real. **Folha de Registro Semanal** (por princípio ativo + dosagem) no topo da tela.
-- [ ] **Balanço/BMPO**: uma linha por princípio ativo + dosagem, com nomes comerciais como referência.
+- [ ] **Conferência de Saldos**: uma linha por princípio ativo + dosagem, com nomes comerciais como referência.
 - [ ] **Enfermagem — Documentos e Registros**: folha de Sinais Vitais imprimível, com paciente ou em branco.
 - [ ] **POPs do Fluxo**: registro com CRUD, status clicável, controle (código/versão/vigência/revisão), "Registro mestre", editor de conteúdo e impressão do POP formatado. **14 POPs redigidos**, ordenados por código (FAR antes de ENF).
 

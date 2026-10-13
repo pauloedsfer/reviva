@@ -1,6 +1,6 @@
 # Hospital Reviva — Sistema conectado ao banco
 
-O sistema lê e grava no seu banco Supabase, tem **login**, **cadastro do RT como dado**, **lançamentos pelas telas**, **dispensação com baixa de estoque**, **ajuste de inventário** e **impressão do Livro de Registro e do BMPO** para fiscalização.
+O sistema lê e grava no seu banco Supabase, tem **login**, **cadastro do RT como dado**, **lançamentos pelas telas**, **dispensação com baixa de estoque**, **ajuste de inventário** e **impressão do Livro de Registro e da Conferência de Saldos** para fiscalização.
 
 ## ⚠ Antes de usar o Ajuste de Estoque: rodar a migração (uma vez)
 
@@ -21,7 +21,7 @@ Para o módulo de **Cotação** (menu Suprimentos), rode **`migration_cotacao.sq
 
 Para o fluxo de **alta** (custódia aguardando retirada, devolução à família com Termo, integração ao estoque, arquivo e Extrato de Alta), rode **`migration_alta.sql`** uma vez no SQL Editor. Aditivo e seguro.
 
-Como funciona: na tela **Pacientes**, o botão **Dar alta** encerra as prescrições, grava a data, libera o leito e move o paciente para a aba **Arquivo (altas)** — nada é apagado. A custódia com saldo fica **aguardando retirada**; depois, na tela **Medicação do Paciente**, você decide item a item: **Devolver à família** (imprime o Termo de Devolução) ou **Integrar ao estoque** (passa a contar no estoque geral e no BMPO). Na dispensação, o lote padrão é o de **custódia do próprio paciente** (★); custódia de outros pacientes nunca aparece; estoque geral é escolha manual. O **Extrato de Alta** sai em duas versões: com valores (diretoria) ou sem valores (família), reimprimível a qualquer momento no Arquivo.
+Como funciona: na tela **Pacientes**, o botão **Dar alta** encerra as prescrições, grava a data, libera o leito e move o paciente para a aba **Arquivo (altas)** — nada é apagado. A custódia com saldo fica **aguardando retirada**; depois, na tela **Medicação do Paciente**, você decide item a item: **Devolver à família** (imprime o Termo de Devolução) ou **Integrar ao estoque** (passa a contar no estoque geral e na escrituração). Na dispensação, o lote padrão é o de **custódia do próprio paciente** (★); custódia de outros pacientes nunca aparece; estoque geral é escolha manual. O **Extrato de Alta** sai em duas versões: com valores (diretoria) ou sem valores (família), reimprimível a qualquer momento no Arquivo.
 
 ## 1. Conectar ao seu banco
 
@@ -48,7 +48,7 @@ Como antes: arraste a **pasta** deste sistema para o Vercel (deploy estático), 
 1. Abra o site → você cai na tela de **login**. Entre com o e-mail/senha do passo 2.
 2. Vá em **Configurações (RT & Estabelecimento)** no menu lateral e preencha seus **dados reais** (nome, CRF/UF, registro, dados do hospital). Salve. A partir daí, todo rodapé e relatório passa a mostrar seus dados — nada fica fixo no código.
 3. Navegue pelas telas: os **dados de teste** já aparecem (pacientes, estoque, movimentações). Um **banner amarelo** avisa que são dados de teste.
-4. Teste as impressões: **Livro de Registro → "Imprimir para fiscalização"** e **Balanço Mensal → "Imprimir BMPO"**. Abre uma versão limpa em A4, com cabeçalho do hospital e espaço para assinatura/identificação do RT em cada página. Use o botão **Imprimir / Salvar PDF** dessa janela.
+4. Teste as impressões: **Livro de Registro → "Imprimir para fiscalização"** e **Conferência de Saldos → "Imprimir conferência"**. Abre uma versão limpa em A4, com cabeçalho do hospital e espaço para assinatura/identificação do RT em cada página. Use o botão **Imprimir / Salvar PDF** dessa janela.
 
 ## 5. Antes de usar de verdade
 
@@ -61,7 +61,7 @@ Quando terminar de testar e for cadastrar pacientes reais, clique em **"Limpar d
 - **Persistência real** no Supabase, com as movimentações como fonte de verdade (derivadas, como você pediu). Validado: os saldos calculados na tela batem exatamente com os do banco.
 - **Login único** (Supabase Auth) — o sistema não fica aberto. Botão **Sair** no rodapé do menu.
 - **RT como dado**, editável em Configurações; alimenta rodapés e relatórios.
-- **Relatórios imprimíveis** (Livro de Registro e BMPO) com cabeçalho do estabelecimento e assinatura do RT, sem o aviso de "documento de conferência" (como você definiu). O BMPO calcula o **estoque inicial** a partir das movimentações anteriores ao mês.
+- **Relatórios imprimíveis** (Livro de Registro e Conferência de Saldos) com cabeçalho do estabelecimento e assinatura do RT, sem o aviso de "documento de conferência" (como você definiu). A conferência calcula o **estoque inicial** a partir das movimentações anteriores ao mês.
 - **Banner + limpeza** de dados de teste.
 
 ## Lançamentos disponíveis nesta versão

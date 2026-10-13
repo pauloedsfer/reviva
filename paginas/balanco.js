@@ -1,12 +1,12 @@
 /* ============================================================
    paginas/balanco.js — Hospital Reviva
-   Balanço Mensal (BMPO). Estoque inicial é DERIVADO das
+   Conferência Mensal de Saldos. Estoque inicial é DERIVADO das
    movimentações anteriores ao mês de referência (decisão 2:
    inventário inicial + entradas/saídas anteriores). Seletor de
    mês e impressão limpa para fiscalização.
    ============================================================ */
 
-let _mesBMPO = null;
+let _mesSelecionado = null;
 
 function _mesesDisponiveis() {
   const set = new Set(movements.map((m) => m.data.slice(0, 7)));
@@ -15,7 +15,7 @@ function _mesesDisponiveis() {
 }
 function _mesRef() {
   const disp = _mesesDisponiveis();
-  return _mesBMPO || disp[0] || new Date().toISOString().slice(0, 7);
+  return _mesSelecionado || disp[0] || new Date().toISOString().slice(0, 7);
 }
 function _nomeMes(mes) {
   const [y, m] = mes.split("-");
@@ -24,7 +24,7 @@ function _nomeMes(mes) {
 }
 
 /* A medicação em custódia de paciente é sujeita a controle especial e fica
-   sob guarda da farmácia — portanto é escriturada e precisa constar do BMPO.
+   sob guarda da farmácia — portanto é escriturada e precisa constar da conferência.
    Mas ela NÃO é estoque do estabelecimento: pertence ao paciente. Por isso
    o balanço apresenta as duas colunas separadas, com o total ao lado —
    o que permite conferir o físico da casa sem confundir a propriedade.
@@ -34,9 +34,9 @@ function _nomeMes(mes) {
 // delegado para dados.js: a mesma regra vale no Livro e no controle paralelo
 function _ehCustodia(m) { return movEhCustodia(m); }
 
-// Recebe um GRUPO (princípio ativo + dosagem) — a identidade do BMPO.
+// Recebe um GRUPO (princípio ativo + dosagem) — a identidade do Livro.
 // Vários nomes comerciais de mesmo princípio e dosagem formam uma única linha.
-function _bmpoLinha(g, mes) {
+function _linhaSaldo(g, mes) {
   const inicioMes = mes + "-01";
   const z = () => ({ inicial: 0, entradas: 0, saidas: 0 });
   const est = z(), cus = z();
@@ -62,9 +62,9 @@ function _bmpoLinha(g, mes) {
   };
 }
 
-function _bmpoRows(mes, paraImpressao) {
+function _rowsSaldo(mes, paraImpressao) {
   return gruposSubstancias().filter(grupoControlado).map((g) => {
-    const b = _bmpoLinha(g, mes);
+    const b = _linhaSaldo(g, mes);
     const comerciais = g.nomes.length > 1 ? g.nomes.join(" · ") : "";
     const temCus = b.cus.inicial || b.cus.entradas || b.cus.saidas || b.cus.final;
     if (paraImpressao) {
@@ -89,29 +89,27 @@ function _bmpoRows(mes, paraImpressao) {
   }).join("");
 }
 
-function mudarMesBMPO(mes) {
-  _mesBMPO = mes;
+function mudarMes(mes) {
+  _mesSelecionado = mes;
   document.getElementById("viewport").innerHTML = renderPage();
 }
 
-function imprimirBMPO() {
+function imprimirConferencia() {
   const mes = _mesRef();
   const corpo = `
   <style>
     table th.c, table td.c{text-align:center}
     table th.cus, table td.cus{background:#FBF3E3}
     table th.tot, table td.tot{background:#EEF2EC;font-weight:700}
-    .bmpo-nota{font-size:9.5px;color:#4a544f;line-height:1.5;margin-bottom:8px;
+    .nota-interna{font-size:9.5px;color:#4a544f;line-height:1.5;margin-bottom:8px;
                background:#F4F6F3;border-left:3px solid #2C5F5A;padding:5px 9px}
   </style>
-  <div class="bmpo-nota" style="border-left-color:#B07A2F;background:#FBF3E3">
+  <div class="nota-interna" style="border-left-color:#B07A2F;background:#FBF3E3">
     <b>Documento de conferência interna — não é peça de fiscalização.</b>
-    Conforme notificação da Vigilância Sanitária, o Balanço de Substâncias Psicotrópicas e Entorpecentes
-    (BMPO) aplica-se ao comércio varejista e não à farmácia hospitalar. Este quadro é mantido como
-    ferramenta de conferência do próprio serviço: é ele que revela saldo negativo, divergência de coluna
-    e erro de unidade antes da transcrição ao livro físico.
+    Quadro mantido como ferramenta de conferência do próprio serviço: é ele que revela saldo negativo,
+    divergência de coluna e erro de unidade antes da transcrição ao livro físico.
   </div>
-  <div class="bmpo-nota">
+  <div class="nota-interna">
     <b>Estoque do estabelecimento</b> — substâncias adquiridas pela clínica, que compõem a escrituração
     e o Livro de Registro Específico.
     <b>Custódia de pacientes</b> — medicação de propriedade do paciente, adquirida em drogaria e mantida
@@ -134,15 +132,15 @@ function imprimirBMPO() {
         <th class="num" style="background:#FBF3E3">Saídas</th><th class="num" style="background:#FBF3E3">Final</th>
       </tr>
     </thead>
-    <tbody>${_bmpoRows(mes, true)}</tbody></table>`;
+    <tbody>${_rowsSaldo(mes, true)}</tbody></table>`;
   imprimirRelatorio("Conferência Mensal de Saldos — uso interno",
-    "Referência: " + _nomeMes(mes) + " · não é BMPO: o balanço não se aplica à farmácia hospitalar", corpo);
+    "Referência: " + _nomeMes(mes) + " · uso interno da farmácia", corpo);
 }
 
-/* Fechamento do mês, na própria tela do BMPO — é aqui que o RT conclui a
+/* Fechamento do mês, na própria tela da conferência — é aqui que o RT conclui a
    escrituração, então é aqui que ele fecha o período. O mesmo controle
    existe em Configurações. */
-function _painelFechamentoBMPO(mes) {
+function _painelFechamento(mes) {
   const f = (window.ESTAB || {}).fechamento_ate;
   const ultimoDia = (() => {
     const [a, m] = mes.split("-").map(Number);
@@ -159,22 +157,22 @@ function _painelFechamentoBMPO(mes) {
         ${jaFechado
           ? `<div class="note-box" style="margin-top:0;background:#E7F0E3;border-color:#c9dcc2">
                <b>Período fechado até ${fmtDate(f)}.</b> Lançamentos com data até aí estão bloqueados.
-               <button class="btn ghost sm" style="margin-left:10px" onclick="fecharMesBMPO(null)">Reabrir período</button>
+               <button class="btn ghost sm" style="margin-left:10px" onclick="fecharMes(null)">Reabrir período</button>
              </div>`
           : `<div class="note-box" style="margin-top:0">Confira o balanço acima e a Folha de Registro Semanal antes de fechar. Depois de fechado, lançamentos com data até <b>${fmtDate(ultimoDia)}</b> deixam de ser aceitos — correções passam a ser feitas no mês aberto.</div>
-             <button class="btn sm" onclick="fecharMesBMPO('${ultimoDia}')">🔒 Fechar ${_nomeMes(mes)}</button>
+             <button class="btn sm" onclick="fecharMes('${ultimoDia}')">🔒 Fechar ${_nomeMes(mes)}</button>
              ${f ? `<div style="font-size:12px;color:var(--muted);margin-top:8px">Atualmente fechado até ${fmtDate(f)}.</div>` : ""}`}
       </div>
     </div>`;
 }
 
-async function fecharMesBMPO(ate) {
+async function fecharMes(ate) {
   const est = window.ESTAB || {};
   if (!est.id) { alert("Configure os dados do estabelecimento antes de fechar o período."); return; }
   if (ate) {
-    if (!confirm(`Fechar a escrituração até ${fmtDate(ate)}?\n\nLançamentos com data até essa data deixam de ser aceitos. Faça isso depois de conferir o BMPO e a Folha de Registro Semanal.`)) return;
+    if (!confirm(`Fechar a escrituração até ${fmtDate(ate)}?\n\nLançamentos com data até essa data deixam de ser aceitos. Faça isso depois de conferir os saldos do mês e a Folha de Registro Semanal.`)) return;
   } else {
-    if (!confirm("Reabrir o período?\n\nLançamentos retroativos voltam a ser aceitos. Faça isso apenas se o BMPO ainda não foi transmitido.")) return;
+    if (!confirm("Reabrir o período?\n\nLançamentos retroativos voltam a ser aceitos. Faça isso apenas se a escrituração do período ainda não foi encerrada.")) return;
   }
   const { error } = await window.SB.from("estabelecimento").update({ fechamento_ate: ate }).eq("id", est.id);
   if (error) { alert("Erro ao gravar o fechamento: " + error.message); return; }
@@ -188,10 +186,10 @@ function renderPage() {
   return `
     <div class="panel">
       <div class="panel-head">
-        <div><div class="panel-title">Conferência Mensal de Saldos</div><div class="panel-title-sub">Referência: ${_nomeMes(mes)} — uso interno; o BMPO não se aplica à farmácia hospitalar</div></div>
+        <div><div class="panel-title">Conferência Mensal de Saldos</div><div class="panel-title-sub">Referência: ${_nomeMes(mes)} — uso interno da farmácia</div></div>
         <div class="toolbar">
-          <select onchange="mudarMesBMPO(this.value)">${opts}</select>
-          <button class="btn sm" onclick="imprimirBMPO()">Imprimir conferência</button>
+          <select onchange="mudarMes(this.value)">${opts}</select>
+          <button class="btn sm" onclick="imprimirConferencia()">Imprimir conferência</button>
         </div>
       </div>
       <div class="panel-body">
@@ -208,7 +206,7 @@ function renderPage() {
               <th class="c cus">Inicial</th><th class="c cus">Entradas</th><th class="c cus">Saídas</th><th class="c cus">Final</th>
             </tr>
           </thead>
-          <tbody>${_bmpoRows(mes, false)}</tbody>
+          <tbody>${_rowsSaldo(mes, false)}</tbody>
         </table>
         <div class="foot-signoff">
           <span>Estoque inicial = saldo derivado das movimentações anteriores a ${fmtDate(mes + "-01")}</span>
@@ -216,6 +214,6 @@ function renderPage() {
         </div>
       </div>
     </div>
-    ${_painelFechamentoBMPO(mes)}
+    ${_painelFechamento(mes)}
   `;
 }
