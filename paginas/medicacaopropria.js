@@ -174,6 +174,82 @@ function filtrarCustodia(v) {
   document.getElementById("viewport").innerHTML = renderPage();
 }
 
+/* -------- histórico de devoluções --------
+   Fica recolhido: na rotina diária interessa o que ainda está sob guarda, e
+   uma lista de devoluções passadas competiria com ela pela atenção. Abre
+   quando é preciso reimprimir um termo que se perdeu.
+
+   As devoluções são reagrupadas no mesmo recorte em que aconteceram —
+   paciente + data + quem recebeu —, porque é assim que o lote foi gravado:
+   todas as linhas de uma devolução compartilham data e obs. O agrupamento
+   reconstrói o ato, não uma soma por dia que misturaria duas entregas
+   diferentes no mesmo termo. */
+let _histAberto = false;
+let _devolucoesCache = [];
+
+function alternarHistoricoDevolucoes() {
+  _histAberto = !_histAberto;
+  document.getElementById("viewport").innerHTML = renderPage();
+}
+
+function _agruparDevolucoes() {
+  const mapa = new Map();
+  for (const d of custodiaDestinos) {
+    if (d.tipo !== "devolucao_familia") continue;
+    const f = _acharItemCustodia(d.itemId);
+    if (!f) continue;                       // item apagado: não dá para montar o termo
+    const chave = `${f.pm.paciente}|${d.data}|${d.obs || ""}`;
+    if (!mapa.has(chave)) {
+      mapa.set(chave, { pacienteId: f.pm.paciente, data: d.data, quem: d.obs || "", linhas: [] });
+    }
+    mapa.get(chave).linhas.push({
+      nome: subById(f.it.subId).nome, lote: f.it.lote, validade: f.it.validade, qtd: d.qtd,
+    });
+  }
+  return [...mapa.values()].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+}
+
+/* O índice vem do array montado no render corrente, que é o mesmo que a tabela
+   está exibindo — não há como apontar para a linha errada. */
+function reimprimirTermoDevolucao(i) {
+  const g = _devolucoesCache[i]; if (!g) return;
+  const p = patById(g.pacienteId) || {};
+  imprimirTermoDevolucao(
+    { nome: p.nome, prontuario: p.prontuario, dataAlta: p.dataAlta },
+    g.linhas, g.quem, g.data, true);
+}
+
+function _painelDevolucoes() {
+  if (!_histAberto) return "";
+  const gs = _devolucoesCache;
+  const linhas = gs.map((g, i) => {
+    const p = patById(g.pacienteId) || {};
+    const un = g.linhas.reduce((a, l) => a + Number(l.qtd), 0);
+    return `<tr>
+      <td class="mono">${fmtDate(g.data)}</td>
+      <td><b>${_esc(p.nome || "—")}</b></td>
+      <td class="num mono">${g.linhas.length}</td>
+      <td class="num mono">${un}</td>
+      <td>${_esc(g.quem || "—")}</td>
+      <td style="text-align:right"><button class="btn ghost sm" onclick="reimprimirTermoDevolucao(${i})">🖶 Reimprimir termo</button></td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Devoluções registradas</div>
+          <div class="panel-title-sub">${gs.length} devolução(ões) · a reimpressão sai marcada como 2ª via</div></div>
+      </div>
+      <div class="panel-body">
+        ${gs.length ? `<table>
+          <thead><tr><th>Data</th><th>Paciente</th><th class="num">Itens</th><th class="num">Unidades</th><th>Recebido por</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma devolução à família registrada até agora.</div>`}
+      </div>
+    </div>`;
+}
+
 function renderPage(){
   /* Uma passada só: saldo e situação de cada item saem daqui e são
      reaproveitados na contagem dos filtros e na linha da tabela. Antes o saldo
@@ -192,6 +268,10 @@ function renderPage(){
     todos:      linhas,
   };
   const visiveis = grupos[_fcFiltro] || grupos.saldo;
+
+  // Só agrupa as devoluções quando o painel está aberto: fechado, não há por
+  // que percorrer os destinos a cada render.
+  _devolucoesCache = _histAberto ? _agruparDevolucoes() : [];
 
   /* A contagem fica no próprio botão: é o que deixa claro que existe coisa
      escondida, e quanta — filtro que esconde sem dizer quanto esconde faz o
@@ -213,6 +293,7 @@ function renderPage(){
         <div><div class="panel-title">Medicações em custódia</div><div class="panel-title-sub">${visiveis.length} de ${linhas.length} item(ns) registrado(s)</div></div>
         <div class="toolbar">
           <button class="btn ghost sm" onclick="abrirTermoCustodia()">🖶 Termo de Custódia</button>
+          <button class="btn ${_histAberto ? "sm" : "ghost sm"}" onclick="alternarHistoricoDevolucoes()">↩ Devoluções feitas</button>
           <button class="btn ghost sm" onclick="abrirTransferenciaCustodia()">⇄ Transferir medicação</button>
           <button class="btn sm" onclick="abrirFormCustodia()">+ Registrar medicação do paciente</button>
         </div>
@@ -255,6 +336,7 @@ function renderPage(){
         </table>` : `<div style="color:var(--muted);font-size:13px;padding:8px 0">${vazio}</div>`}
       </div>
     </div>
+    ${_painelDevolucoes()}
   `;
 }
 
@@ -268,27 +350,91 @@ function _acharItemCustodia(itemId) {
   return null;
 }
 
+/* Itens de um paciente que podem ser devolvidos agora: com saldo e aguardando
+   retirada. É a MESMA condição que acende o botão na tabela, escrita em um
+   lugar só — se a lista do termo divergisse do que a tela oferece, a família
+   assinaria um documento com item que o sistema não baixou. */
+function _itensDevolviveis(pacienteId) {
+  const out = [];
+  for (const pm of patientMeds) {
+    if (pm.paciente !== pacienteId) continue;
+    for (const it of pm.itens) {
+      const bal = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
+      if (bal > 0 && statusCustodia(pm, it) === "aguardando") out.push({ pm, it, bal });
+    }
+  }
+  return out;
+}
+
+/* A devolução é POR PACIENTE, não por medicamento.
+   O botão continua na linha do item, mas o que ele abre é a custódia inteira
+   daquele paciente, com tudo marcado. Na alta a família leva o que é dela de
+   uma vez e assina UM documento: um termo por medicamento multiplica papel,
+   assinatura e chance de uma folha se perder, e nenhum deles mostra o conjunto
+   do que foi entregue. */
 function abrirDevolucaoFamilia(itemId) {
   const f = _acharItemCustodia(itemId); if (!f) return;
-  const saldoAtual = saldoLoteChave(loteChave(f.it.subId, f.it.lote, f.pm.paciente));
+  const pacienteId = f.pm.paciente;
+  const p = patById(pacienteId) || {};
+  const devolviveis = _itensDevolviveis(pacienteId);
+  if (!devolviveis.length) { alert("Não há saldo de custódia a devolver para este paciente."); return; }
+
+  const linhas = devolviveis.map(({ it, bal }) => `
+    <tr class="dv-row" data-id="${_esc(it.id)}" data-saldo="${bal}"
+        data-nome="${_esc(subById(it.subId).nome)}" data-lote="${_esc(it.lote)}"
+        data-validade="${_esc(it.validade || "")}">
+      <td style="text-align:center"><input type="checkbox" class="dv-ck" checked></td>
+      <td><b>${_esc(subById(it.subId).nome)}</b></td>
+      <td class="mono">${_esc(it.lote)}</td>
+      <td class="mono">${it.validade ? fmtDate(it.validade) : "—"}</td>
+      <td class="num mono">${bal}</td>
+      <td><input type="number" class="dv-qtd" min="1" max="${bal}" value="${bal}" style="width:76px"></td>
+    </tr>`).join("");
+
   const corpo = `
+    <div class="note-box" style="margin-top:0"><b>${_esc(p.nome || "—")}</b>${p.prontuario ? ` · prontuário ${_esc(p.prontuario)}` : ""} — ${devolviveis.length} item(ns) com saldo em custódia. Desmarque o que não for entregue agora; o Termo de Devolução sai com tudo que ficar marcado, em um documento só.</div>
     <div class="ff row2">
       <div><label>Data *</label><input id="dfData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div><label>Quantidade devolvida *</label><input id="dfQtd" type="number" min="1" max="${saldoAtual}" value="${saldoAtual}"></div>
+      <div><label>Recebido por (nome do familiar/responsável)</label><input id="dfQuem" placeholder="Ex.: Maria (mãe)"></div>
     </div>
-    <div class="ff"><label>Recebido por (nome do familiar/responsável)</label><input id="dfQuem" placeholder="Ex.: Maria (mãe)"></div>
-    <div class="note-box" style="margin:0"><b>${subById(f.it.subId).nome}</b> · lote ${f.it.lote} · saldo ${saldoAtual}. Após registrar, o Termo de Devolução abre para impressão e assinatura.</div>
+    <table id="dfLista">
+      <thead><tr><th style="width:34px"></th><th>Medicamento</th><th>Lote</th><th>Validade</th><th class="num">Saldo</th><th style="width:92px">Devolver</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
   `;
+
   abrirModal("Devolver custódia à família", corpo, async () => {
-    const data = fv("dfData"); const qtd = fvNum("dfQtd");
+    const data = fv("dfData");
     if (!data) throw new Error("Informe a data.");
-    if (!qtd || qtd < 1 || qtd > saldoAtual) throw new Error("Quantidade inválida (máx. " + saldoAtual + ").");
-    const { error } = await window.SB.from("custodia_destinos").insert({
-      data, medicacao_propria_item_id: itemId, tipo: "devolucao_familia", quantidade: qtd,
-      obs: fvOrNull("dfQuem"), ...usuarioId(),
+    const quem = fv("dfQuem");
+
+    /* Os dados de cada item são capturados AQUI, da própria linha do modal, e
+       seguem prontos para o termo. Depois deste callback o modal fecha e a tela
+       recarrega — reconsultar o item na hora de imprimir seria ler um estado
+       que já mudou. */
+    const sel = [];
+    document.querySelectorAll("#dfLista tr.dv-row").forEach((tr) => {
+      if (!tr.querySelector(".dv-ck").checked) return;
+      const max = Number(tr.dataset.saldo);
+      const qtd = Number(tr.querySelector(".dv-qtd").value);
+      if (!qtd || qtd < 1 || qtd > max) {
+        throw new Error(`Quantidade inválida em ${tr.dataset.nome} (entre 1 e ${max}).`);
+      }
+      sel.push({ id: tr.dataset.id, qtd, nome: tr.dataset.nome,
+                 lote: tr.dataset.lote, validade: tr.dataset.validade || null });
     });
+    if (!sel.length) throw new Error("Marque ao menos um medicamento para devolver.");
+
+    const { error } = await window.SB.from("custodia_destinos").insert(
+      sel.map((s) => ({
+        data, medicacao_propria_item_id: s.id, tipo: "devolucao_familia",
+        quantidade: s.qtd, obs: quem || null, ...usuarioId(),
+      }))
+    );
     if (error) throw error;
-    setTimeout(() => imprimirTermoDevolucao(itemId, qtd, fv("dfQuem"), data), 400);
+
+    const pac = { nome: p.nome, prontuario: p.prontuario, dataAlta: p.dataAlta };
+    setTimeout(() => imprimirTermoDevolucao(pac, sel, quem, data), 400);
   }, "Registrar devolução");
 }
 
@@ -304,15 +450,22 @@ async function integrarAoEstoque(itemId) {
   await recarregarTela();
 }
 
-function imprimirTermoDevolucao(itemId, qtd, quem, data) {
-  const f = _acharItemCustodia(itemId); if (!f) return;
-  const p = patById(f.pm.paciente);
+/* Recebe os dados já resolvidos — paciente e linhas —, não ids para consultar.
+   Imprime UM termo com todos os medicamentos entregues no ato. */
+function imprimirTermoDevolucao(p, linhas, quem, data, segundaVia) {
+  if (!linhas || !linhas.length) return;
   const est = window.ESTAB || {}, rt = window.RT || {};
+  const plural = linhas.length > 1;
+  /* Reimpressão vai marcada. O termo é documento assinado: duas folhas
+     idênticas circulando, sem nada que as distinga, viram duas vias originais
+     e ninguém sabe qual foi a assinada. A 2ª via diz o que ela é. */
+  const hoje = new Date().toISOString().slice(0, 10);
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "Responsável Técnico";
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Termo de Devolução — ${_esc(p.nome)}</title>
   <style>@page{size:A4 portrait;margin:16mm 14mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:12px;margin:0;line-height:1.55}
   .estab{border-bottom:2px solid #2C5F5A;padding-bottom:8px;margin-bottom:12px}.estab .n{font-size:15px;font-weight:700}.estab .s{font-size:10.5px;color:#4a544f}
   h1{font-size:15px;text-align:center;margin:14px 0 4px}.ref{text-align:center;font-size:10.5px;color:#6a736e;margin-bottom:14px}
+  .via{text-align:center;font-size:9.5px;color:#B07A2F;letter-spacing:.06em;text-transform:uppercase;margin:-10px 0 14px;font-weight:700}
   table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #cfd6cf;padding:6px 8px;font-size:11px;text-align:left}
   th{background:#EEF2EC;text-transform:uppercase;font-size:10px}.mono{font-family:"IBM Plex Mono",monospace}
   .decl{font-size:11.5px;text-align:justify;margin:14px 0}
@@ -324,10 +477,12 @@ function imprimirTermoDevolucao(itemId, qtd, quem, data) {
     <div class="s">${est.cnpj ? "CNPJ: " + _esc(est.cnpj) + " · " : ""}${_esc(est.endereco || "")}${est.municipio_uf ? " — " + _esc(est.municipio_uf) : ""}</div></div>
   <h1>Termo de Devolução de Medicação em Custódia</h1>
   <div class="ref">Devolução ao paciente/responsável do saldo de medicação de sua propriedade</div>
+  ${segundaVia ? `<div class="via">2ª via — reimpressão em ${fmtDate(hoje)}</div>` : ""}
   <p><b>Paciente:</b> ${_esc(p.nome)} &nbsp;·&nbsp; <b>Prontuário:</b> ${_esc(p.prontuario || "—")} &nbsp;·&nbsp; <b>Alta:</b> ${p.dataAlta ? fmtDate(p.dataAlta) : "—"}</p>
-  <table><thead><tr><th>Medicamento</th><th>Lote</th><th>Validade</th><th>Qtd. devolvida</th></tr></thead>
-  <tbody><tr><td>${_esc(subById(f.it.subId).nome)}</td><td class="mono">${_esc(f.it.lote)}</td><td class="mono">${f.it.validade ? fmtDate(f.it.validade) : "—"}</td><td class="mono">${qtd}</td></tr></tbody></table>
-  <div class="decl">Declaro ter recebido, nesta data, a medicação acima relacionada, de propriedade do(a) paciente, que se encontrava sob custódia da farmácia do estabelecimento. A conferência da quantidade foi realizada no ato da entrega.</div>
+  <table><thead><tr><th style="width:26px">#</th><th>Medicamento</th><th>Lote</th><th>Validade</th><th>Qtd. devolvida</th></tr></thead>
+  <tbody>${linhas.map((l, i) => `<tr><td class="mono">${i + 1}</td><td>${_esc(l.nome)}</td><td class="mono">${_esc(l.lote)}</td><td class="mono">${l.validade ? fmtDate(l.validade) : "—"}</td><td class="mono">${l.qtd}</td></tr>`).join("")}</tbody>
+  <tfoot><tr><td colspan="4" style="text-align:right"><b>Total: ${linhas.length} item(ns)</b></td><td class="mono"><b>${linhas.reduce((a, l) => a + Number(l.qtd), 0)}</b></td></tr></tfoot></table>
+  <div class="decl">Declaro ter recebido, nesta data, ${plural ? "as medicações acima relacionadas" : "a medicação acima relacionada"}, de propriedade do(a) paciente, que se encontrava${plural ? "m" : ""} sob custódia da farmácia do estabelecimento. A conferência das quantidades foi realizada no ato da entrega.</div>
   <p><b>Recebido por:</b> ${_esc(quem || "____________________________")} &nbsp;·&nbsp; <b>Data:</b> ${fmtDate(data)}</p>
   <div class="assin">
     <div class="linha">Paciente ou responsável (assinatura)</div>
