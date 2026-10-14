@@ -102,8 +102,22 @@ async function removerPop(id) {
   await recarregarTela();
 }
 
+/* A janela de impressão é aberta em branco — window.open("", "_blank") —, então
+   ela não tem URL base. Caminho relativo como "assets/logo-reviva.png" não
+   resolve ali e a imagem sai quebrada; por isso o caminho é absolutizado contra
+   location.href ANTES de o HTML ser escrito. É o mesmo recurso já usado nos
+   impressos da enfermagem.
+
+   Todo <img> daqui leva onerror que esconde o próprio contêiner: se a logo for
+   removida ou renomeada, o cabeçalho continua correto, sem o ícone de imagem
+   quebrada no meio de um documento que vai para a pasta. */
+function _popLogoUrl() {
+  return new URL("assets/logo-reviva.png", location.href).href;
+}
+
 function imprimirRegistroPops() {
   const est = window.ESTAB || {}, rt = window.RT || {};
+  const logo = _popLogoUrl();
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "____________________";
   const linhas = pops.map((p, i) => `<tr>
       <td class="num">${i + 1}</td>
@@ -118,14 +132,19 @@ function imprimirRegistroPops() {
   const vig = pops.filter((p) => p.status === "vigente").length;
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Registro Mestre de POPs</title>
   <style>@page{size:A4 portrait;margin:14mm 12mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
-  .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:8px}.estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
+  .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+  .estab-logo{height:34px;width:34px;object-fit:contain;display:block;flex:0 0 auto}
+  .estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
   h1{font-size:14px;margin:8px 0 2px}.sub{font-size:10.5px;color:#6a736e;margin-bottom:8px}
   table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd6cf;padding:4px 6px;font-size:10.5px}
   th{background:#EEF2EC;text-transform:uppercase;font-size:9px}td.c,th.c{text-align:center}td.num,th.num{text-align:center;width:26px}.mono{font-family:"IBM Plex Mono",monospace}
   .foot{margin-top:18px;font-size:10.5px;display:flex;justify-content:space-between;gap:30px}.foot .l{border-top:1px solid #1E2A28;padding-top:5px;text-align:center;flex:1}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}@media print{.btn{display:none}}</style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
-  <div class="estab"><div class="n">${est.razao_social || est.nome_fantasia || "Hospital Reviva"}</div><div class="s">${est.cnpj ? "CNPJ: " + est.cnpj + " · " : ""}${est.endereco || ""}${est.municipio_uf ? " — " + est.municipio_uf : ""}</div></div>
+  <div class="estab">
+    <img class="estab-logo" src="${logo}" alt="" onerror="this.style.display='none'">
+    <div><div class="n">${est.razao_social || est.nome_fantasia || "Hospital Reviva"}</div><div class="s">${est.cnpj ? "CNPJ: " + est.cnpj + " · " : ""}${est.endereco || ""}${est.municipio_uf ? " — " + est.municipio_uf : ""}</div></div>
+  </div>
   <h1>Registro Mestre de Procedimentos Operacionais Padrão (POPs)</h1>
   <div class="sub">Emitido em ${new Date().toLocaleDateString("pt-BR")} · ${pops.length} POP(s) · ${vig} vigente(s)</div>
   <table><thead><tr><th class="num">#</th><th>Código</th><th>Título do POP</th><th>Área</th><th class="c">Versão</th><th class="c">Status</th><th class="c">Vigência</th><th class="c">Próx. revisão</th></tr></thead>
@@ -212,6 +231,7 @@ function imprimirPop(id) {
   const p = pops.find((x) => x.id === id); if (!p) return;
   if (!p.corpo) { alert("Preencha o conteúdo do POP antes de imprimir."); return; }
   const c = p.corpo, est = window.ESTAB || {}, rt = window.RT || {};
+  const logo = _popLogoUrl();
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "____________________";
   const secBloco = (label, val, ordenada) => {
     if (!val || (Array.isArray(val) && !val.length)) return "";
@@ -225,8 +245,13 @@ function imprimirPop(id) {
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>POP ${_esc(p.codigo || "")} — ${_esc(p.titulo)}</title>
   <style>@page{size:A4 portrait;margin:16mm 15mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:12px;margin:0;line-height:1.55}
   .cab{border:1px solid #2C5F5A;border-radius:8px;overflow:hidden;margin-bottom:14px}
-  .cab-top{background:#2C5F5A;color:#fff;padding:8px 12px;display:flex;justify-content:space-between;align-items:baseline}
-  .cab-top .est{font-weight:700;font-size:13px}.cab-top .doc{font-size:10.5px;opacity:.92}
+  .cab-top{background:#2C5F5A;color:#fff;padding:7px 12px;display:flex;align-items:center;gap:9px}
+  /* A logo tem fundo branco e é quadrada. Sobre a barra verde ela viraria um
+     retângulo solto, então vai num chip branco arredondado — fica como marca
+     aplicada ao cabeçalho, não como imagem colada nele. */
+  .cab-top .marca{background:#fff;border-radius:4px;padding:2px;display:flex;flex:0 0 auto}
+  .cab-top .marca img{height:26px;width:26px;object-fit:contain;display:block}
+  .cab-top .est{font-weight:700;font-size:13px;flex:1}.cab-top .doc{font-size:10.5px;opacity:.92}
   .cab-grid{display:grid;grid-template-columns:1fr auto auto auto;gap:0}
   .cab-grid > div{padding:6px 10px;border-right:1px solid #dfe5df;border-top:1px solid #dfe5df;font-size:10.5px}
   .cab-grid > div:last-child{border-right:none}.cab-grid .k{color:#6a736e;display:block;font-size:8.5px;text-transform:uppercase}
@@ -236,10 +261,14 @@ function imprimirPop(id) {
   .assin{display:grid;grid-template-columns:1fr 1fr 1fr;gap:26px;margin-top:40px}
   .assin .l{border-top:1px solid #1E2A28;padding-top:5px;font-size:10px;text-align:center;color:#4a544f}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}@media print{.btn{display:none}}
+  /* Só na tela: o botão é fixo no topo e cobria o "Procedimento Operacional
+     Padrão" do cabeçalho. Desce o conteúdo para ele caber acima. Não vale na
+     impressão, onde o botão não existe e a margem é a do @page. */
+  @media screen{body{padding-top:40px}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   <div class="cab">
-    <div class="cab-top"><span class="est">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</span><span class="doc">Procedimento Operacional Padrão</span></div>
+    <div class="cab-top"><span class="marca"><img src="${logo}" alt="" onerror="this.parentElement.style.display='none'"></span><span class="est">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</span><span class="doc">Procedimento Operacional Padrão</span></div>
     <div class="cab-grid">
       <div class="tit">${_esc(p.titulo)}</div>
       <div><span class="k">Código</span>${_esc(p.codigo || "—")}</div>
