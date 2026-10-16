@@ -330,6 +330,7 @@ function _detalhePaciente(pacId) {
           <button class="btn ghost sm" onclick="imprimirPrescricaoMedica('${pacId}')">🖶 Folha de prescrição</button>
           <button class="btn ghost sm" onclick="imprimirReceituario('${pacId}','C')">🖶 Receituário C</button>
           <button class="btn ghost sm" onclick="imprimirReceituario('${pacId}','comum')">🖶 Receituário comum</button>
+          <button class="btn ghost sm" onclick="gerarPromptAnalise('${pacId}')">⚗ Análise farmacoterapêutica</button>
           <button class="btn sm" onclick="abrirFormPrescricao('${pacId}')">+ Adicionar medicação</button>
         </div>
       </div>
@@ -898,4 +899,169 @@ function abrirFolhaPrescricaoBranco() {
     }
     setTimeout(() => imprimirPrescricaoMedica(alvo || null, { vazia: true, linhas }), 60);
   }, "Imprimir");
+}
+
+
+/* ============================================================
+   PROMPT DE ANÁLISE FARMACOTERAPÊUTICA
+   Monta um texto pronto para colar em qualquer IA de conversa.
+
+   DUAS DECISÕES QUE GOVERNAM ESTE BLOCO:
+
+   1) O PACIENTE NÃO É IDENTIFICADO. Nome, CPF, prontuário, leito,
+      telefone e endereço ficam de fora. O prompt sai para fora do
+      sistema, para um serviço de terceiro, e nada do que ele leva
+      exige saber QUEM é o paciente: idade, tempo de internação e a
+      lista de medicamentos bastam para a análise. Identificar seria
+      expor dado pessoal de saúde sem necessidade.
+
+   2) CAMPO EM BRANCO É "NÃO INFORMADO", NUNCA "NÃO EXISTE". O
+      sistema não guarda alergia, comorbidade, peso nem função renal,
+      e esses blocos saem como opcionais. O risco de um bloco vazio é
+      a IA ler ausência de alergia como alergia nenhuma e liberar um
+      fármaco contraindicado — por isso o prompt diz isso com todas as
+      letras, e manda a IA apontar qual dado faltante mudaria a
+      conclusão.
+   ============================================================ */
+
+function _idadeAnos(dataNasc) {
+  if (!dataNasc) return null;
+  const n = new Date(dataNasc + "T12:00:00"), h = new Date(HOJE + "T12:00:00");
+  let a = h.getFullYear() - n.getFullYear();
+  const m = h.getMonth() - n.getMonth();
+  if (m < 0 || (m === 0 && h.getDate() < n.getDate())) a--;
+  return a >= 0 && a < 130 ? a : null;
+}
+
+/* Medicação própria do paciente ainda sob guarda. Entra no prompt porque é
+   fonte real de duplicidade: o que a família trouxe pode repetir princípio
+   ativo do que a clínica prescreveu, e isso só aparece se as duas listas
+   forem lado a lado. */
+function _custodiaComSaldo(pacId) {
+  const out = [];
+  for (const pm of patientMeds) {
+    if (pm.paciente !== pacId) continue;
+    for (const it of pm.itens) {
+      const bal = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
+      if (bal > 0) out.push({ nome: subById(it.subId).nome, saldo: bal });
+    }
+  }
+  return out;
+}
+
+function _montarPromptAnalise(pacId) {
+  const p = patById(pacId) || {};
+  const its = _itensDoPaciente(pacId);
+  const idade = _idadeAnos(p.dataNascimento);
+  const diasInt = p.admissao ? diffDias(p.admissao, HOJE) : null;
+  const custodia = _custodiaComSaldo(pacId);
+
+  const linhaMed = (pr, i) => {
+    const s = subById(pr.subId) || {};
+    const fim = pr.dataFim ? fmtDate(pr.dataFim) : "uso contínuo";
+    return `| ${i + 1} | ${s.nome || "—"} | ${pr.dose || "não descrita"} | ${pr.via || "—"} | ${(pr.horarios || []).join(", ") || "—"} | ${fmtDose(qtdPorHorario(pr))} | ${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"} | ${fim} | ${s.lista && s.lista !== "—" ? s.lista : "—"} |`;
+  };
+
+  const L = [];
+  L.push("# Análise farmacoterapêutica — apoio ao farmacêutico clínico");
+  L.push("");
+  L.push("Você é apoio à análise farmacoterapêutica conduzida por um farmacêutico responsável técnico de farmácia hospitalar. Leia os limites antes de responder.");
+  L.push("");
+  L.push("## Limites do que você deve produzir");
+  L.push("- NÃO diagnostique, não proponha diagnóstico diferencial e não conclua sobre a doença de base.");
+  L.push("- NÃO determine mudança de prescrição. Onde houver problema, descreva-o e formule o que o farmacêutico pode LEVAR ao prescritor como sugestão a ser avaliada por ele.");
+  L.push("- NÃO invente dado. Campo em branco significa NÃO INFORMADO — nunca ausente, nunca normal. Não conclua \"sem alergias\" nem \"função renal preservada\" a partir de um campo vazio.");
+  L.push("- Quando um dado faltante for o que decide a conduta, diga qual é e por que ele muda a conclusão.");
+  L.push("- Classifique cada achado por relevância clínica e por confiança, e diga em que se baseia (classe da interação, bula, diretriz). Onde não tiver certeza, escreva que não tem.");
+  L.push("- Prefira deixar de apontar um achado fraco a inflar a lista: o farmacêutico vai levar isto a um médico e a um paciente.");
+  L.push("");
+  L.push("## Contexto do serviço");
+  L.push("Clínica de internação para dependência química, 35 leitos, pacientes adultos do sexo masculino. A medicação é administrada pela enfermagem, com mapa rubricado, e dispensada por farmácia hospitalar com farmacêutico RT.");
+  L.push("Esse perfil costuma trazer: síndrome de abstinência alcoólica, risco de encefalopatia de Wernicke, hepatopatia, polifarmácia psiquiátrica e interações com álcool e outras substâncias. Considere isso ao priorizar os achados.");
+  L.push("");
+  L.push("## Paciente");
+  L.push("Identificação omitida de propósito — a análise não depende de saber quem é.");
+  L.push(`- Idade: ${idade != null ? idade + " anos" : "[PREENCHER — não cadastrada]"}`);
+  L.push(`- Tempo de internação até hoje: ${diasInt != null && diasInt >= 0 ? diasInt + " dia(s)" : "[PREENCHER]"}`);
+  L.push("");
+  L.push("Os campos abaixo o sistema não guarda. Preencha os que forem relevantes neste paciente e APAGUE os que não tiver — bloco vazio será lido como não informado.");
+  L.push("- Alergias e reações adversas prévias: [OPCIONAL]");
+  L.push("- Comorbidades e diagnósticos em tratamento: [OPCIONAL]");
+  L.push("- Peso, função renal e função hepática: [OPCIONAL]");
+  L.push("- Exames laboratoriais recentes relevantes: [OPCIONAL]");
+  L.push("- Queixas atuais relatadas pelo paciente: [OPCIONAL]");
+  L.push("- Substâncias de uso e tempo de abstinência: [OPCIONAL]");
+  L.push("");
+  L.push("## Medicações prescritas e em uso na internação");
+  if (its.length) {
+    L.push("| # | Medicamento | Dose descrita | Via | Horários | Qtd/horário | Início | Término previsto | Controle 344/98 |");
+    L.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    its.forEach((pr, i) => L.push(linhaMed(pr, i)));
+  } else {
+    L.push("_Nenhuma medicação vigente na prescrição._");
+  }
+  L.push("");
+  if (custodia.length) {
+    L.push("## Medicação própria do paciente, sob guarda da farmácia");
+    L.push("Trazida pelo paciente ou pela família, não prescrita pela clínica. Confira duplicidade com a lista acima.");
+    L.push("| Medicamento | Saldo em guarda |");
+    L.push("| --- | --- |");
+    custodia.forEach((c) => L.push(`| ${c.nome} | ${c.saldo} |`));
+    L.push("");
+  }
+  L.push("## O que analisar");
+  L.push("1. Interações medicamentosas clinicamente relevantes entre os itens listados, e com álcool ou abstinência quando couber.");
+  L.push("2. Duplicidade terapêutica, inclusive entre a prescrição e a medicação própria sob guarda.");
+  L.push("3. Adequação de dose, via, frequência e horário ao que foi informado, incluindo aprazamento: fármacos que não devem coincidir, jejum, sedação concentrada à noite.");
+  L.push("4. Medicamentos de risco aumentado neste perfil, ou cuja via/forma não combina com o que foi descrito.");
+  L.push("5. Necessidade aparentemente não atendida — apenas como PERGUNTA ao prescritor, nunca como prescrição.");
+  L.push("6. Reações adversas prováveis que a enfermagem deva monitorar, com o sinal concreto a observar.");
+  L.push("7. Orientação de administração: com ou sem alimento, diluição, tempo de infusão, se pode partir o comprimido.");
+  L.push("");
+  L.push("## Formato da resposta");
+  L.push("### 1. Resumo");
+  L.push("Até cinco linhas, dizendo se há algo que exige conversa com o prescritor ainda hoje.");
+  L.push("### 2. Achados para discutir com o prescritor");
+  L.push("Tabela: Achado | Medicamentos envolvidos | Relevância (alta/moderada/baixa) | Confiança (alta/moderada/baixa) | O que sugerir ao médico");
+  L.push("### 3. Monitoramento para a enfermagem");
+  L.push("O que observar, em que medicamento, e o que fazer se aparecer.");
+  L.push("### 4. Orientação ao paciente");
+  L.push("Frases curtas, em linguagem leiga, sem jargão e sem nome de interação — do jeito que o farmacêutico vai falar com ele.");
+  L.push("### 5. Dados que faltaram");
+  L.push("Quais campos em branco mudariam alguma conclusão acima, e como mudariam.");
+  L.push("");
+  L.push("Não repita as tabelas de entrada na resposta.");
+
+  return L.join("\n");
+}
+
+function gerarPromptAnalise(pacId) {
+  const p = patById(pacId) || {};
+  const its = _itensDoPaciente(pacId);
+  if (!its.length && !_custodiaComSaldo(pacId).length) {
+    alert("Este paciente não tem medicação vigente nem custódia com saldo — não há o que analisar.");
+    return;
+  }
+  const txt = _montarPromptAnalise(pacId);
+  const corpo = `
+    <div class="note-box" style="margin-top:0"><b>O paciente não é identificado neste texto.</b> Nome, CPF, prontuário e leito ficam de fora de propósito: o prompt vai para um serviço de terceiro e a análise não depende de saber quem é. Confira antes de enviar, e preencha à mão só os campos opcionais que importarem neste caso.</div>
+    <div class="ff" style="margin-bottom:8px">
+      <button class="btn sm" type="button" onclick="copiarPromptAnalise()">📋 Copiar prompt</button>
+      <span id="apCopiado" style="margin-left:10px;font-size:12px;color:var(--primary-dark);display:none">copiado</span>
+    </div>
+    <textarea id="apTexto" style="width:100%;height:340px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.5">${_esc(txt)}</textarea>
+    <div class="note-box" style="margin-bottom:0;background:#FBF3E3;border-color:#E8D9B5"><b>A resposta da IA é apoio, não decisão.</b> Confira cada achado antes de levar ao prescritor ou ao paciente — a responsabilidade técnica continua sendo sua.</div>
+  `;
+  abrirModal(`Prompt de análise — ${p.leito ? "leito " + p.leito : "paciente"}`, corpo, async () => {}, "Fechar");
+}
+
+function copiarPromptAnalise() {
+  const ta = document.getElementById("apTexto"); if (!ta) return;
+  const aviso = () => { const s = document.getElementById("apCopiado"); if (s) { s.style.display = "inline"; setTimeout(() => { s.style.display = "none"; }, 1800); } };
+  /* clipboard.writeText exige contexto seguro e pode ser negado; o select +
+     execCommand continua funcionando como reserva. Sem a reserva, copiar
+     falharia em silêncio e o farmacêutico acharia que copiou. */
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(aviso).catch(() => { ta.select(); document.execCommand("copy"); aviso(); });
+  } else { ta.select(); document.execCommand("copy"); aviso(); }
 }
