@@ -855,6 +855,16 @@ function custoMedio(subId) {
 }
 
 function validadeStatus(validade) {
+  /* Sem validade cadastrada não é vencido — é não informado.
+     diffDias(HOJE, null) cai em 01/01/1970 e devolvia um número muito
+     negativo, então todo lote sem data saía marcado VENCIDO, em vermelho, na
+     folha de contagem, no estoque e no carrinho. Material costuma vir sem
+     validade na nota, e mandar descartar o que está bom é pior do que não
+     avisar nada.
+     `dias: Infinity` é de propósito: os filtros por faixa comparam número
+     ("a vencer em até 30 dias", "somente vencidas"), e Infinity os atravessa
+     corretamente — não é vencido e não está por vencer. */
+  if (!validade) return { key: "sem_validade", label: "Sem validade", dias: Infinity };
   const dias = diffDias(HOJE, validade);
   if (dias < 0) return { key: "vencido", label: "Vencido", dias };
   if (dias <= 90) return { key: "critico", label: `Vence em ${dias}d`, dias };

@@ -198,6 +198,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     // fica em outro local e não pode ser somada ao estoque da clínica.
     pacId: l.restritoPaciente || null,
     pacNome: l.restritoPaciente ? ((patById(l.restritoPaciente) || {}).nome || "—") : null,
+    categoria: (subById(l.subId) || {}).categoria || "NAO CLASSIFICADO",
   }));
 
   if (subId) linhas = linhas.filter((x) => x.subId === subId);
@@ -224,13 +225,21 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   linhas.sort((a, b) =>
     (a.pacId ? 1 : 0) - (b.pacId ? 1 : 0) ||                                   // geral antes da custódia
     String(a.pacNome || "").localeCompare(String(b.pacNome || ""), "pt-BR") || // custódia agrupada por paciente
+    /* Dentro do estoque da clínica, agrupa por categoria: é assim que o
+       material está disposto na prateleira, e contar saltando de categoria em
+       categoria é o que faz a conferência errar e ter de recomeçar. Ordem
+       alfabética pelo rótulo, a mesma dos outros impressos.
+       A custódia fica fora disso de propósito — ela é contada por paciente,
+       em outro local, e misturar categoria ali só quebraria o agrupamento
+       que importa lá, que é de quem é o medicamento. */
+    (a.pacId ? 0 : catRotulo(a.categoria).localeCompare(catRotulo(b.categoria), "pt-BR")) ||
     subById(a.subId).nome.localeCompare(subById(b.subId).nome) ||
     (String(a.validade || "") < String(b.validade || "") ? -1 : 1));
 
   if (!linhas.length) { alert("Nenhum lote atende aos filtros escolhidos."); return; }
   const nNeg = linhas.filter((x) => x.saldo < 0).length;
 
-  let secao = "__inicio__", n = 0;
+  let secao = "__inicio__", cat = "__inicio__", n = 0;
   const corpo = linhas.map((x) => {
     const st = validadeStatus(x.validade);
     const cls = [st.dias < 0 ? "venc" : st.dias <= 90 ? "crit" : "", x.saldo < 0 ? "neg" : ""].filter(Boolean).join(" ");
@@ -239,11 +248,17 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     const chave = x.pacId ? "P:" + x.pacId : "GERAL";
     let cab = "";
     if (chave !== secao) {
-      secao = chave; n = 0;
+      secao = chave; cat = "__inicio__"; n = 0;
       const qtd = linhas.filter((y) => (y.pacId ? "P:" + y.pacId : "GERAL") === chave).length;
       cab = x.pacId
         ? `<tr class="sec cust"><td colspan="7">CUSTÓDIA — ${_esc(x.pacNome)} <span class="sq">${qtd} lote(s) · contar em separado, não somar ao estoque da clínica</span></td></tr>`
         : `<tr class="sec"><td colspan="7">ESTOQUE DA CLÍNICA <span class="sq">${qtd} lote(s)</span></td></tr>`;
+    }
+    // faixa de categoria, só dentro do estoque da clínica
+    if (!x.pacId && x.categoria !== cat) {
+      cat = x.categoria; n = 0;
+      const qtdCat = linhas.filter((y) => !y.pacId && y.categoria === cat).length;
+      cab += `<tr class="sec cat"><td colspan="7">${_esc(catRotulo(cat))} <span class="sq">${qtdCat} lote(s)</span></td></tr>`;
     }
     n++;
     return cab + `<tr class="${cls}">
@@ -285,6 +300,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   tr.venc .mk{background:#B04A3F}tr.crit .mk{background:#B07A2F}
   tr.sec td{background:#1E2A28;color:#fff;font-weight:700;font-size:10px;letter-spacing:.05em;padding:4px 8px}
   tr.sec.cust td{background:#B07A2F}
+  tr.sec.cat td{background:#DCE6DA;color:#1E2A28;font-size:9.5px;letter-spacing:.04em}
   tr.sec .sq{font-weight:400;opacity:.9;font-size:9px;margin-left:8px;letter-spacing:0}
   tr.neg td{background:#F7E3E1}tr.neg .mk{background:#B04A3F}
   .conv{font-size:8px;color:#6a736e;font-family:"Public Sans",Arial,sans-serif}
@@ -295,7 +311,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   <div class="estab"><div class="n">${est.razao_social || est.nome_fantasia || "Hospital Reviva"}</div><div class="s">${est.cnpj ? "CNPJ: " + est.cnpj + " · " : ""}${est.endereco || ""}${est.municipio_uf ? " — " + est.municipio_uf : ""}</div></div>
   <h1>Folha de Contagem de Estoque — Inventário</h1>
-  <div class="sub">Data da contagem: ____ / ____ / ______ &nbsp;·&nbsp; Conferente: ________________________ &nbsp;·&nbsp; ${linhas.length} lote(s)</div>
+  <div class="sub">Data da contagem: ____ / ____ / ______ &nbsp;·&nbsp; Conferente: ________________________ &nbsp;·&nbsp; ${linhas.length} lote(s)${(() => { const c = new Set(linhas.filter((x) => !x.pacId).map((x) => x.categoria)); return c.size ? ` · ${c.size} categoria(s) no estoque da clínica` : ""; })()}</div>
   <div class="filtros">Filtros — ${filtroTxt.join(" · ")}</div>
   ${nNeg ? `<div class="alerta"><b>${nNeg} lote(s) com saldo negativo.</b> Saldo negativo indica saída lançada além do que entrou — conte fisicamente e registre o ajuste com justificativa.</div>` : ""}
   <table><thead><tr><th class="num">#</th><th>Substância</th><th>Lote</th><th class="c">Validade</th><th class="c">Saldo sistema</th><th class="c fis">Contagem física</th><th class="c fis">Diferença</th></tr></thead>
