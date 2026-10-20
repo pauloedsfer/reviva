@@ -301,7 +301,7 @@ function _fnBarraFiltros() {
         <option value="material"${_fnTipo === "material" ? " selected" : ""}>Só materiais</option>
       </select>
       <button class="btn sm" onclick="imprimirExtratoCustos()">🖶 Imprimir extrato</button>
-      <button class="btn sm" onclick="imprimirConsolidadoPacientes()">🖶 Consolidado por paciente</button>
+      <button class="btn sm" onclick="abrirConsolidadoPacientes()">🖶 Consolidado por paciente</button>
     </div>
   </div>`;
 }
@@ -761,8 +761,20 @@ function _fnLinhasConsolidado() {
     });
 }
 
-function _fnConsolidar() {
-  const linhas = _fnLinhasConsolidado();
+/* `escopo`: 'todos' | 'internados' | 'um'.
+   Filtrar aqui, e não nos filtros da tela, é de propósito: o escopo escolhido
+   sai impresso no cabeçalho. Relatório que muda de total conforme o que estava
+   selecionado na tela, sem nada no papel dizendo, é relatório que ninguém
+   consegue conferir depois. */
+function _fnConsolidar(escopo, pacId) {
+  const linhas = _fnLinhasConsolidado().filter((m) => {
+    if (escopo === "um") return m.paciente === pacId;
+    if (escopo === "internados") {
+      const p = m.paciente ? patById(m.paciente) : null;
+      return !!(p && p.id && pacInternado(p));
+    }
+    return true;
+  });
   const porPac = new Map();   // pacienteId ("" = sem paciente) -> { subs:Map, total }
   const porMes = new Map();   // "YYYY-MM" -> { valor, pacientes:Set }
 
@@ -792,9 +804,50 @@ function _fnConsolidar() {
   return { pacs, meses, totalGeral, qtdLinhas: linhas.length };
 }
 
-function imprimirConsolidadoPacientes() {
-  const { pacs, meses, totalGeral, qtdLinhas } = _fnConsolidar();
-  if (!qtdLinhas) { alert("Não há saída registrada no período escolhido."); return; }
+function abrirConsolidadoPacientes() {
+  const lista = _fnPacientesComMovimento();
+  const corpo = `
+    <div class="note-box" style="margin-top:0">O período é o dos filtros da tela: <b>${fmtDate(_fnIni)} a ${fmtDate(_fnFim)}</b>. O escopo escolhido aqui sai impresso no cabeçalho, para quem receber o relatório saber o que ele cobre.</div>
+    <div class="ff"><label>Quem entra no relatório *</label>
+      <select id="csEscopo" onchange="_csToggle()">
+        <option value="todos">Todos os pacientes com consumo no período</option>
+        <option value="internados">Somente os que estão internados hoje</option>
+        <option value="um">Um paciente específico</option>
+      </select>
+      <div class="dica">Internados e paciente único deixam de fora o consumo sem paciente — carrinho, setor, perdas e descartes. O total deles, por isso, não fecha com a tela de Custos, e o rodapé do relatório diz isso.</div>
+    </div>
+    <div class="ff" id="csBlocoPac" style="display:none"><label>Paciente</label>
+      <select id="csPac">${lista.map((p) => `<option value="${p.id}">${_esc(p.nome)}${pacInternado(p) ? " · leito " + _esc(p.leito || "—") : " · alta"}</option>`).join("")}</select>
+    </div>`;
+  abrirModal("Consolidado por paciente", corpo, async () => {
+    const escopo = fv("csEscopo");
+    const pac = escopo === "um" ? fv("csPac") : "";
+    if (escopo === "um" && !pac) throw new Error("Escolha o paciente.");
+    setTimeout(() => imprimirConsolidadoPacientes(escopo, pac), 300);
+  }, "Gerar relatório");
+}
+
+function _csToggle() {
+  const b = document.getElementById("csBlocoPac");
+  if (b) b.style.display = fv("csEscopo") === "um" ? "" : "none";
+}
+
+function imprimirConsolidadoPacientes(escopo, pacId) {
+  escopo = escopo || "todos";
+  const { pacs, meses, totalGeral, qtdLinhas } = _fnConsolidar(escopo, pacId);
+  if (!qtdLinhas) {
+    alert(escopo === "um"
+      ? "Este paciente não teve saída registrada no período escolhido."
+      : escopo === "internados"
+        ? "Nenhum paciente internado teve saída registrada no período escolhido."
+        : "Não há saída registrada no período escolhido.");
+    return;
+  }
+  const escopoTxt = escopo === "um"
+    ? `Paciente: ${(patById(pacId) || {}).nome || "—"}`
+    : escopo === "internados"
+      ? "Somente pacientes internados em " + fmtDate(HOJE)
+      : "Todos os pacientes com consumo no período";
   const est = window.ESTAB || {}, rt = window.RT || {};
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "____________________";
   const brl = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -852,6 +905,7 @@ function imprimirConsolidadoPacientes() {
   .pac-t{font-family:"IBM Plex Mono",monospace;font-weight:700}
   .geral{margin-top:14px;border:2px solid #2C5F5A;padding:7px 10px;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
   .nota{font-size:9.5px;color:#4a544f;line-height:1.5;margin-top:12px;background:#F4F6F3;border-left:3px solid #2C5F5A;padding:6px 9px}
+  .escopo{font-size:10px;background:#FBF3E3;border-left:3px solid #B07A2F;padding:5px 9px;margin-bottom:10px}
   .assin{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px}
   .assin .l{border-top:1px solid #1E2A28;padding-top:4px;font-size:9.5px;text-align:center}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}
@@ -862,6 +916,7 @@ function imprimirConsolidadoPacientes() {
     <div class="s">${[est.cnpj ? "CNPJ: " + _esc(est.cnpj) : "", _esc(est.endereco || ""), _esc(est.municipio_uf || "")].filter(Boolean).join(" · ")}</div></div>
   <h1>Consolidado de consumo por paciente</h1>
   <div class="sub">Período de ${fmtDate(_fnIni)} a ${fmtDate(_fnFim)} · ${pacs.filter((x) => x.pid).length} paciente(s) com consumo · emitido em ${fmtDate(HOJE)}</div>
+  <div class="escopo"><b>Escopo deste relatório:</b> ${_esc(escopoTxt)}${escopo !== "todos" ? " — não inclui o consumo sem paciente (carrinho, setor, perdas), então o total abaixo não fecha com a tela de Custos do mesmo período." : ""}</div>
   <h2>Resumo mensal</h2>
   ${blocoMeses}
   <h2>Detalhamento por paciente</h2>
@@ -872,7 +927,9 @@ function imprimirConsolidadoPacientes() {
     O valor é o custo de aquisição do que saiu da farmácia para o paciente, pelo custo do lote de onde a dose saiu — não é preço de venda nem inclui diária, honorários ou serviços.
     <b>Medicação própria</b> — trazida pelo paciente ou pela família — aparece em quantidade, na coluna separada, e vale zero: ela é propriedade do paciente, o hospital apenas guardou e administrou.
     Dose saída de lote transferido do estoque para a custódia não é cobrada outra vez: o custo foi lançado na data da transferência.
-    A linha <b>sem paciente</b>, quando existe, reúne o que saiu sem destino individual — reposição de carrinho, consumo de setor, perdas e descartes — e entra no total geral para que ele feche com a tela de Custos.
+    ${escopo === "todos"
+      ? "A linha <b>sem paciente</b>, quando existe, reúne o que saiu sem destino individual — reposição de carrinho, consumo de setor, perdas e descartes — e entra no total geral para que ele feche com a tela de Custos."
+      : "Este recorte não inclui o consumo sem destino individual — reposição de carrinho, consumo de setor, perdas e descartes —, que aparece apenas no relatório de todos os pacientes."}
   </div>
   <div class="assin">
     <div class="l">${_esc(rtTxt)}<br>Farmacêutico(a) Responsável Técnico</div>
