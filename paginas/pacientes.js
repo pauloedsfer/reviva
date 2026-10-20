@@ -204,8 +204,13 @@ function imprimirExtratoAlta(pacId, comValores) {
   disp.forEach((m) => {
     const k = m.subId;
     (porSub[k] = porSub[k] || { qtd: 0, custo: 0, proprio: 0 });
-    const l = allLotes().find((x) => x.lote === m.lote);
-    const ehProprio = l && l.origem === "proprio" && !l.integrado;
+    /* Origem pela chave completa — substância + lote + dono. Procurar só pelo
+       número do lote erra quando o mesmo número existe no estoque da clínica e
+       na custódia de um paciente ao mesmo tempo, o que é comum: o find()
+       devolvia o primeiro que encontrasse, e a dose ia para a coluna errada —
+       a do paciente aparecendo como compra da clínica, ou o contrário. */
+    const l = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, m.paciente)];
+    const ehProprio = !!l && l.origem === "proprio" && !l.integrado;
     porSub[k].qtd += m.qtd;
     if (ehProprio) porSub[k].proprio += m.qtd; else porSub[k].custo += m.qtd * (m.custoUnit || 0);
   });

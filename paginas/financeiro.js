@@ -301,6 +301,7 @@ function _fnBarraFiltros() {
         <option value="material"${_fnTipo === "material" ? " selected" : ""}>Só materiais</option>
       </select>
       <button class="btn sm" onclick="imprimirExtratoCustos()">🖶 Imprimir extrato</button>
+      <button class="btn sm" onclick="imprimirConsolidadoPacientes()">🖶 Consolidado por paciente</button>
     </div>
   </div>`;
 }
@@ -711,4 +712,175 @@ function _fnPainelMensal() {
       </table>
     </div>
   </div>`;
+}
+
+
+/* ============================================================
+   EXTRATO CONSOLIDADO DE CONSUMO POR PACIENTE
+
+   Pedido da direção: o que cada paciente consumiu, por medicação,
+   com subtotal por paciente e total geral, mês a mês.
+
+   TRÊS REGRAS QUE DECIDEM OS NÚMEROS, E O PORQUÊ DE CADA UMA:
+
+   1) MEDICAÇÃO PRÓPRIA DO PACIENTE VALE ZERO. O que a família trouxe
+      é propriedade do paciente: o hospital guardou e administrou, não
+      comprou. Ela aparece em coluna separada, em quantidade, para o
+      consumo ficar visível — mas não entra no valor. Somar isso ao
+      gasto seria cobrar da família o remédio que ela mesma pagou.
+
+   2) DOSE DE LOTE TRANSFERIDO NÃO É COBRADA DE NOVO. Quando o estoque
+      da clínica é transferido para a custódia de um paciente, o custo
+      é lançado na data da transferência. As doses que saem depois
+      daquele lote já foram pagas ali. É a mesma regra de _fnLinhas(),
+      de propósito: duas telas que respondem a mesma pergunta não podem
+      dar números diferentes.
+
+   3) A ORIGEM VEM DA CHAVE COMPLETA — substância + lote + dono —, não
+      do número do lote. O mesmo número existe no estoque da clínica e
+      na custódia de um paciente ao mesmo tempo, e procurar só pelo
+      número classifica a saída errada, mandando para a coluna de
+      "própria" um remédio que a clínica comprou, ou o contrário.
+   ============================================================ */
+
+function _fnLinhasConsolidado() {
+  /* Ignora os filtros de paciente e de tipo da tela de propósito: isto é
+     documento para a direção e precisa cobrir todo mundo. Se respeitasse a
+     seleção da tela, o total impresso mudaria conforme o que estivesse
+     escolhido no momento, sem nada no papel explicando a diferença. */
+  const transf = _lotesTransferidos();
+  const buckets = _lotesAgrupados();
+  return movements
+    .filter((m) => m.tipo === "saida" && m.data >= _fnIni && m.data <= _fnFim)
+    .map((m) => {
+      const b = buckets[_chaveDaSaida(m.subId, m.lote, m.paciente)];
+      const ehProprio = !!b && b.origem === "proprio" && !b.integrado;
+      const jaCobrada = transf.has(m.lote) && !_fnEhTransfer(m);
+      return { ...m, ehProprio, jaCobrada,
+               custo: (jaCobrada || ehProprio) ? 0 : m.qtd * (m.custoUnit || 0) };
+    });
+}
+
+function _fnConsolidar() {
+  const linhas = _fnLinhasConsolidado();
+  const porPac = new Map();   // pacienteId ("" = sem paciente) -> { subs:Map, total }
+  const porMes = new Map();   // "YYYY-MM" -> { valor, pacientes:Set }
+
+  linhas.forEach((m) => {
+    const pid = m.paciente || "";
+    if (!porPac.has(pid)) porPac.set(pid, { subs: new Map(), total: 0 });
+    const reg = porPac.get(pid);
+    if (!reg.subs.has(m.subId)) reg.subs.set(m.subId, { qtd: 0, qtdPropria: 0, valor: 0 });
+    const s = reg.subs.get(m.subId);
+    if (m.ehProprio) s.qtdPropria += m.qtd; else s.qtd += m.qtd;
+    s.valor += m.custo;
+    reg.total += m.custo;
+
+    const mes = m.data.slice(0, 7);
+    if (!porMes.has(mes)) porMes.set(mes, { valor: 0, pacientes: new Set() });
+    const mm = porMes.get(mes);
+    mm.valor += m.custo;
+    if (m.paciente) mm.pacientes.add(m.paciente);
+  });
+
+  const pacs = [...porPac.entries()]
+    .map(([pid, reg]) => ({ pid, nome: pid ? (patById(pid) || {}).nome || "—" : "SEM PACIENTE — consumo de setor, carrinho e perdas", reg }))
+    .sort((a, b) => (a.pid === "" ? 1 : b.pid === "" ? -1 : a.nome.localeCompare(b.nome, "pt-BR")));
+
+  const meses = [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const totalGeral = linhas.reduce((a, m) => a + m.custo, 0);
+  return { pacs, meses, totalGeral, qtdLinhas: linhas.length };
+}
+
+function imprimirConsolidadoPacientes() {
+  const { pacs, meses, totalGeral, qtdLinhas } = _fnConsolidar();
+  if (!qtdLinhas) { alert("Não há saída registrada no período escolhido."); return; }
+  const est = window.ESTAB || {}, rt = window.RT || {};
+  const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "____________________";
+  const brl = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const nomeMes = (ym) => {
+    const [y, m] = ym.split("-");
+    return ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"][Number(m) - 1] + "/" + y;
+  };
+
+  const blocoMeses = `
+    <table class="resumo">
+      <thead><tr><th>Mês</th><th class="c">Pacientes com consumo</th><th class="r">Valor</th></tr></thead>
+      <tbody>${meses.map(([ym, v]) =>
+        `<tr><td class="mono">${nomeMes(ym)}</td><td class="c mono">${v.pacientes.size}</td><td class="r mono">${brl(v.valor)}</td></tr>`).join("")}
+      </tbody>
+      <tfoot><tr><td><b>Total do período</b></td><td class="c mono">—</td><td class="r mono"><b>${brl(totalGeral)}</b></td></tr></tfoot>
+    </table>`;
+
+  const blocoPacs = pacs.map(({ pid, nome, reg }) => {
+    const subs = [...reg.subs.entries()]
+      .map(([sid, s]) => ({ nome: (subById(sid) || {}).nome || "—", ...s }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    const temPropria = subs.some((s) => s.qtdPropria > 0);
+    const p = pid ? patById(pid) : null;
+    const sub = p ? [p.leito ? "leito " + p.leito : "", p.admissao ? "admissão " + fmtDate(p.admissao) : "",
+                     p.dataAlta ? "alta " + fmtDate(p.dataAlta) : ""].filter(Boolean).join(" · ") : "";
+    return `
+      <div class="pac">
+        <div class="pac-h"><span class="pac-n">${_esc(nome)}</span>${sub ? `<span class="pac-s">${_esc(sub)}</span>` : ""}<span class="pac-t">${brl(reg.total)}</span></div>
+        <table>
+          <thead><tr><th>Medicamento / material</th><th class="c">Qtd. do estoque</th>${temPropria ? '<th class="c">Qtd. própria</th>' : ""}<th class="r">Valor</th></tr></thead>
+          <tbody>${subs.map((s) =>
+            `<tr><td>${_esc(s.nome)}</td><td class="c mono">${s.qtd || "—"}</td>${temPropria ? `<td class="c mono">${s.qtdPropria || "—"}</td>` : ""}<td class="r mono">${brl(s.valor)}</td></tr>`).join("")}
+          </tbody>
+          <tfoot><tr><td><b>Subtotal</b></td><td class="c mono">—</td>${temPropria ? '<td class="c mono">—</td>' : ""}<td class="r mono"><b>${brl(reg.total)}</b></td></tr></tfoot>
+        </table>
+      </div>`;
+  }).join("");
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Consolidado de consumo por paciente</title>
+  <style>@page{size:A4 portrait;margin:14mm 12mm}*{box-sizing:border-box}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0;line-height:1.45}
+  .estab{border-bottom:2px solid #2C5F5A;padding-bottom:7px;margin-bottom:10px}
+  .estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
+  h1{font-size:14px;margin:8px 0 2px}.sub{font-size:10.5px;color:#6a736e;margin-bottom:10px}
+  h2{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:#2C5F5A;margin:14px 0 5px;border-bottom:1px solid #cfd6cf;padding-bottom:2px}
+  table{width:100%;border-collapse:collapse;margin-bottom:4px}
+  th,td{border:1px solid #cfd6cf;padding:3px 6px;font-size:10px}
+  th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px;text-align:left}
+  td.c,th.c{text-align:center}td.r,th.r{text-align:right}.mono{font-family:"IBM Plex Mono",monospace}
+  tfoot td{background:#F7F9F6}
+  .resumo{width:60%}
+  .pac{margin-bottom:12px;break-inside:avoid}
+  .pac-h{display:flex;align-items:baseline;gap:10px;background:#EEF2EC;border:1px solid #cfd6cf;border-bottom:none;padding:4px 7px}
+  .pac-n{font-weight:700;font-size:11.5px}.pac-s{font-size:9.5px;color:#4a544f;flex:1}
+  .pac-t{font-family:"IBM Plex Mono",monospace;font-weight:700}
+  .geral{margin-top:14px;border:2px solid #2C5F5A;padding:7px 10px;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
+  .nota{font-size:9.5px;color:#4a544f;line-height:1.5;margin-top:12px;background:#F4F6F3;border-left:3px solid #2C5F5A;padding:6px 9px}
+  .assin{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px}
+  .assin .l{border-top:1px solid #1E2A28;padding-top:4px;font-size:9.5px;text-align:center}
+  .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}
+  @media print{.btn{display:none}}@media screen{body{padding:14px}}
+  </style></head><body>
+  <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+  <div class="estab"><div class="n">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</div>
+    <div class="s">${[est.cnpj ? "CNPJ: " + _esc(est.cnpj) : "", _esc(est.endereco || ""), _esc(est.municipio_uf || "")].filter(Boolean).join(" · ")}</div></div>
+  <h1>Consolidado de consumo por paciente</h1>
+  <div class="sub">Período de ${fmtDate(_fnIni)} a ${fmtDate(_fnFim)} · ${pacs.filter((x) => x.pid).length} paciente(s) com consumo · emitido em ${fmtDate(HOJE)}</div>
+  <h2>Resumo mensal</h2>
+  ${blocoMeses}
+  <h2>Detalhamento por paciente</h2>
+  ${blocoPacs}
+  <div class="geral"><span>TOTAL GERAL DO PERÍODO</span><span>${brl(totalGeral)}</span></div>
+  <div class="nota">
+    <b>Como ler estes valores.</b>
+    O valor é o custo de aquisição do que saiu da farmácia para o paciente, pelo custo do lote de onde a dose saiu — não é preço de venda nem inclui diária, honorários ou serviços.
+    <b>Medicação própria</b> — trazida pelo paciente ou pela família — aparece em quantidade, na coluna separada, e vale zero: ela é propriedade do paciente, o hospital apenas guardou e administrou.
+    Dose saída de lote transferido do estoque para a custódia não é cobrada outra vez: o custo foi lançado na data da transferência.
+    A linha <b>sem paciente</b>, quando existe, reúne o que saiu sem destino individual — reposição de carrinho, consumo de setor, perdas e descartes — e entra no total geral para que ele feche com a tela de Custos.
+  </div>
+  <div class="assin">
+    <div class="l">${_esc(rtTxt)}<br>Farmacêutico(a) Responsável Técnico</div>
+    <div class="l">Direção / Coordenação</div>
+  </div>
+  </body></html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { alert("Permita pop-ups para imprimir o consolidado."); return; }
+  win.document.open(); win.document.write(html); win.document.close();
 }
