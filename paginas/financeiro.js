@@ -753,7 +753,7 @@ function _fnLinhasConsolidado() {
   return movements
     .filter((m) => m.tipo === "saida" && m.data >= _fnIni && m.data <= _fnFim)
     .map((m) => {
-      const b = buckets[_chaveDaSaida(m.subId, m.lote, m.paciente)];
+      const b = buckets[_chaveDaSaida(m.subId, m.lote, m.paciente, m.loteDono)];
       const ehProprio = !!b && b.origem === "proprio" && !b.integrado;
       const jaCobrada = transf.has(m.lote) && !_fnEhTransfer(m);
       return { ...m, ehProprio, jaCobrada,

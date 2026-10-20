@@ -209,7 +209,7 @@ function imprimirExtratoAlta(pacId, comValores) {
        na custódia de um paciente ao mesmo tempo, o que é comum: o find()
        devolvia o primeiro que encontrasse, e a dose ia para a coluna errada —
        a do paciente aparecendo como compra da clínica, ou o contrário. */
-    const l = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, m.paciente)];
+    const l = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, m.paciente, m.loteDono)];
     const ehProprio = !!l && l.origem === "proprio" && !l.integrado;
     porSub[k].qtd += m.qtd;
     if (ehProprio) porSub[k].proprio += m.qtd; else porSub[k].custo += m.qtd * (m.custoUnit || 0);

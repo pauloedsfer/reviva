@@ -172,7 +172,7 @@ async function carregarDados() {
 
   dispensations = disp.map((d) => ({
     id: d.id, data: d.data, subId: d.substancia_id, lote: d.numero_lote, qtd: d.quantidade,
-    ref: d.referencia, paciente: d.paciente_id,
+    ref: d.referencia, paciente: d.paciente_id, loteDono: d.lote_dono || null,
   }));
 
   returns = devs.map((r) => ({
@@ -604,13 +604,31 @@ function loteChave(subId, lote, dono) {
 }
 function loteChaveDe(l) { return loteChave(l.subId, l.lote, l.restritoPaciente); }
 
-// A qual saldo uma saída pertence: à custódia do paciente, se ele tiver
-// esse lote em custódia; caso contrário, ao estoque da clínica.
-function _chaveDaSaida(subId, lote, pacienteId) {
+/* A qual saldo uma saída pertence.
+
+   `loteDono` é o que a PRÓPRIA saída gravou — 'clinica' ou 'custodia'. Quando
+   vem preenchido, manda. É ele que resolve o caso em que o mesmo número de
+   lote existe no estoque da clínica E na custódia do paciente ao mesmo tempo,
+   que acontece quando a família compra na drogaria do mesmo lote industrial
+   que a clínica comprou do distribuidor.
+
+   Sem ele — lançamento anterior a este campo — vale a inferência antiga: se o
+   paciente tem aquele lote em custódia, a saída saiu de lá. Essa inferência é
+   o defeito que o campo veio corrigir: ela escolhe a custódia pela EXISTÊNCIA
+   do saldo, não por ele ter sobrado. Com a custódia zerada e a clínica cheia,
+   toda dose daquele lote era debitada do saldo vazio e a dispensação parava
+   com "disponível 0, solicitado 2" — enquanto o estoque tinha centenas.
+
+   Os lançamentos antigos continuam na inferência de propósito: reatribuí-los
+   mudaria saldo já conferido, escriturado e transcrito ao livro físico. */
+function _chaveDaSaida(subId, lote, pacienteId, loteDono) {
   const buckets = _lotesAgrupados();
   const kCust = loteChave(subId, lote, pacienteId);
+  const kCasa = loteChave(subId, lote, null);
+  if (loteDono === "clinica") return kCasa;
+  if (loteDono === "custodia") return pacienteId && buckets[kCust] ? kCust : kCasa;
   if (pacienteId && buckets[kCust]) return kCust;
-  return loteChave(subId, lote, null);
+  return kCasa;
 }
 
 // Agrupa as entradas por substância + lote + dono, somando as quantidades.
@@ -668,7 +686,7 @@ function _mapaSaldos() {
   Object.keys(buckets).forEach((k) => (m[k] = buckets[k].qtd));
 
   dispensations.forEach((x) => {
-    const k = _chaveDaSaida(x.subId, x.lote, x.paciente);
+    const k = _chaveDaSaida(x.subId, x.lote, x.paciente, x.loteDono);
     if (m[k] !== undefined) m[k] -= x.qtd; else m[k] = -x.qtd;
   });
   returns.forEach((x) => {
@@ -719,7 +737,7 @@ function _mapaSaldosEm(ate) {
     m[k] = (m[k] || 0) + l.qtd;
   });
   dispensations.forEach((x) => { if (!ateAqui(x.data)) return;
-    const k = _chaveDaSaida(x.subId, x.lote, x.paciente); m[k] = (m[k] || 0) - x.qtd; });
+    const k = _chaveDaSaida(x.subId, x.lote, x.paciente, x.loteDono); m[k] = (m[k] || 0) - x.qtd; });
   returns.forEach((x) => { if (!ateAqui(x.data)) return;
     const k = _chaveDaSaida(x.subId, x.lote, x.paciente); m[k] = (m[k] || 0) + x.qtd; });
   ajustes.forEach((x) => { if (!ateAqui(x.data)) return;
@@ -960,12 +978,12 @@ function subsMateriais() { return substances.filter((s) => ehMaterial(s)); }
 function movEhCustodia(m) {
   const b = _lotesAgrupados();
   const dono = m.dono !== undefined ? m.dono : m.paciente;
-  const l = b[_chaveDaSaida(m.subId, m.lote, dono)];
+  const l = b[_chaveDaSaida(m.subId, m.lote, dono, m.loteDono)];
   return !!(l && l.restritoPaciente && !l.integrado);
 }
 function movDonoCustodia(m) {
   const dono = m.dono !== undefined ? m.dono : m.paciente;
-  const l = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, dono)];
+  const l = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, dono, m.loteDono)];
   return l && l.restritoPaciente && !l.integrado ? l.restritoPaciente : null;
 }
 
@@ -1007,7 +1025,8 @@ function buildMovements() {
   dispensations.forEach((d) => {
     list.push({
       data: d.data, tipo: "saida", subId: d.subId, qtd: d.qtd, ref: d.ref,
-      paciente: d.paciente, lote: d.lote, custoUnit: custoUnitDaSaida(d.subId, d.lote, d.paciente),
+      paciente: d.paciente, lote: d.lote, loteDono: d.loteDono,
+      custoUnit: custoUnitDaSaida(d.subId, d.lote, d.paciente, d.loteDono),
     });
   });
   returns.forEach((r) => {
@@ -1069,8 +1088,8 @@ function _lotesTransferidos() {
    percorria todos os lotes para cada dispensação.
    Sem lote correspondente — lançamento antigo, lote apagado — cai no custo
    médio da substância, como antes. */
-function custoUnitDaSaida(subId, lote, pacienteId) {
-  const b = _lotesAgrupados()[_chaveDaSaida(subId, lote, pacienteId)];
+function custoUnitDaSaida(subId, lote, pacienteId, loteDono) {
+  const b = _lotesAgrupados()[_chaveDaSaida(subId, lote, pacienteId, loteDono)];
   return b ? b.custoUnit : custoMedio(subId);
 }
 

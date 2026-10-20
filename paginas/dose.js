@@ -451,6 +451,12 @@ async function confirmarDispensacao() {
   const checks = Array.from(document.querySelectorAll(".disp-check:checked"));
   if (!checks.length) { alert("Selecione ao menos uma dose para dispensar."); return; }
   const rows = [];
+  /* Saldo a debitar POR BUCKET, acumulado com a chave que o alocador escolheu.
+     Antes a conferência redescobria a chave a partir de (substância, lote,
+     paciente), e redescobrir é justamente o que dá errado: com o mesmo número
+     de lote na clínica e na custódia do paciente, ela caía na custódia mesmo
+     zerada e barrava a dose que o alocador tinha tirado do estoque. */
+  const porChave = {};
   const divididos = [];
   for (const c of checks) {
     const tr = c.closest("tr");
@@ -492,8 +498,13 @@ async function confirmarDispensacao() {
       if (!parcial) return;
     }
     alloc.usados.forEach((u, i) => {
+      porChave[u.chave] = (porChave[u.chave] || 0) + u.qtd;
       rows.push({ data: d, substancia_id: c.dataset.sub, numero_lote: u.lote,
         quantidade: u.qtd,
+        // de qual saldo a dose saiu. Gravado, não inferido depois: o número do
+        // lote sozinho não distingue o estoque da clínica da custódia do
+        // paciente quando os dois têm o mesmo número.
+        lote_dono: u.custodia ? "custodia" : "clinica",
         // referência única por lote: a trava de dose única impede repetir a
         // mesma chave, e o Livro precisa distinguir as parcelas
         referencia: alloc.usados.length > 1 ? `${ref} (lote ${i + 1}/${alloc.usados.length})` : ref,
@@ -520,11 +531,6 @@ async function confirmarDispensacao() {
   if (btn) { btn.disabled = true; btn.textContent = "Dispensando…"; }
   try {
     // confere saldo de cada lote antes de gravar (trava de negativo)
-    const porChave = {};
-    rows.forEach((r) => {
-      const k = _chaveDaSaida(r.substancia_id, r.numero_lote, r.paciente_id);
-      porChave[k] = (porChave[k] || 0) + r.quantidade;
-    });
     for (const k of Object.keys(porChave)) validarSaidaLote(k, porChave[k]);
     const { error } = await window.SB.from("dispensacoes").insert(rows);
     if (error) throw error;
