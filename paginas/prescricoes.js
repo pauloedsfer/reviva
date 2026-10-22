@@ -569,7 +569,13 @@ function _paginaPrescricao(pacId, opts) {
   const emBranco = !p;
   const soIdentificacao = !!(p && opts.vazia);
   const vazia = emBranco || soIdentificacao;
-  const linhas = Math.min(Math.max(parseInt(opts.linhas, 10) || 14, 5), 20);
+  /* Paisagem é mais larga e mais BAIXA: cabem menos linhas que no retrato.
+     Deixar o antigo máximo de 20 empurraria a assinatura para uma segunda
+     folha, e prescrição com assinatura em página separada não vale. */
+  const linhas = Math.min(Math.max(parseInt(opts.linhas, 10) || 12, 5), 16);
+  const esp = opts.especialidade === "psiquiatrica" ? "PRESCRIÇÃO MÉDICA PSIQUIÁTRICA"
+            : opts.especialidade === "clinica" ? "PRESCRIÇÃO MÉDICA CLÍNICA"
+            : "PRESCRIÇÃO MÉDICA";
   const its = p && !soIdentificacao ? _itensDoPaciente(pacId) : [];
   const idade = (function (d) {
     if (!d) return "";
@@ -580,19 +586,35 @@ function _paginaPrescricao(pacId, opts) {
     return a;
   })(p && p.dataNascimento);
 
+  const linhaVazia = (i) => `<tr><td class="n">${i}</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
+
   let linhasMed;
   if (vazia) {
-    linhasMed = Array.from({ length: linhas }, (_, i) => `<tr><td class="n">${i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
+    linhasMed = Array.from({ length: linhas }, (_, i) => linhaVazia(i + 1)).join("");
   } else {
     const preench = its.map((pr, i) => {
       const d = _medDescricao(pr);
       const sb = subById(pr.subId) || {};
-      const freq = (pr.horarios || []).join(", ");
-      const obs = qtdPorHorario(pr) !== 1 ? `${fmtDose(qtdPorHorario(pr))} por horário` : "";
-      return `<tr><td class="n">${i + 1}</td><td class="mono">${_esc(sb.nome || d.medicamento)}</td><td>${_esc(pr.dose || "")}</td><td>${_esc(pr.via || "")}</td><td>${_esc(freq)}${obs ? " · " + _esc(obs) : ""}</td></tr>`;
+      const hor = pr.horarios || [];
+      /* O modelo separa FREQUÊNCIA de HORÁRIO, e o sistema guarda só os
+         horários. A frequência sai derivada da contagem deles — é o que o
+         médico escreveria ali. SOS não tem frequência nem horário fixo: vai
+         como SOS nas duas colunas em vez de virar "1x/dia", que seria falso. */
+      const ehSOS = hor.some((h) => String(h).toUpperCase().indexOf("SOS") === 0);
+      const freq = ehSOS ? "SOS" : hor.length ? `${hor.length}x/dia` : "";
+      const horTxt = ehSOS ? "se necessário" : hor.join(", ");
+      return `<tr>
+        <td class="n">${i + 1}</td>
+        <td class="mono">${_esc(sb.nome || d.medicamento)}</td>
+        <td>${_esc(pr.dose || "")}</td>
+        <td>${_esc(pr.via || "")}</td>
+        <td>${_esc(freq)}</td>
+        <td>${fmtDose(qtdPorHorario(pr))}</td>
+        <td>${_esc(horTxt)}</td>
+      </tr>`;
     }).join("");
     const restantes = Array.from({ length: Math.max(3, linhas - its.length) }, (_, i) =>
-      `<tr><td class="n">${its.length + i + 1}</td><td></td><td></td><td></td><td></td></tr>`).join("");
+      linhaVazia(its.length + i + 1)).join("");
     linhasMed = preench + restantes;
   }
 
@@ -603,34 +625,56 @@ function _paginaPrescricao(pacId, opts) {
   const prescTxt = presc ? `${presc.nome} — ${presc.conselho}-${presc.uf} ${presc.numero}` : "";
 
   const est = window.ESTAB || {};
-  const pacBloco = emBranco
-    ? `<div>Paciente: ____________________________________________  Prontuário: ____________</div>
-       <div>Leito: __________  Idade: ______  Data de internação: ____ / ____ / ______</div>`
-    /* Identificado: todo campo aparece sempre — com o dado ou com a linha para
-       preencher à mão. Campo que some da folha vira dado que ninguém anota. */
-    : `<div>Paciente: <b>${_esc(p.nome)}</b> &nbsp; Prontuário: ${p.prontuario ? "<b>" + _esc(p.prontuario) + "</b>" : "____________"}</div>
-       <div>Leito: ${p.leito ? "<b>" + _esc(p.leito) + "</b>" : "__________"} &nbsp; Idade: ${idade !== "" ? "<b>" + idade + "</b>" : "______"} &nbsp; Data de internação: ${p.admissao ? "<b>" + fmtDate(p.admissao) + "</b>" : "____ / ____ / ______"}</div>`;
+  const linha = (txt) => `<span class="ln">${txt}</span>`;
+  const dado = (v, largura) => v ? `<b>${_esc(v)}</b>` : linha("&nbsp;".repeat(largura));
+
+  /* Campo aparece sempre — com o dado ou com a linha para preencher à mão.
+     Campo que some da folha vira dado que ninguém anota.
+     SEXO vai sempre como quadrícula: o cadastro de pacientes não guarda sexo,
+     então não há o que preencher, nem para paciente identificado. */
+  const identificacao = `
+    <div class="id-linha">
+      <span class="id-c grow">Paciente: ${emBranco ? '<span class="ln fill"></span>' : dado(p.nome, 60)}</span>
+      <span class="id-c">Data: ${emBranco || !p.admissao ? "____ / ____ / ______" : "____ / ____ / ______"}</span>
+    </div>
+    <div class="id-linha">
+      <span class="id-c">Prontuário: ${emBranco ? linha("&nbsp;".repeat(14)) : dado(p.prontuario, 14)}</span>
+      <span class="id-c">Leito: ${emBranco ? linha("&nbsp;".repeat(8)) : dado(p.leito, 8)}</span>
+      <span class="id-c">Data de nascimento: ${emBranco || !p.dataNascimento ? "____ / ____ / ______" : "<b>" + fmtDate(p.dataNascimento) + "</b>"}</span>
+      <span class="id-c">Idade: ${idade !== "" ? "<b>" + idade + "</b>" : linha("&nbsp;".repeat(6))}</span>
+      <span class="id-c">Sexo: <span class="qd"></span> F &nbsp; <span class="qd"></span> M</span>
+    </div>`;
 
   return `<section class="pg">
-  <div class="estab"><div class="n">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</div><div class="s">${est.cnpj ? "CNPJ: " + _esc(est.cnpj) + " · " : ""}${_esc(est.endereco || "")}${est.municipio_uf ? " — " + _esc(est.municipio_uf) : ""}</div></div>
-  <div class="tit">PRESCRIÇÃO MÉDICA</div>
-  <div class="datahora">Data: ____ / ____ / ______   Hora: ______</div>
-  <div class="pac">${pacBloco}</div>
-  <div class="alerg"><b>Alergias:</b> ${vazia ? "___________________________________________________" : "___________________________________________  ( ) Nega alergias"}</div>
+  <header class="cab">
+    <div class="marca"><img src="${_logoPrescricao()}" alt="" onerror="this.parentElement.style.display='none'"></div>
+    <div class="cab-txt">
+      <div class="tit">${_esc(esp)}</div>
+      <div class="estab-n">${_esc(est.razao_social || est.nome_fantasia || "Hospital Reviva")}</div>
+      <div class="estab-s">${[est.cnpj ? "CNPJ: " + _esc(est.cnpj) : "", _esc(est.endereco || ""), _esc(est.municipio_uf || "")].filter(Boolean).join(" · ")}</div>
+    </div>
+  </header>
+  <div class="ident">${identificacao}</div>
+  <div class="alerg"><b>Alergias:</b> <span class="ln fill"></span>${vazia ? "" : " &nbsp;( ) Nega alergias"}</div>
   <table>
-    <thead><tr><th class="n">#</th><th class="med">Medicamento</th><th class="dose">Dose</th><th class="via">Via</th><th>Frequência / horários · observações</th></tr></thead>
+    <thead><tr>
+      <th class="n">Item</th><th class="desc">Descrição</th><th class="dose">Dose</th>
+      <th class="via">Via</th><th class="freq">Frequência</th><th class="qtd">Quantidade</th><th class="hor">Horário</th>
+    </tr></thead>
     <tbody>${linhasMed}</tbody>
   </table>
-  <div class="cuid">
-    <div class="bl">Cuidados / orientações</div>
-    ${Array.from({ length: vazia ? 4 : 3 }, () => `<div class="linha"></div>`).join("")}
-  </div>
   <div class="assin">
-    <div>Carimbo:</div>
-    <div class="sig" style="min-width:260px"><div class="l">${prescTxt ? _esc(prescTxt) : "____________________________"}</div>Assinatura e CRM do médico</div>
+    <div class="sig"><div class="l">${prescTxt ? _esc(prescTxt) : "&nbsp;"}</div>Assinatura e Carimbo do Médico</div>
+    <div class="crm">CRM: <span class="ln">${"&nbsp;".repeat(20)}</span></div>
   </div>
   <div class="rod">Documento integrante do prontuário do paciente — arquivar após a consulta.</div>
   </section>`;
+}
+
+/* A janela de impressão abre em branco e não tem URL base: caminho relativo
+   não resolve ali. Mesmo recurso usado nos impressos de POP e da enfermagem. */
+function _logoPrescricao() {
+  return new URL("assets/logo-reviva.png", location.href).href;
 }
 
 function imprimirPrescricaoMedica(pacId, opts) {
@@ -638,27 +682,52 @@ function imprimirPrescricaoMedica(pacId, opts) {
   const ids = (opts.pacientes && opts.pacientes.length) ? opts.pacientes : [pacId || null];
   const paginas = ids.map((id) => _paginaPrescricao(id, opts)).join("");
   const um = ids.length === 1 ? (ids[0] ? patById(ids[0]) : null) : null;
+  const nomeDoc = opts.especialidade === "psiquiatrica" ? "Prescrição Médica Psiquiátrica"
+                : opts.especialidade === "clinica" ? "Prescrição Médica Clínica"
+                : "Prescrição Médica";
   const titulo = ids.length > 1
-    ? `Prescrição Médica — ${ids.length} pacientes`
-    : `Prescrição Médica${um ? (opts.vazia ? " (em branco) — " : " — ") + _esc(um.nome) : " (em branco)"}`;
+    ? `${nomeDoc} — ${ids.length} pacientes`
+    : `${nomeDoc}${um ? (opts.vazia ? " (em branco) — " : " — ") + _esc(um.nome) : " (em branco)"}`;
 
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo}</title>
-  <style>@page{size:A4 portrait;margin:14mm 13mm}*{box-sizing:border-box}body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11.5px;margin:0}
+  <style>@page{size:A4 landscape;margin:10mm 11mm}*{box-sizing:border-box}
+  body{font-family:"Public Sans",Arial,sans-serif;color:#1E2A28;font-size:11px;margin:0}
   .pg{page-break-after:always}.pg:last-child{page-break-after:auto}
-  .estab{border-bottom:2px solid #2C5F5A;padding-bottom:6px;margin-bottom:6px}.estab .n{font-size:14px;font-weight:700}.estab .s{font-size:10px;color:#4a544f}
-  .tit{text-align:center;font-size:15px;font-weight:700;letter-spacing:.03em;margin:6px 0}
-  .datahora{text-align:right;font-size:11px;margin-bottom:6px}
-  .pac{border:1px solid #cfd6cf;border-radius:6px;padding:7px 9px;margin-bottom:7px}.pac div{margin:3px 0}
-  .alerg{border:1.5px solid #B04A3F;border-radius:6px;padding:6px 9px;margin-bottom:9px;font-size:11.5px}.alerg b{color:#B04A3F;text-transform:uppercase;font-size:10px;letter-spacing:.03em}
-  table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfd6cf;padding:5px 6px;font-size:11px;text-align:left;vertical-align:top}
-  th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}td{height:24px}td.n{width:26px;text-align:center;color:#6a736e}.mono{font-weight:600}
-  th.med{width:34%}th.dose{width:13%}th.via{width:10%}
-  .cuid{margin-top:9px}.cuid .bl{font-size:8.5px;text-transform:uppercase;color:#6a736e;letter-spacing:.03em;margin-bottom:3px}
-  .cuid .linha{border-bottom:1px solid #b9c1ba;height:20px}
-  .assin{margin-top:26px;display:flex;justify-content:space-between;align-items:flex-end}
-  .assin .sig{text-align:center;font-size:9px;color:#6a736e}.assin .sig .l{border-top:1px solid #1E2A28;padding-top:4px;color:#1E2A28;font-size:11px}
-  .rod{margin-top:10px;font-size:9px;color:#8a938d;text-align:center;border-top:1px solid #e2e7e1;padding-top:5px}
+  /* Cabeçalho: logo à esquerda, título e dados do estabelecimento ao centro —
+     o arranjo do modelo da clínica, adaptado à largura da paisagem. */
+  .cab{display:flex;align-items:center;gap:14px;border-bottom:2px solid #2C5F5A;padding-bottom:7px;margin-bottom:8px}
+  .cab .marca img{height:46px;width:46px;object-fit:contain;display:block}
+  .cab-txt{flex:1;text-align:center}
+  .tit{font-size:16px;font-weight:700;letter-spacing:.06em}
+  .estab-n{font-size:11.5px;font-weight:600;margin-top:2px}
+  .estab-s{font-size:9.5px;color:#4a544f;margin-top:1px}
+  .ident{border:1px solid #cfd6cf;border-radius:6px;padding:6px 9px;margin-bottom:6px}
+  .id-linha{display:flex;gap:18px;margin:3px 0;align-items:baseline}
+  .id-c{white-space:nowrap}
+  /* O campo que o médico escreve por extenso ocupa a largura que sobrar, em vez
+     de parar numa linha de tamanho fixo com espaço morto depois. */
+  .id-c.grow{display:flex;align-items:baseline;gap:6px;flex:1}
+  .alerg{display:flex;align-items:baseline;gap:7px}
+  .ln.fill{flex:1;min-width:120px}
+  /* Linha para preencher à mão: borda inferior num span, para a folha aceitar
+     caneta sem o texto "____" ocupando largura variável conforme a fonte. */
+  .ln{border-bottom:1px solid #1E2A28;display:inline-block;min-width:40px}
+  .qd{display:inline-block;width:10px;height:10px;border:1px solid #1E2A28;vertical-align:-1px}
+  .alerg{border:1.5px solid #B04A3F;border-radius:6px;padding:5px 9px;margin-bottom:7px;font-size:11px}
+  .alerg b{color:#B04A3F;text-transform:uppercase;font-size:9.5px;letter-spacing:.03em}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #cfd6cf;padding:4px 6px;font-size:10.5px;text-align:left;vertical-align:top}
+  th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px;text-align:center}
+  td{height:21px}td.n{text-align:center;color:#6a736e}.mono{font-weight:600}
+  th.n{width:34px}th.desc{width:31%}th.dose{width:11%}th.via{width:7%}
+  th.freq{width:12%}th.qtd{width:10%}th.hor{width:16%}
+  .assin{margin-top:22px;display:flex;justify-content:flex-end;align-items:flex-end;gap:40px}
+  .assin .sig{text-align:center;font-size:9px;color:#6a736e;min-width:300px}
+  .assin .sig .l{border-top:1px solid #1E2A28;padding-top:4px;color:#1E2A28;font-size:11px}
+  .assin .crm{font-size:11px;padding-bottom:2px}
+  .rod{margin-top:8px;font-size:8.5px;color:#8a938d;text-align:center;border-top:1px solid #e2e7e1;padding-top:4px}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit;z-index:9}@media print{.btn{display:none}}
+  @media screen{body{padding:46px 10px 10px}}
   </style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   ${paginas}
@@ -883,21 +952,32 @@ function abrirFolhaPrescricaoBranco() {
         <option value="__todos">Uma folha para cada paciente internado (${internados.length})</option>
       </select>
       <div class="dica">Identificada, a folha sai com nome, prontuário, leito, idade e data de internação preenchidos; as medicações ficam em branco.</div></div>
-    <div class="ff"><label>Linhas de medicação</label>
-      <select id="fbLinhas">
-        ${[10, 14, 16, 20].map((n) => `<option value="${n}"${n === 20 ? " selected" : ""}>${n} linhas</option>`).join("")}
-      </select></div>
+    <div class="ff row2">
+      <div><label>Tipo de prescrição</label>
+        <select id="fbEsp">
+          <option value="psiquiatrica">Prescrição Médica Psiquiátrica</option>
+          <option value="clinica">Prescrição Médica Clínica</option>
+          <option value="">Prescrição Médica (sem especificar)</option>
+        </select>
+        <div class="dica">Entra no título da folha, abaixo da logo.</div></div>
+      <div><label>Linhas de medicação</label>
+        <select id="fbLinhas">
+          ${[10, 12, 14, 16].map((n) => `<option value="${n}"${n === 12 ? " selected" : ""}>${n} linhas</option>`).join("")}
+        </select>
+        <div class="dica">A folha é paisagem: acima de 16 linhas a assinatura cai para a página seguinte.</div></div>
+    </div>
   `, async () => {
-    const linhas = parseInt(fv("fbLinhas"), 10) || 20;
+    const linhas = parseInt(fv("fbLinhas"), 10) || 12;
+    const especialidade = fv("fbEsp");
     const alvo = fv("fbPac");
     if (alvo === "__todos") {
       if (!internados.length) throw new Error("Não há pacientes internados.");
       // todas as folhas num documento só, uma por página
       setTimeout(() => imprimirPrescricaoMedica(null,
-        { vazia: true, linhas, pacientes: internados.map((p) => p.id) }), 60);
+        { vazia: true, linhas, especialidade, pacientes: internados.map((p) => p.id) }), 60);
       return;
     }
-    setTimeout(() => imprimirPrescricaoMedica(alvo || null, { vazia: true, linhas }), 60);
+    setTimeout(() => imprimirPrescricaoMedica(alvo || null, { vazia: true, linhas, especialidade }), 60);
   }, "Imprimir");
 }
 
