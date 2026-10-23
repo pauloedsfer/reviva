@@ -81,7 +81,6 @@ function _fnEhTransfer(m) { return /^Transferência para/.test(String(m.ref || "
    `jaCobrada` marca a dose que saiu de lote transferido: aparece como
    consumo, com custo zero, e o detalhe explica por quê. */
 function _fnLinhas() {
-  const transf = _lotesTransferidos();
   return movements.filter((m) => m.tipo === "saida" && m.data >= _fnIni && m.data <= _fnFim)
     .filter((m) => !_fnPac || m.paciente === _fnPac)
     .filter((m) => {
@@ -90,7 +89,7 @@ function _fnLinhas() {
       return _fnTipo === "material" ? ehMaterial(s) : !ehMaterial(s);
     })
     .map((m) => {
-      const jaCobrada = transf.has(m.lote) && !_fnEhTransfer(m);
+      const jaCobrada = saidaJaCobradaNaTransferencia(m);
       return { ...m, custo: jaCobrada ? 0 : m.qtd * (m.custoUnit || 0), dose: _fnEhDose(m), jaCobrada };
     });
 }
@@ -556,7 +555,6 @@ function _fnAVencer() {
    Independe do período escolhido de propósito: a comparação com os meses
    anteriores é o contexto que diz se o mês atual está caro ou normal. */
 function _fnEvolucaoMensal(n) {
-  const transf = _lotesTransferidos();
   const fim = _fnFim.slice(0, 7);
   const meses = [];
   let [y, m] = fim.split("-").map(Number);
@@ -573,7 +571,7 @@ function _fnEvolucaoMensal(n) {
     .forEach((m2) => {
       const k = String(m2.data).slice(0, 7);
       if (soma[k] === undefined) return;
-      if (transf.has(m2.lote) && !_fnEhTransfer(m2)) return;
+      if (saidaJaCobradaNaTransferencia(m2)) return;
       soma[k] += m2.qtd * (m2.custoUnit || 0);
     });
   return meses.map((k, i) => {
@@ -748,17 +746,53 @@ function _fnLinhasConsolidado() {
      documento para a direção e precisa cobrir todo mundo. Se respeitasse a
      seleção da tela, o total impresso mudaria conforme o que estivesse
      escolhido no momento, sem nada no papel explicando a diferença. */
-  const transf = _lotesTransferidos();
   const buckets = _lotesAgrupados();
   return movements
     .filter((m) => m.tipo === "saida" && m.data >= _fnIni && m.data <= _fnFim)
     .map((m) => {
       const b = buckets[_chaveDaSaida(m.subId, m.lote, m.paciente, m.loteDono)];
       const ehProprio = !!b && b.origem === "proprio" && !b.integrado;
-      const jaCobrada = transf.has(m.lote) && !_fnEhTransfer(m);
-      return { ...m, ehProprio, jaCobrada,
-               custo: (jaCobrada || ehProprio) ? 0 : m.qtd * (m.custoUnit || 0) };
+      const jaCobrada = saidaJaCobradaNaTransferencia(m);
+      const custo = (jaCobrada || ehProprio) ? 0 : m.qtd * (m.custoUnit || 0);
+      return { ...m, ehProprio, jaCobrada, custo,
+               marca: (custo || ehProprio) ? null : _fnMarcaSemCusto(m, b, jaCobrada) };
     });
+}
+
+/* POR QUE a saída do ESTOQUE saiu com valor zero.
+   Sem isto o relatório mostra "117 unidades · R$ 0,00" e quem lê não tem como
+   saber se a clínica deu de graça um remédio que pagou — defeito — ou se ela
+   nunca pagou por aquele lote — correto. São situações opostas com a mesma
+   aparência no papel, e é a direção que lê. A marca sai ao lado da
+   quantidade e a legenda, embaixo, diz o que cada uma significa.
+   A ordem dos testes é a ordem em que a regra de custo é aplicada em cima:
+   transferência primeiro, porque ela zera a dose mesmo quando o lote tem
+   custo. */
+const _FN_MARCAS = {
+  T: "custo já lançado na data da transferência do estoque para a custódia — não se cobra a mesma unidade duas vezes",
+  P: "lote que saiu da custódia de outro paciente: a medicação é da família dele, a clínica não pagou por ela",
+  I: "custódia integrada ao estoque: o lote foi doado pelo paciente ou pela família e a clínica não pagou por ele",
+  D: "doação recebida: entra no estoque sem custo de aquisição",
+  S: "lote sem custo de aquisição registrado — inventário inicial ou nota lançada sem valor unitário",
+};
+/* `P` existe para não mandar o leitor caçar nota que não existe: a
+   transferência que sai da custódia de um paciente entra com custo zero
+   porque quem pagou foi a família dele, não porque faltou lançar preço. Sem
+   essa marca ela caía em `S`, que manda conferir a nota. Transferência não
+   tem bucket de destino no momento em que é lançada — quem diz de onde ela
+   saiu é `dono`, o paciente de origem gravado na movimentação. */
+function _fnMarcaSemCusto(m, b, jaCobrada) {
+  if (jaCobrada) return "T";
+  if (_fnEhTransfer(m) && m.dono) return "P";
+  if (b && b.origem === "proprio" && b.integrado) return "I";
+  if (b && b.origem === "doacao") return "D";
+  return "S";
+}
+/* Marcas sempre na ordem da legenda, não na ordem em que as saídas
+   apareceram: a mesma linha impressa duas vezes tem de sair igual. */
+function _fnOrdenaMarcas(marcas) {
+  const ordem = Object.keys(_FN_MARCAS);
+  return [...marcas].sort((a, b) => ordem.indexOf(a) - ordem.indexOf(b));
 }
 
 /* `escopo`: 'todos' | 'internados' | 'um'.
@@ -782,9 +816,13 @@ function _fnConsolidar(escopo, pacId) {
     const pid = m.paciente || "";
     if (!porPac.has(pid)) porPac.set(pid, { subs: new Map(), total: 0 });
     const reg = porPac.get(pid);
-    if (!reg.subs.has(m.subId)) reg.subs.set(m.subId, { qtd: 0, qtdPropria: 0, valor: 0 });
+    if (!reg.subs.has(m.subId)) reg.subs.set(m.subId, { qtd: 0, qtdPropria: 0, valor: 0, qtdSemCusto: 0, marcas: new Set() });
     const s = reg.subs.get(m.subId);
-    if (m.ehProprio) s.qtdPropria += m.qtd; else s.qtd += m.qtd;
+    if (m.ehProprio) s.qtdPropria += m.qtd;
+    else {
+      s.qtd += m.qtd;
+      if (m.marca) { s.qtdSemCusto += m.qtd; s.marcas.add(m.marca); }
+    }
     s.valor += m.custo;
     reg.total += m.custo;
 
@@ -801,7 +839,11 @@ function _fnConsolidar(escopo, pacId) {
 
   const meses = [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const totalGeral = linhas.reduce((a, m) => a + m.custo, 0);
-  return { pacs, meses, totalGeral, qtdLinhas: linhas.length };
+  /* A legenda só lista as marcas que realmente aparecem no recorte impresso.
+     Legenda com item que não ocorre no papel faz quem confere procurar uma
+     linha que não existe. */
+  const marcasUsadas = _fnOrdenaMarcas(new Set(linhas.map((m) => m.marca).filter(Boolean)));
+  return { pacs, meses, totalGeral, marcasUsadas, qtdLinhas: linhas.length };
 }
 
 function abrirConsolidadoPacientes() {
@@ -834,7 +876,7 @@ function _csToggle() {
 
 function imprimirConsolidadoPacientes(escopo, pacId) {
   escopo = escopo || "todos";
-  const { pacs, meses, totalGeral, qtdLinhas } = _fnConsolidar(escopo, pacId);
+  const { pacs, meses, totalGeral, marcasUsadas, qtdLinhas } = _fnConsolidar(escopo, pacId);
   if (!qtdLinhas) {
     alert(escopo === "um"
       ? "Este paciente não teve saída registrada no período escolhido."
@@ -870,6 +912,7 @@ function imprimirConsolidadoPacientes(escopo, pacId) {
       .map(([sid, s]) => ({ nome: (subById(sid) || {}).nome || "—", ...s }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
     const temPropria = subs.some((s) => s.qtdPropria > 0);
+    const temSemCusto = subs.some((s) => s.qtdSemCusto > 0);
     const p = pid ? patById(pid) : null;
     const sub = p ? [p.leito ? "leito " + p.leito : "", p.admissao ? "admissão " + fmtDate(p.admissao) : "",
                      p.dataAlta ? "alta " + fmtDate(p.dataAlta) : ""].filter(Boolean).join(" · ") : "";
@@ -877,11 +920,11 @@ function imprimirConsolidadoPacientes(escopo, pacId) {
       <div class="pac">
         <div class="pac-h"><span class="pac-n">${_esc(nome)}</span>${sub ? `<span class="pac-s">${_esc(sub)}</span>` : ""}<span class="pac-t">${brl(reg.total)}</span></div>
         <table>
-          <thead><tr><th>Medicamento / material</th><th class="c">Qtd. do estoque</th>${temPropria ? '<th class="c">Qtd. própria</th>' : ""}<th class="r">Valor</th></tr></thead>
+          <thead><tr><th>Medicamento / material</th><th class="c">Qtd. do estoque</th>${temSemCusto ? '<th class="c">Dessas, sem custo</th>' : ""}${temPropria ? '<th class="c">Qtd. própria</th>' : ""}<th class="r">Valor</th></tr></thead>
           <tbody>${subs.map((s) =>
-            `<tr><td>${_esc(s.nome)}</td><td class="c mono">${s.qtd || "—"}</td>${temPropria ? `<td class="c mono">${s.qtdPropria || "—"}</td>` : ""}<td class="r mono">${brl(s.valor)}</td></tr>`).join("")}
+            `<tr><td>${_esc(s.nome)}</td><td class="c mono">${s.qtd || "—"}</td>${temSemCusto ? `<td class="c mono">${s.qtdSemCusto ? s.qtdSemCusto + ' <span class="mk">' + _fnOrdenaMarcas(s.marcas).join("") + "</span>" : "—"}</td>` : ""}${temPropria ? `<td class="c mono">${s.qtdPropria || "—"}</td>` : ""}<td class="r mono">${brl(s.valor)}</td></tr>`).join("")}
           </tbody>
-          <tfoot><tr><td><b>Subtotal</b></td><td class="c mono">—</td>${temPropria ? '<td class="c mono">—</td>' : ""}<td class="r mono"><b>${brl(reg.total)}</b></td></tr></tfoot>
+          <tfoot><tr><td><b>Subtotal</b></td><td class="c mono">—</td>${temSemCusto ? '<td class="c mono">—</td>' : ""}${temPropria ? '<td class="c mono">—</td>' : ""}<td class="r mono"><b>${brl(reg.total)}</b></td></tr></tfoot>
         </table>
       </div>`;
   }).join("");
@@ -906,6 +949,9 @@ function imprimirConsolidadoPacientes(escopo, pacId) {
   .geral{margin-top:14px;border:2px solid #2C5F5A;padding:7px 10px;display:flex;justify-content:space-between;font-size:13px;font-weight:700}
   .nota{font-size:9.5px;color:#4a544f;line-height:1.5;margin-top:12px;background:#F4F6F3;border-left:3px solid #2C5F5A;padding:6px 9px}
   .escopo{font-size:10px;background:#FBF3E3;border-left:3px solid #B07A2F;padding:5px 9px;margin-bottom:10px}
+  .mk{font-family:"Public Sans",Arial,sans-serif;font-weight:700;font-size:8px;color:#8B4A3A;vertical-align:super;letter-spacing:.06em}
+  .legenda{font-size:9.5px;color:#4a544f;line-height:1.55;margin-top:8px;border:1px solid #cfd6cf;padding:6px 9px}
+  .legenda b{color:#8B4A3A}.legenda div{margin-top:2px}
   .assin{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:34px}
   .assin .l{border-top:1px solid #1E2A28;padding-top:4px;font-size:9.5px;text-align:center}
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}
@@ -921,6 +967,8 @@ function imprimirConsolidadoPacientes(escopo, pacId) {
   ${blocoMeses}
   <h2>Detalhamento por paciente</h2>
   ${blocoPacs}
+  ${marcasUsadas.length ? `<div class="legenda"><b>Quantidade que saiu do estoque sem custo de aquisição.</b> A coluna mostra quanto, dentro do que saiu do estoque, não gerou valor — e a letra diz por quê.
+    ${marcasUsadas.map((k) => `<div><b>${k}</b> — ${_FN_MARCAS[k]}.</div>`).join("")}</div>` : ""}
   <div class="geral"><span>TOTAL GERAL DO PERÍODO</span><span>${brl(totalGeral)}</span></div>
   <div class="nota">
     <b>Como ler estes valores.</b>

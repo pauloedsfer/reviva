@@ -1077,11 +1077,32 @@ function buildMovements() {
 }
 
 function diasInternado(p) { return diffDias(p.admissao, p.dataAlta && p.dataAlta < HOJE ? p.dataAlta : HOJE) + 1; }
-// lotes que nasceram de transferência do estoque para a custódia
-function _lotesTransferidos() {
-  const set = new Set();
-  transferenciasCustodia.forEach((t) => set.add(t.loteDestino));
-  return set;
+/* A DOSE JÁ FOI COBRADA NA TRANSFERÊNCIA?
+   Na transferência do estoque para a custódia o custo é lançado NA DATA DA
+   TRANSFERÊNCIA. As doses que saem daquele lote depois não podem ser cobradas
+   de novo, senão o mesmo comprimido conta duas vezes.
+
+   A pergunta certa é "esta dose saiu do SALDO que nasceu da transferência?",
+   e não "este NÚMERO de lote já foi destino de alguma transferência?".
+
+   A versão por número — um Set com os lotes de destino — zerava o consumo de
+   quem nunca recebeu transferência nenhuma. As transferências de agosto/2026
+   foram gravadas com lote_destino IGUAL ao lote_origem (o sufixo só passou a
+   ser gerado em 02/09), então o número do lote da clínica virou também o
+   número do lote da custódia. Resultado: 23 comprimidos foram para a custódia
+   de um paciente e cobrados certo, e TODAS as doses seguintes daquele lote,
+   saídas do estoque da casa para outros pacientes, saíram do consolidado
+   valendo zero — remédio que a clínica comprou, aparecendo como doado.
+   Chavear por substância + lote não resolveria: origem e destino têm as duas
+   coisas iguais.
+
+   Olhar o bucket resolve de vez, porque bucket é substância + lote + DONO: a
+   custódia que nasceu da transferência tem origem 'transferido'; o estoque da
+   clínica, de onde a dose realmente saiu, continua com a origem da compra. */
+function saidaJaCobradaNaTransferencia(m) {
+  if (/^Transferência para/.test(String(m.ref || ""))) return false;  // é a própria transferência: esta SIM é cobrada
+  const b = _lotesAgrupados()[_chaveDaSaida(m.subId, m.lote, m.paciente, m.loteDono)];
+  return !!b && b.origem === "transferido";
 }
 /* Custo de medicamentos do paciente.
    Na transferência do estoque para a custódia, o custo é atribuído ao
@@ -1104,10 +1125,9 @@ function custoUnitDaSaida(subId, lote, pacienteId, loteDono) {
 }
 
 function custoMedicamentosPaciente(patId) {
-  const transf = _lotesTransferidos();
   return movements
     .filter((m) => m.tipo === "saida" && m.paciente === patId)
-    .filter((m) => !(transf.has(m.lote) && !/^Transferência para custódia/.test(m.ref || "")))
+    .filter((m) => !saidaJaCobradaNaTransferencia(m))
     .reduce((a, m) => a + m.qtd * (m.custoUnit || 0), 0);
 }
 function custoDiariasPaciente(p) { return diasInternado(p) * DIARIA_INTERNACAO; }
