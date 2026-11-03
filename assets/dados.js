@@ -341,6 +341,54 @@ function prescVigenteEm(pr, d) {
 function prescSuspensa(pr) {
   return !!pr && (!!pr.dataSuspensao || pr.ativo === false);
 }
+
+/* PROGRAMADA: já existe, ainda não entrou em vigor.
+   Uma alteração lançada hoje nasce valendo amanhã, então HOJE ela não é
+   vigente — e as telas que listavam só o vigente a escondiam justamente no
+   dia em que o farmacêutico acabou de criá-la. Pior: a versão antiga
+   continua visível (a suspensão dela também só começa amanhã), então
+   editar de novo no mesmo dia gerava uma SEGUNDA versão futura, e as duas
+   ficavam vigentes juntas no dia seguinte — dose somada no kit.
+   Quem está programada precisa aparecer, com a data em que entra. */
+function prescProgramada(pr, d) {
+  if (!pr || !pr.dataInicio) return false;
+  const dia = d || HOJE;
+  if (pr.dataInicio <= dia) return false;              // já entrou em vigor
+  if (pr.dataFim && pr.dataFim < pr.dataInicio) return false;
+  // suspensa antes mesmo de começar: não vai entrar, não é programada
+  if (pr.dataSuspensao && pr.dataSuspensao <= pr.dataInicio) return false;
+  if (pr.ativo === false && !pr.dataSuspensao) return false;
+  return true;
+}
+
+/* A prescrição que vai SUBSTITUIR esta e ainda não entrou em vigor.
+   É ela que o usuário quer alterar quando pede para editar a versão atual
+   no mesmo dia: a de hoje já está separada, quem ainda dá para mudar é a
+   que entra amanhã. */
+function prescSucessoraPendente(pr) {
+  if (!pr) return null;
+  const direta = pr.substituidaPor ? prescriptions.find((x) => x.id === pr.substituidaPor) : null;
+  if (direta && prescProgramada(direta)) return direta;
+  /* Sem o vínculo gravado (lançamento antigo, ou suspensão manual seguida de
+     nova prescrição), vale o par paciente + substância: duas versões da mesma
+     medicação do mesmo paciente é o que o kit vai somar. */
+  return prescriptions.find((x) => x.id !== pr.id && x.paciente === pr.paciente &&
+    x.subId === pr.subId && prescProgramada(x)) || null;
+}
+
+/* Prescrições que estarão vigentes JUNTAS na mesma data, para o mesmo
+   paciente e a mesma substância. Cada grupo aqui é uma dose somada no kit
+   daquele dia. Devolve [] quando está tudo certo. */
+function prescDuplicadasEm(d) {
+  const dia = d || HOJE;
+  const porChave = {};
+  prescriptions.filter((pr) => prescVigenteEm(pr, dia)).forEach((pr) => {
+    const k = pr.paciente + "|" + pr.subId;
+    (porChave[k] = porChave[k] || []).push(pr);
+  });
+  return Object.keys(porChave).filter((k) => porChave[k].length > 1)
+    .map((k) => ({ paciente: k.split("|")[0], subId: k.split("|")[1], itens: porChave[k] }));
+}
 // encerrada pela data limite (e não por suspensão manual)
 function prescEncerrada(pr, d) {
   return !!(pr && pr.ativo !== false && !pr.dataSuspensao && pr.dataFim && pr.dataFim < (d || HOJE));

@@ -146,16 +146,35 @@ function _amanha() {
 }
 
 function abrirEditarPrescricao(id) {
-  const pr = prescriptions.find((x) => x.id === id); if (!pr) return;
+  let pr = prescriptions.find((x) => x.id === id); if (!pr) return;
+
+  /* Se esta prescrição já tem uma alteração PROGRAMADA, é ela que o usuário
+     quer mexer: a versão de hoje já foi separada e não muda mais. Criar outra
+     versão aqui colocaria duas valendo no mesmo dia, e o kit somaria as duas
+     — foi exatamente assim que a dose dobrou. */
+  const pend = prescSucessoraPendente(pr);
+  if (pend && pend.id !== pr.id) {
+    const nome = subById(pr.subId).nome;
+    if (!confirm(`${nome} já tem uma alteração programada para ${fmtDate(pend.dataInicio)}.\n\n` +
+                 `A versão que está valendo hoje não muda mais — a separação de hoje já foi montada.\n\n` +
+                 `OK para alterar a versão que entra em ${fmtDate(pend.dataInicio)}.\n` +
+                 `Cancelar para não mexer em nada.`)) return;
+    pr = pend;
+    id = pend.id;
+  }
+
   const nomeSub = subById(pr.subId).nome;
+  const ehProgramada = prescProgramada(pr);
   const corpo = `
-    <div class="note-box" style="margin-top:0">A prescrição atual de <b>${_esc(nomeSub)}</b> será <b>encerrada</b> e uma nova entra no lugar, a partir da data abaixo. A versão antiga continua no histórico e os mapas já impressos continuam valendo.</div>
-    <div class="ff"><label>A nova prescrição passa a valer em *</label>
-      <input id="eVigor" type="date" value="${_amanha()}">
+    ${ehProgramada
+      ? `<div class="note-box" style="margin-top:0;background:#FBF8EE;border-color:#e3d6b4">Esta é a versão <b>programada</b> de <b>${_esc(nomeSub)}</b>, que entra em vigor em <b>${fmtDate(pr.dataInicio)}</b> e ainda não valeu nenhum dia. Por isso ela é <b>corrigida no lugar</b>, sem gerar outra versão — não há mapa nem separação apoiados nela para preservar.</div>`
+      : `<div class="note-box" style="margin-top:0">A prescrição atual de <b>${_esc(nomeSub)}</b> será <b>encerrada</b> e uma nova entra no lugar, a partir da data abaixo. A versão antiga continua no histórico e os mapas já impressos continuam valendo.</div>`}
+    <div class="ff"><label>${ehProgramada ? "Entra em vigor em *" : "A nova prescrição passa a valer em *"}</label>
+      <input id="eVigor" type="date" value="${ehProgramada ? pr.dataInicio : _amanha()}">
       <div class="dica">Padrão amanhã: a separação de hoje foi montada ontem, então a alteração de hoje só entra na próxima. Pode ser retroativa se o médico alterou antes e você está lançando agora.</div></div>
-    <div class="ff"><label>Motivo da alteração</label>
+    ${ehProgramada ? "" : `<div class="ff"><label>Motivo da alteração</label>
       <input id="eMotivo" placeholder="Ex.: ajuste de dose por ordem médica">
-      <div class="dica">Fica registrado na versão encerrada — é o que explica a mudança numa conferência.</div></div>
+      <div class="dica">Fica registrado na versão encerrada — é o que explica a mudança numa conferência.</div></div>`}
     <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
     <div class="ff"><label>Paciente *</label><select id="ePac">${_optPats(pr.paciente)}</select></div>
     <div class="ff"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, para tratamento com duração definida</span></label>
@@ -183,6 +202,34 @@ function abrirEditarPrescricao(id) {
     if (!vigor) throw new Error("Informe a partir de quando a nova prescrição vale.");
     let prescritorId = fv("ePresc");
     if (prescritorId === "__novo__") prescritorId = await resolvePrescritor("ePresc");
+
+    /* TRAVA CONTRA DOSE DOBRADA. Duas prescrições da mesma substância para o
+       mesmo paciente vigentes no mesmo dia viram duas linhas no kit, e a
+       enfermagem administra a soma. A conferência é feita contra o estado
+       atual, ignorando a que está sendo substituída (ela será encerrada na
+       mesma data). */
+    const conflito = prescriptions.find((x) => x.id !== id && x.paciente === pac &&
+      x.subId === sub && (prescVigenteEm(x, vigor) || prescProgramada(x, vigor)));
+    if (conflito) {
+      throw new Error(`Já existe outra prescrição de ${subById(sub).nome} para este paciente valendo em ${fmtDate(vigor)}` +
+        `${conflito.dataInicio ? " (desde " + fmtDate(conflito.dataInicio) + ")" : ""}. ` +
+        `Duas valendo no mesmo dia fazem o kit somar as doses. Suspenda uma delas antes, ou altere aquela em vez desta.`);
+    }
+
+    /* Versão PROGRAMADA é corrigida no lugar: ela nunca valeu um dia, não há
+       mapa nem separação apoiados nela, e versioná-la criaria a segunda
+       prescrição futura que é justamente a causa da dose dobrada. */
+    if (ehProgramada) {
+      const { error } = await window.SB.from("prescricoes").update({
+        paciente_id: pac, substancia_id: sub, prescritor_id: prescritorId || null,
+        dose: fvOrNull("eDose"), via: fvOrNull("eVia"),
+        horarios: fv("eHor").split(",").map((h) => h.trim()).filter(Boolean),
+        qtd_por_horario: Math.max(0.25, fvNum("eQtd") || 1),
+        data_inicio: vigor, data_fim: fvOrNull("eFim"),
+      }).eq("id", id);
+      if (error) throw error;
+      return;
+    }
 
     /* A nova nasce primeiro. Se a ordem fosse inversa e a criação falhasse, o
        paciente ficaria sem a medicação no sistema — pior do que ficar um
@@ -258,9 +305,16 @@ function reativarItem(id) {
 }
 
 /* -------- render: lista por paciente OU detalhe de um paciente -------- */
+/* Vigentes HOJE **mais** as programadas para entrar depois.
+   A alteração lançada agora vale a partir de amanhã; se a lista mostrasse só
+   o vigente, ela sumiria no próprio dia em que foi criada — e foi isso que
+   levou o RT a editar duas vezes a versão antiga e acabar com duas
+   prescrições valendo no mesmo dia. */
 function _itensDoPaciente(pacId, incluirSuspensas) {
-  return prescriptions.filter((pr) => pr.paciente === pacId && (incluirSuspensas || prescVigenteEm(pr)))
-    .sort((a, b) => subById(a.subId).nome.localeCompare(subById(b.subId).nome));
+  return prescriptions.filter((pr) => pr.paciente === pacId &&
+      (incluirSuspensas || prescVigenteEm(pr) || prescProgramada(pr)))
+    .sort((a, b) => subById(a.subId).nome.localeCompare(subById(b.subId).nome) ||
+                    String(a.dataInicio || "").localeCompare(String(b.dataInicio || "")));
 }
 function _prescResumo(pacId) {
   const its = _itensDoPaciente(pacId);
@@ -298,8 +352,9 @@ function _detalhePaciente(pacId) {
     const nq = qtdPorHorario(pr);
     const ext = pr.prescritorId && (prescById(pr.prescritorId) || {}).externo
       ? ' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">EXTERNO</span>' : "";
-    return `<tr>
-      <td><b>${subById(pr.subId).nome}</b></td>
+    const prog = prescProgramada(pr);
+    return `<tr${prog ? ' style="background:#FBF8EE"' : ""}>
+      <td><b>${subById(pr.subId).nome}</b>${prog ? `<div><span class="tag" style="background:#FBF3E3;color:#B07A2F">entra em vigor em ${fmtDate(pr.dataInicio)}</span></div>` : ""}</td>
       <td>${pr.dose || "—"}${nq !== 1 ? ` <span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${fmtDose(nq)}/horário</span>` : ""}${temDescarte(pr) ? ` <span class="tag" style="background:#FBF3E3;color:#B07A2F" title="Parte o comprimido: administra a fração e descarta o restante; o estoque baixa ${fmtDose(qtdConsumida(pr))}">baixa ${fmtDose(qtdConsumida(pr))}</span>` : ""}</td>
       <td class="mono">${pr.via || "—"}</td>
       <td>${(pr.horarios || []).map((h) => `<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${h}</span>`).join(" ")}</td>
@@ -322,6 +377,7 @@ function _detalhePaciente(pacId) {
     <div class="toolbar" style="margin-bottom:14px">
       <button class="btn ghost sm" onclick="filtrarPrescPaciente('')">← Todos os pacientes</button>
     </div>
+    ${_prescAvisoDuplicadas(pacId)}
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">${p.nome}</div><div class="panel-title-sub">Leito ${p.leito || "—"} · ${its.length} medicação(ões) na prescrição</div></div>
@@ -391,6 +447,34 @@ function _painelSuspensas(pacId) {
     </div>`;
 }
 
+/* Aviso de dose dobrada no topo das duas telas.
+   Duas prescrições da mesma substância para o mesmo paciente vigentes no
+   mesmo dia somam no kit, e quem separa não tem como perceber: são duas
+   linhas iguais na etiqueta. Olha hoje e amanhã porque amanhã é quando as
+   versões programadas entram, que é onde o defeito se manifestava. */
+function _prescAvisoDuplicadas(pacId) {
+  const dias = [[HOJE, "hoje"], [_amanha(), "amanhã"]];
+  const achados = [];
+  dias.forEach(([d, rot]) => {
+    prescDuplicadasEm(d).forEach((g) => {
+      if (pacId && g.paciente !== pacId) return;
+      achados.push({ d, rot, g });
+    });
+  });
+  if (!achados.length) return "";
+  const linhas = achados.map(({ rot, g }) => {
+    const p = patById(g.paciente) || {};
+    const doses = g.itens.map((pr) => `${fmtDose(qtdPorHorario(pr))}/horário (desde ${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"})`).join(" + ");
+    const soma = g.itens.reduce((a, pr) => a + qtdPorHorario(pr), 0);
+    return `<li><b>${_esc(p.nome || "—")}</b> · ${_esc((subById(g.subId) || {}).nome || "—")} — ${g.itens.length} prescrições valendo <b>${rot}</b>: ${doses}. O kit vai pedir <b>${fmtDose(soma)}/horário</b>.</li>`;
+  }).join("");
+  return `<div class="note-box" style="background:#FDF0EE;border-color:#e6b8b1;margin-top:0">
+      <b>Atenção: dose somada no kit.</b> A mesma medicação está prescrita mais de uma vez para o mesmo paciente, valendo no mesmo dia. A separação monta as duas linhas e a enfermagem administra a soma.
+      <ul style="margin:8px 0 0;padding-left:18px;line-height:1.7">${linhas}</ul>
+      <div style="margin-top:8px">Suspenda a versão que não vale, pela data em que ela deixou de valer. O histórico e os mapas já impressos continuam corretos.</div>
+    </div>`;
+}
+
 function renderPage() {
   if (_prescPac && prescriptions.some((pr) => pr.paciente === _prescPac)) return _detalhePaciente(_prescPac);
   const optPacs = `<option value="">Ver todos os pacientes</option>` +
@@ -399,6 +483,7 @@ function renderPage() {
       .sort((a, b) => (a.nome || "").localeCompare(b.nome || ""))
       .map((p) => `<option value="${p.id}">${p.nome}${p.leito ? " · " + p.leito : ""}</option>`).join("");
   return `
+    ${_prescAvisoDuplicadas()}
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">Prescrições por paciente</div><div class="panel-title-sub">Abra um paciente para ver e editar a prescrição completa dele</div></div>
