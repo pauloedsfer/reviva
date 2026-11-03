@@ -12,7 +12,12 @@
    providenciar é a família — não a clínica.
    ============================================================ */
 
-let _pvCfg = { critico: 7, atencao: 15, cobertura: 30 };
+let _pvCfg = { critico: 7, atencao: 15, cobertura: 30, janela: 90, base: "90" };
+
+function _pvSetTxt(campo, valor) {
+  _pvCfg[campo] = valor;
+  document.getElementById("viewport").innerHTML = renderPage();
+}
 
 function _pvSet(campo, valor) {
   _pvCfg[campo] = Math.max(1, parseInt(valor, 10) || 1);
@@ -134,6 +139,127 @@ function _pvLinhasCustodia() {
   });
 }
 
+/* ============================================================
+   COBERTURA PELO CONSUMO REAL
+
+   O quadro de cima projeta pelas PRESCRIÇÕES ATIVAS: é o consumo que se
+   sabe que vai acontecer. Este aqui olha para trás, para o que de fato
+   saiu da farmácia. Os dois respondem perguntas diferentes e por isso
+   convivem:
+
+     · prescrição responde "o que os pacientes de hoje vão consumir";
+     · consumo real responde "o que esta casa gasta por mês", e pega o que
+       a prescrição não enxerga — SOS, intercorrência, reposição de
+       carrinho, consumo de setor, perda e descarte.
+
+   Para REPOSIÇÃO DE ESTOQUE o consumo real costuma ser a base melhor,
+   porque é ele que esvazia a prateleira. A prescrição subestima: não
+   conta o que sai sem prescrição individual, que nesta casa não é pouco.
+
+   SÓ ENTRA O QUE SAIU DO ESTOQUE DA CLÍNICA. Dose que saiu da custódia de
+   um paciente é medicação da família: quando acabar, quem repõe é ela, e
+   incluí-la aqui faria a clínica comprar o que não precisa. Quem decide
+   isso é movEhCustodia(), a mesma função que separa os dois mundos no
+   Livro — inclusive nas transferências, em que o dono do saldo de origem
+   é o que importa, não o paciente de destino.
+
+   Devolução ao estoque entra como consumo NEGATIVO: o que voltou não
+   precisa ser recomprado.
+
+   Ajuste de inventário fica de fora de propósito. Ajuste é correção de
+   divergência, não consumo; somá-lo ao gasto mensal faria o erro de
+   contagem virar previsão de compra.
+   ============================================================ */
+
+// data de N dias atrás, ancorada em HOJE. Meio-dia evita o pulo de fuso
+// que faz a data voltar um dia ao converter para ISO.
+function _pvDataMenos(dias) {
+  const d = new Date(HOJE + "T12:00:00");
+  d.setDate(d.getDate() - dias);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Primeiro dia de uma janela de N dias que termina HOJE.
+   É (N - 1) e não N porque as duas pontas entram na contagem: de ontem até
+   hoje são 2 dias, não 1. Dividir o consumo por N tendo somado N+1 dias de
+   movimentação subestima a média diária — e média subestimada vira compra
+   a menos, que é o erro que este relatório existe para evitar. */
+function _pvInicioJanela(n) { return _pvDataMenos(Math.max(0, n - 1)); }
+
+function _pvConsumoPorSub(deData) {
+  const acc = {};
+  const reg = (subId, qtd, data, sinal) => {
+    if (!acc[subId]) acc[subId] = { un: 0, dias: new Set() };
+    acc[subId].un += sinal * qtd;
+    if (sinal > 0) acc[subId].dias.add(data);
+  };
+  movements.forEach((m) => {
+    if (m.data < deData || m.data > HOJE) return;
+    if (m.tipo === "saida") { if (!movEhCustodia(m)) reg(m.subId, m.qtd, m.data, 1); }
+    else if (m.tipo === "devolucao") { if (!movEhCustodia(m)) reg(m.subId, m.qtd, m.data, -1); }
+  });
+  return acc;
+}
+
+function _pvLinhasConsumo() {
+  const jan = _pvCfg.janela;
+  const cJan = _pvConsumoPorSub(_pvInicioJanela(jan));
+  const c30 = _pvConsumoPorSub(_pvInicioJanela(30));
+  const soma = (ids, acc) => ids.reduce((a, id) => a + ((acc[id] || {}).un || 0), 0);
+
+  return gruposSubstancias().map((g) => {
+    const un = soma(g.subIds, cJan), un30 = soma(g.subIds, c30);
+    const diasComSaida = new Set();
+    g.subIds.forEach((id) => ((cJan[id] || {}).dias || new Set()).forEach((d) => diasComSaida.add(d)));
+
+    // consumo negativo (devolveu mais do que saiu no período) não é consumo
+    const mediaJan = Math.max(un, 0) / jan;
+    const media30 = Math.max(un30, 0) / 30;
+    const base = _pvCfg.base === "30" ? media30
+               : _pvCfg.base === "maior" ? Math.max(mediaJan, media30)
+               : mediaJan;
+
+    const estoque = g.subIds.reduce((a, id) => a + saldo(id), 0);
+    const dias = base > 0 ? estoque / base : null;
+    const comprar = base > 0 ? Math.max(0, Math.ceil(base * _pvCfg.cobertura - estoque)) : 0;
+
+    const preco = g.subIds.map((id) => custoMedio(id)).find((v) => v > 0) || 0;
+    const s0 = subById(g.subIds[0]) || {};
+    const fator = s0.fatorUnidade && s0.fatorUnidade > 1 ? s0.fatorUnidade : null;
+
+    // validade mais próxima do que está na prateleira: comprar 90 dias de um
+    // item que vence em 30 é comprar para descartar
+    let venceEm = null;
+    allLotes().forEach((l) => {
+      if (g.subIds.indexOf(l.subId) === -1 || l.restritoPaciente) return;
+      if (saldoLoteChave(l.chave) <= 0 || !l.validade) return;
+      if (!venceEm || l.validade < venceEm) venceEm = l.validade;
+    });
+
+    /* Saída concentrada em pouquíssimos dias não é rotina: é um episódio.
+       A média diária de um item que saiu uma vez só projeta uma compra que
+       nunca mais vai girar. O marcador existe para o RT olhar antes. */
+    const episodico = un > 0 && diasComSaida.size <= 3 && jan >= 30;
+    const tend = mediaJan > 0 ? media30 / mediaJan : (media30 > 0 ? Infinity : 1);
+
+    return { g, un, un30, diasSaida: diasComSaida.size, mediaJan, media30, base, estoque,
+             dias, comprar, preco, fator, venceEm, episodico, tend,
+             valor: comprar * preco, st: _pvStatus(dias) };
+  }).filter((r) => r.un > 0 || r.estoque > 0)
+    .sort((a, b) => {
+      const va = a.dias === null ? 1e9 : a.dias, vb = b.dias === null ? 1e9 : b.dias;
+      return va - vb || a.g.label.localeCompare(b.g.label, "pt-BR");
+    });
+}
+
+function _pvTendIcone(r) {
+  if (!r.un) return "";
+  if (r.tend === Infinity) return `<span title="item novo: só consumiu nos últimos 30 dias" style="color:#B04A3F">▲ novo</span>`;
+  if (r.tend >= 1.3) return `<span title="consumo dos últimos 30 dias acima da média do período" style="color:#B04A3F">▲ subindo</span>`;
+  if (r.tend <= 0.7) return `<span title="consumo dos últimos 30 dias abaixo da média do período" style="color:#2C5F5A">▼ caindo</span>`;
+  return `<span style="color:var(--muted)">= estável</span>`;
+}
+
 function renderPage() {
   const est = _pvLinhasEstoque();
   const cus = _pvLinhasCustodia();
@@ -218,6 +344,8 @@ function renderPage() {
       </div>
     </div>
 
+    ${_pvPainelConsumo()}
+
     <div class="panel">
       <div class="panel-head">
         <div><div class="panel-title">Medicação por paciente — custódia e reposição</div><div class="panel-title-sub">O que o paciente já tem e o que a família precisa adquirir${nFalt ? ` · <b style="color:var(--warn)">${nFalt} item(ns) sem estoque na clínica</b>` : ""}</div></div>
@@ -232,6 +360,67 @@ function renderPage() {
       </div>
     </div>
   `;
+}
+
+function _pvPainelConsumo() {
+  const rows = _pvLinhasConsumo();
+  const comCompra = rows.filter((r) => r.comprar > 0);
+  const totalUn = comCompra.reduce((a, r) => a + r.comprar, 0);
+  const totalRS = comCompra.reduce((a, r) => a + r.valor, 0);
+  const semPreco = comCompra.filter((r) => !r.preco).length;
+  const parados = rows.filter((r) => !r.un && r.estoque > 0).length;
+  const deData = _pvInicioJanela(_pvCfg.janela);
+
+  const linhas = rows.map((r) => `
+    <tr style="background:${r.st.k === "crit" || r.st.k === "zero" ? "#FDF6F5" : "transparent"}">
+      <td style="text-align:center;font-size:15px">${_pvBolinha(r.st)}</td>
+      <td><b>${_esc(r.g.label)}</b>${r.g.lista && r.g.lista !== "—" ? ` <span class="tag ${listaTagClass(r.g.lista)}">${r.g.lista}</span>` : ""}
+        ${r.episodico ? `<div style="font-size:11px;color:#B07A2F">saiu em apenas ${r.diasSaida} dia(s) — consumo episódico, confira antes de comprar</div>` : ""}
+        ${r.venceEm && r.comprar ? `<div style="font-size:11px;color:var(--muted)">estoque atual vence em ${fmtDate(r.venceEm)}</div>` : ""}</td>
+      <td class="num mono">${r.un || "—"}</td>
+      <td class="num mono">${r.diasSaida || "—"}</td>
+      <td class="num mono">${r.base ? fmtDose(r.base) : "—"}</td>
+      <td style="font-size:11px">${_pvTendIcone(r)}</td>
+      <td class="num mono">${r.estoque}</td>
+      <td class="num mono" style="font-weight:700;color:${r.st.cor}">${_pvDias(r.dias)}</td>
+      <td class="num mono">${r.comprar ? `<b>${r.comprar}</b>${r.fator ? `<div style="font-size:11px;color:var(--muted);font-weight:400">${Math.ceil(r.comprar / r.fator)} ${_esc(subById(r.g.subIds[0]).unidadeCompra || "cx")}</div>` : ""}` : "—"}</td>
+      <td class="num mono">${r.comprar ? (r.preco ? fmtBRL(r.valor) : '<span style="color:var(--muted)">sem preço</span>') : "—"}</td>
+    </tr>`).join("");
+
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Cobertura e compras pelo consumo real</div>
+          <div class="panel-title-sub">O que de fato saiu do estoque da clínica de ${fmtDate(deData)} a ${fmtDate(HOJE)} · ${_pvCfg.janela} dias</div></div>
+        <button class="btn ghost sm" onclick="abrirImprimirCompras()">🖶 Lista de compras</button>
+      </div>
+      <div class="panel-body">
+        <div class="note-box" style="margin-top:0"><b>Base diferente do quadro acima.</b> Aqui o consumo vem das <b>saídas registradas</b>, não das prescrições — então entra o que a prescrição não prevê: SOS, intercorrência, reposição de carrinho, consumo de setor, perda e descarte. <b>Só conta o que saiu do estoque da clínica</b>: dose tirada da custódia é medicação da família e quem repõe é ela. Devolução ao estoque abate. Ajuste de inventário não entra — é correção de contagem, não consumo.</div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 14px;margin-bottom:14px">
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Janela de consumo</label>
+            <select onchange="_pvSet('janela', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+              ${[30, 60, 90, 120, 180].map((d) => `<option value="${d}"${d === _pvCfg.janela ? " selected" : ""}>${d} dias</option>`).join("")}
+            </select></div>
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Média usada no cálculo</label>
+            <select onchange="_pvSetTxt('base', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit">
+              <option value="90"${_pvCfg.base === "90" ? " selected" : ""}>Média da janela inteira — mais estável</option>
+              <option value="30"${_pvCfg.base === "30" ? " selected" : ""}>Média dos últimos 30 dias — mais atual</option>
+              <option value="maior"${_pvCfg.base === "maior" ? " selected" : ""}>A maior das duas — mais conservadora</option>
+            </select></div>
+          <div><label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px">Cobertura desejada</label>
+            <input type="number" min="7" max="180" value="${_pvCfg.cobertura}" onchange="_pvSet('cobertura', this.value)" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit"></div>
+        </div>
+
+        ${comCompra.length ? `<div class="note-box" style="background:#EEF2EC;border-color:#cfd6cf"><b>${comCompra.length} item(ns) a comprar</b> para ${_pvCfg.cobertura} dias de cobertura · <b>${totalUn}</b> unidade(s) · estimativa <b>${fmtBRL(totalRS)}</b>${semPreco ? ` <span style="color:var(--warn)">(${semPreco} sem preço de compra registrado, fora da estimativa)</span>` : ""}${parados ? ` · ${parados} item(ns) em estoque sem nenhuma saída no período` : ""}</div>` : ""}
+
+        ${rows.length ? `<table>
+          <thead><tr><th style="width:34px"></th><th>Medicamento</th><th class="num">Saiu<br>${_pvCfg.janela}d</th><th class="num">Dias c/<br>saída</th><th class="num">Média<br>/dia</th><th>Tendência</th><th class="num">Estoque</th><th class="num">Cobertura</th><th class="num">Comprar</th><th class="num">Estimativa</th></tr></thead>
+          <tbody>${linhas}</tbody></table>`
+          : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhuma saída do estoque da clínica no período e nenhum saldo.</div>`}
+        <div class="foot-signoff"><span>Farmacêutico RT: ${rtLinha()}</span><span>Consumo apurado de ${fmtDate(deData)} a ${fmtDate(HOJE)}</span></div>
+      </div>
+    </div>`;
 }
 
 /* ---- impressão: escolha da faixa de cobertura ---- */
@@ -397,6 +586,102 @@ function imprimirPrevisao(o) {
     corpo.replace("<h2>Cobertura do estoque da clínica</h2>",
       `<h2>Cobertura do estoque da clínica — ${fx.rot}</h2>` +
       (totalCompra ? `<div class="leg" style="margin-bottom:6px"><b>${totalCompra}</b> unidade(s) a adquirir para ${_pvCfg.cobertura} dias de cobertura.</div>` : "")));
+}
+
+/* ============================================================
+   LISTA DE COMPRAS PELO CONSUMO REAL
+   É o documento que sustenta a cotação e a compra junto à direção:
+   diz o que sai, há quanto tempo, quanto ainda cobre e quanto custa
+   repor. Sai com a janela e a base impressas no papel, porque o mesmo
+   item dá número diferente conforme a média escolhida — e relatório
+   cujo total muda sem o papel dizer por quê é relatório que ninguém
+   consegue conferir depois.
+   ============================================================ */
+function abrirImprimirCompras() {
+  const rows = _pvLinhasConsumo();
+  const n = (f) => rows.filter(f).length;
+  abrirModal("Lista de compras pelo consumo", `
+    <div class="note-box" style="margin-top:0">O recorte sai impresso no cabeçalho. Para levar à direção, <b>somente o que comprar</b> costuma bastar.</div>
+    <div class="ff"><label>O que entra no relatório</label>
+      <select id="pcFaixa">
+        <option value="comprar" selected>Somente itens a comprar (${n((r) => r.comprar > 0)})</option>
+        <option value="crit">🔴 Apenas crítico — comprar agora (${n((r) => r.st.k === "crit" || r.st.k === "zero")})</option>
+        <option value="critaten">🔴 + 🟡 Crítico e atenção (${n((r) => ["crit", "zero", "aten"].indexOf(r.st.k) !== -1)})</option>
+        <option value="comconsumo">Todos os itens com consumo no período (${n((r) => r.un > 0)})</option>
+        <option value="todos">Todos os itens (${rows.length})</option>
+      </select></div>
+    <div class="ff">
+      <label style="display:flex;align-items:center;gap:7px;font-weight:400">
+        <input id="pcEpisodico" type="checkbox" checked style="width:auto;margin:0"> Marcar no papel os itens de consumo episódico
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Item que saiu em até 3 dias do período inteiro tem média diária enganosa — a marca avisa quem assina a compra.</div></div>
+    <div class="note-box" style="margin:0">Janela: <b>${_pvCfg.janela} dias</b> · base: <b>${_pvCfg.base === "30" ? "média dos últimos 30 dias" : _pvCfg.base === "maior" ? "a maior das duas médias" : "média da janela inteira"}</b> · cobertura desejada: <b>${_pvCfg.cobertura} dias</b>. Mude nos seletores da tela antes de gerar, se precisar.</div>
+  `, async () => {
+    const faixa = fv("pcFaixa") || "comprar";
+    const marcar = !!(document.getElementById("pcEpisodico") || {}).checked;
+    setTimeout(() => imprimirCompras(faixa, marcar), 60);
+  }, "Gerar relatório");
+}
+
+function imprimirCompras(faixa, marcarEpisodico) {
+  const todas = _pvLinhasConsumo();
+  const filtros = {
+    comprar:    (r) => r.comprar > 0,
+    crit:       (r) => r.st.k === "crit" || r.st.k === "zero",
+    critaten:   (r) => ["crit", "zero", "aten"].indexOf(r.st.k) !== -1,
+    comconsumo: (r) => r.un > 0,
+    todos:      () => true,
+  };
+  const rot = {
+    comprar: "somente itens a comprar", crit: "situação crítica — comprar agora",
+    critaten: "crítico e atenção", comconsumo: "itens com consumo no período",
+    todos: "todos os itens",
+  };
+  const rows = todas.filter(filtros[faixa] || filtros.comprar);
+  if (!rows.length) { alert(`Nenhum item em "${rot[faixa] || faixa}". Escolha outro recorte.`); return; }
+
+  const totalUn = rows.reduce((a, r) => a + r.comprar, 0);
+  const totalRS = rows.reduce((a, r) => a + r.valor, 0);
+  const semPreco = rows.filter((r) => r.comprar > 0 && !r.preco).length;
+  const deData = _pvInicioJanela(_pvCfg.janela);
+  const baseTxt = _pvCfg.base === "30" ? "média dos últimos 30 dias"
+                : _pvCfg.base === "maior" ? "a maior entre a média da janela e a dos últimos 30 dias"
+                : `média dos ${_pvCfg.janela} dias`;
+
+  const linha = (r) => `<tr>
+    <td class="c">${r.st.k === "ok" ? "OK" : r.st.k === "aten" ? "ATENÇÃO" : r.st.k === "sem" ? "—" : "CRÍTICO"}</td>
+    <td>${_esc(r.g.label)}${r.g.lista && r.g.lista !== "—" ? " [" + r.g.lista + "]" : ""}${marcarEpisodico && r.episodico ? ' <b style="color:#B04A3F">*</b>' : ""}</td>
+    <td class="c mono">${r.un || "—"}</td>
+    <td class="c mono">${r.diasSaida || "—"}</td>
+    <td class="c mono">${r.base ? fmtDose(r.base) : "—"}</td>
+    <td class="c mono">${r.estoque}</td>
+    <td class="c mono">${_pvDias(r.dias)}</td>
+    <td class="c mono">${r.comprar || "—"}${r.comprar && r.fator ? ` (${Math.ceil(r.comprar / r.fator)} ${_esc(subById(r.g.subIds[0]).unidadeCompra || "cx")})` : ""}</td>
+    <td class="c mono">${r.comprar ? (r.preco ? fmtBRL(r.valor) : "—") : "—"}</td>
+    <td style="width:62px"></td></tr>`;
+
+  const corpo = `
+    <style>
+      table{width:100%;border-collapse:collapse;margin-bottom:14px}
+      th,td{border:1px solid #cfd6cf;padding:4px 6px;font-size:10.5px}
+      th{background:#EEF2EC;text-transform:uppercase;font-size:8.5px}
+      td.c,th.c{text-align:center}.mono{font-family:"IBM Plex Mono",monospace}
+      .leg{font-size:9.5px;color:#6a736e;margin-bottom:8px;line-height:1.5}
+      .recorte{background:#EEF2EC;border-left:3px solid #2C5F5A;padding:5px 9px;font-size:11px;margin-bottom:8px}
+      tfoot td{background:#F7F9F6;font-weight:700}
+    </style>
+    <div class="recorte"><b>Recorte:</b> ${_esc(rot[faixa] || faixa)} — ${rows.length} de ${todas.length} item(ns). <b>Consumo apurado</b> de ${fmtDate(deData)} a ${fmtDate(HOJE)} (${_pvCfg.janela} dias). <b>Base do cálculo:</b> ${baseTxt}. <b>Cobertura desejada:</b> ${_pvCfg.cobertura} dias.</div>
+    <div class="leg"><b>Como ler.</b> "Saiu" é o que deixou o estoque da clínica no período — doses, reposição de carrinho, consumo de setor, perdas e descartes —, já abatidas as devoluções ao estoque. Medicação em custódia de paciente não entra: é da família, e quem repõe é ela. Ajuste de inventário também não entra, por ser correção de contagem e não consumo. "Dias c/ saída" mostra se o consumo é rotina ou episódio. A estimativa usa o custo médio de compra do item; item nunca comprado sai sem valor.${marcarEpisodico && rows.some((r) => r.episodico) ? ' <b style="color:#B04A3F">*</b> saiu em até 3 dias do período — média diária pouco confiável, conferir antes de comprar.' : ""}</div>
+    <table>
+      <thead><tr><th class="c">Situação</th><th>Medicamento</th><th class="c">Saiu</th><th class="c">Dias c/ saída</th><th class="c">Média/dia</th><th class="c">Estoque</th><th class="c">Cobertura</th><th class="c">Comprar</th><th class="c">Estimativa</th><th class="c">Conferido</th></tr></thead>
+      <tbody>${rows.map(linha).join("")}</tbody>
+      <tfoot><tr><td colspan="7">Total a adquirir</td><td class="c mono">${totalUn || "—"}</td><td class="c mono">${fmtBRL(totalRS)}</td><td></td></tr></tfoot>
+    </table>
+    ${semPreco ? `<div class="leg"><b>${semPreco} item(ns) sem custo de compra registrado</b> — ficam fora da estimativa, então o total é piso, não teto.</div>` : ""}`;
+
+  imprimirRelatorio("Previsão de Cobertura e Compras — consumo real",
+    `Consumo de ${fmtDate(deData)} a ${fmtDate(HOJE)} · ${rows.length} item(ns) · ${totalUn} unidade(s) · estimativa ${fmtBRL(totalRS)}`,
+    corpo);
 }
 
 /* ============================================================
