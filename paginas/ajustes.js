@@ -149,12 +149,70 @@ function abrirFormAjusteMultiplo() {
 }
 
 /* ===================== FOLHA DE CONTAGEM / INVENTÁRIO ===================== */
+/* Quantos lotes cada categoria tem hoje, para o seletor mostrar o tamanho da
+   folha antes de imprimir. Categoria vazia não adianta oferecer. */
+function _fcLotesPorCategoria() {
+  const m = {};
+  allLotes().forEach((l) => {
+    const c = (subById(l.subId) || {}).categoria || "NAO CLASSIFICADO";
+    m[c] = (m[c] || 0) + 1;
+  });
+  return m;
+}
+
+function _fcMarcarCategorias(todas) {
+  document.querySelectorAll("#fcCats input[type=checkbox]").forEach((c) => (c.checked = !!todas));
+  _fcResumoCategorias();
+}
+
+function _fcResumoCategorias() {
+  const el = document.getElementById("fcCatResumo"); if (!el) return;
+  const marcadas = [...document.querySelectorAll("#fcCats input[type=checkbox]")].filter((c) => c.checked);
+  const total = document.querySelectorAll("#fcCats input[type=checkbox]").length;
+  el.innerHTML = marcadas.length === total
+    ? "Todas as categorias entram na folha."
+    : marcadas.length
+      ? `<b>${marcadas.length}</b> de ${total} categoria(s) selecionada(s).`
+      : '<b style="color:var(--warn)">Nenhuma categoria marcada</b> — a folha sairia vazia.';
+}
+
 function abrirFolhaContagem() {
   const optsSub = `<option value="">Todas as substâncias</option>` +
     substances.slice().sort((a, b) => a.nome.localeCompare(b.nome))
       .map((s) => `<option value="${s.id}">${s.nome}</option>`).join("");
+  const porCat = _fcLotesPorCategoria();
+  const cats = categoriasAlfabeticas().filter((c) => porCat[c]);
   const corpo = `
-    <div class="ff"><label>Substância</label><select id="fcSub">${optsSub}</select></div>
+    <div class="ff row2">
+      <div><label>O que contar</label>
+        <select id="fcTipo">
+          <option value="medicamento" selected>Somente medicamentos</option>
+          <option value="material">Somente materiais</option>
+          <option value="todos">Medicamentos e materiais</option>
+        </select>
+        <div class="dica">Medicamento e material ficam em lugares diferentes da farmácia, e contar os dois na mesma folha obriga a ir e voltar.</div></div>
+      <div><label>Controle especial</label>
+        <select id="fcControle">
+          <option value="todos" selected>Controlados e não controlados</option>
+          <option value="sim">Somente Portaria 344/98</option>
+          <option value="nao">Somente não controlados</option>
+        </select>
+        <div class="dica">A folha só dos controlados é a que acompanha a conferência do Livro.</div></div>
+    </div>
+    <div class="ff"><label>Categorias <span style="font-weight:400;color:var(--muted)">— desmarque o que não vai contar agora</span></label>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <button type="button" class="btn ghost sm" onclick="_fcMarcarCategorias(true)">Marcar todas</button>
+        <button type="button" class="btn ghost sm" onclick="_fcMarcarCategorias(false)">Desmarcar todas</button>
+      </div>
+      <div id="fcCats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:4px 12px;max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px">
+        ${cats.map((c) => `<label style="display:flex;align-items:center;gap:7px;font-weight:400;font-size:13px">
+          <input type="checkbox" value="${_esc(c)}" checked onchange="_fcResumoCategorias()" style="width:auto;margin:0">
+          ${_esc(catRotulo(c))} <span style="color:var(--muted)">(${porCat[c]})</span>
+        </label>`).join("")}
+      </div>
+      <div class="dica" id="fcCatResumo">Todas as categorias entram na folha.</div></div>
+    <div class="ff"><label>Substância <span style="font-weight:400;color:var(--muted)">— para conferir um item só</span></label><select id="fcSub">${optsSub}</select>
+      <div class="dica">Escolhendo uma substância, os filtros acima são ignorados: a folha sai só com ela.</div></div>
     <div class="ff"><label>Faixa de vencimento</label>
       <select id="fcVenc" onchange="_fcToggleIntervalo()">
         <option value="todas">Todas</option>
@@ -178,7 +236,11 @@ function abrirFolhaContagem() {
     <div class="note-box" style="margin:0">Gera uma folha A4 com Substância · Lote · Validade · Saldo no sistema e colunas em branco para a <b>contagem física</b> e a <b>diferença</b>. Depois, lance os ajustes onde divergir.</div>
   `;
   abrirModal("Folha de contagem / inventário", corpo, async () => {
-    imprimirFolhaContagem(fv("fcSub"), fv("fcVenc"), fv("fcZerados") === "ocultar", fv("fcDe"), fv("fcAte"));
+    const marcadas = [...document.querySelectorAll("#fcCats input[type=checkbox]")]
+      .filter((c) => c.checked).map((c) => c.value);
+    if (!fv("fcSub") && !marcadas.length) throw new Error("Marque ao menos uma categoria, ou escolha uma substância.");
+    imprimirFolhaContagem(fv("fcSub"), fv("fcVenc"), fv("fcZerados") === "ocultar", fv("fcDe"), fv("fcAte"),
+      { tipo: fv("fcTipo"), controle: fv("fcControle"), categorias: marcadas, totalCategorias: cats.length });
   }, "Gerar folha");
 }
 function _fcToggleIntervalo() {
@@ -186,7 +248,8 @@ function _fcToggleIntervalo() {
   document.getElementById("fcIntervalo").style.display = v === "intervalo" ? "grid" : "none";
 }
 
-function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
+function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate, filtros) {
+  filtros = filtros || { tipo: "todos", controle: "todos", categorias: null };
   const est = window.ESTAB || {}, rt = window.RT || {};
   const rtTxt = rt.nome ? `${rt.nome} — ${rt.conselho}-${rt.uf} ${rt.numero_registro}` : "____________________";
 
@@ -201,7 +264,27 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     categoria: (subById(l.subId) || {}).categoria || "NAO CLASSIFICADO",
   }));
 
-  if (subId) linhas = linhas.filter((x) => x.subId === subId);
+  /* Escolher UMA substância é o recorte mais específico que existe: ignora
+     tipo, controle e categoria de propósito. Quem pede a folha de um item só
+     quer aquele item, e não o item filtrado por algo que esqueceu marcado. */
+  if (subId) {
+    linhas = linhas.filter((x) => x.subId === subId);
+  } else {
+    // medicamento e material ficam em lugares diferentes da farmácia
+    if (filtros.tipo === "medicamento") linhas = linhas.filter((x) => !ehMaterial(subById(x.subId)));
+    else if (filtros.tipo === "material") linhas = linhas.filter((x) => ehMaterial(subById(x.subId)));
+
+    /* Controle especial pela LISTA da substância, que é o que a Portaria
+       344/98 usa: lista preenchida e diferente de "—" é controlado. Mesmo
+       critério de grupoControlado(), para a folha não divergir do Livro. */
+    if (filtros.controle === "sim") linhas = linhas.filter((x) => grupoControlado(subById(x.subId) || {}));
+    else if (filtros.controle === "nao") linhas = linhas.filter((x) => !grupoControlado(subById(x.subId) || {}));
+
+    if (filtros.categorias && filtros.categorias.length) {
+      linhas = linhas.filter((x) => filtros.categorias.indexOf(x.categoria) !== -1);
+    }
+  }
+
   // "ocultar zerados" esconde apenas o que está exatamente em zero.
   // Saldo NEGATIVO nunca é ocultado: é inconsistência que precisa de
   // contagem física e ajuste, justamente o que a folha existe para apurar.
@@ -279,8 +362,25 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
     </tr>`;
   }).join("");
 
+  /* O recorte vai IMPRESSO. Folha de contagem é documento que se arquiva e
+     se confere depois; sem dizer o que ela cobre, uma folha parcial parece
+     um inventário completo com itens faltando. */
   const filtroTxt = [];
-  if (subId) filtroTxt.push("Substância: " + subById(subId).nome);
+  if (subId) {
+    filtroTxt.push("Substância: " + subById(subId).nome + " (demais filtros ignorados)");
+  } else {
+    filtroTxt.push(filtros.tipo === "medicamento" ? "Somente medicamentos"
+                 : filtros.tipo === "material" ? "Somente materiais"
+                 : "Medicamentos e materiais");
+    if (filtros.controle === "sim") filtroTxt.push("SOMENTE CONTROLADOS — Portaria SVS/MS 344/98");
+    else if (filtros.controle === "nao") filtroTxt.push("somente não controlados");
+    if (filtros.categorias && filtros.totalCategorias && filtros.categorias.length < filtros.totalCategorias) {
+      filtroTxt.push(`Categorias (${filtros.categorias.length} de ${filtros.totalCategorias}): ` +
+        filtros.categorias.map((c) => catRotulo(c)).sort((a, b) => a.localeCompare(b, "pt-BR")).join(", "));
+    } else {
+      filtroTxt.push("Todas as categorias");
+    }
+  }
   filtroTxt.push("Vencimento: " + (
     faixaVenc === "todas" ? "todas" :
     faixaVenc === "vencidas" ? "somente vencidas" :
@@ -310,7 +410,7 @@ function imprimirFolhaContagem(subId, faixaVenc, ocultarZerados, de, ate) {
   .btn{position:fixed;top:12px;right:12px;background:#2C5F5A;color:#fff;border:none;padding:9px 15px;border-radius:8px;cursor:pointer;font:inherit}@media print{.btn{display:none}}</style></head><body>
   <button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
   <div class="estab"><div class="n">${est.razao_social || est.nome_fantasia || "Hospital Reviva"}</div><div class="s">${est.cnpj ? "CNPJ: " + est.cnpj + " · " : ""}${est.endereco || ""}${est.municipio_uf ? " — " + est.municipio_uf : ""}</div></div>
-  <h1>Folha de Contagem de Estoque — Inventário</h1>
+  <h1>Folha de Contagem de Estoque — ${!subId && filtros.controle === "sim" ? "Medicamentos sob Controle Especial" : "Inventário"}</h1>
   <div class="sub">Data da contagem: ____ / ____ / ______ &nbsp;·&nbsp; Conferente: ________________________ &nbsp;·&nbsp; ${linhas.length} lote(s)${(() => { const c = new Set(linhas.filter((x) => !x.pacId).map((x) => x.categoria)); return c.size ? ` · ${c.size} categoria(s) no estoque da clínica` : ""; })()}</div>
   <div class="filtros">Filtros — ${filtroTxt.join(" · ")}</div>
   ${nNeg ? `<div class="alerta"><b>${nNeg} lote(s) com saldo negativo.</b> Saldo negativo indica saída lançada além do que entrou — conte fisicamente e registre o ajuste com justificativa.</div>` : ""}
