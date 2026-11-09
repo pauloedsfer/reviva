@@ -1080,9 +1080,88 @@ function imprimirFolhaPreparo(opts) {
      e as linhas em branco do registro ocupam o que sobrar, com piso de 6 —
      abaixo disso a enfermagem fica sem onde escrever e volta a anotar em
      papel solto, que foi o problema que gerou esta folha. */
+  /* QUANTAS LINHAS EM BRANCO CABEM
+
+     A conta anterior era um palpite: 26 menos as linhas do preparo menos o
+     número de pacientes com SOS, este último limitado a 6. O limite de 6 é
+     que estourava a folha — com 11 pacientes, cada um com três a sete
+     medicações que quebram em várias linhas, o quadro de consulta sozinho
+     passa de um terço da página, e a folha ia para a segunda só para levar
+     a cauda da lista e as assinaturas.
+
+     Agora o espaço é medido. Tudo em px de 96dpi, que é a unidade em que o
+     navegador pagina: A4 tem 1123px de altura e as margens de 11mm comem
+     83px, sobrando 1040px. Cada bloco fixo tem altura conhecida pelo CSS
+     logo abaixo; o que sobra vira linha em branco, a 32px cada.
+
+     Os números não precisam ser exatos ao pixel — erram para menos de
+     propósito, porque linha a mais estoura a folha e linha a menos só deixa
+     um vão no rodapé. */
+  const PX = {
+    util: 1040,     // A4 menos as margens
+    /* Cada estimativa abaixo arredonda para cima, e somadas passam da conta.
+       Medindo a paginação real do Chromium com 11 pacientes em SOS, a folha
+       ainda cabe com 5 linhas de preparo e estoura com 6; a conta só acerta
+       esse ponto de virada devolvendo estes 43px. Número medido, não
+       escolhido — se os blocos mudarem, remedir. */
+    calibragem: 43,
+    cab: 26, ref: 42, tarja: 39, instA: 40, instB: 58,
+    thead: 29, linha: 32, entreTabelas: 9,
+    secSos: 28, sosPad: 14, assin: 44, rod: 19,
+  };
+
+  /* Altura do quadro de consulta de SOS. Cada paciente ocupa a linha do nome
+     mais as linhas em que a lista de medicações quebra — e é a quebra que a
+     conta antiga ignorava. A largura da coluna depende de quantas colunas o
+     quadro usa; a estimativa de caracteres por linha é conservadora (erra
+     para mais), porque subestimar aqui é o que faz a folha estourar. */
+  const _alturaSos = (lista, colunas) => {
+    if (!lista.length) return 34;                  // o aviso de "nenhum SOS"
+    const largura = (720 - (colunas - 1) * 14) / colunas;
+    const fonte = colunas >= 3 ? 9.5 : 10.5;
+    const porLinha = Math.max(24, Math.floor(largura / (fonte * 0.56)));
+    const alturaLinha = fonte * 1.35;
+    const total = lista.reduce((acc, x) => {
+      const txt = x.itens.map((i) => `${subNomeExibicao(i.sub)} ${i.pr.dose || fmtDose(qtdPorHorario(i.pr))}${i.pr.via ? " " + i.pr.via : ""}`).join(" · ");
+      const linhasTxt = Math.max(1, Math.ceil(txt.length / porLinha));
+      return acc + (1 + linhasTxt) * alturaLinha + 6;   // +6 = padding e fio da entrada
+    }, 0);
+    // as colunas se equilibram, mas nunca perfeitamente
+    return Math.ceil(total / colunas * 1.08) + PX.sosPad;
+  };
+
   const folhaRegistro = (g) => {
-    const ocupadas = g.horarios.length + g.horarios.reduce((a, h) => a + g.porHorario[h].length, 0);
-    const linhas = Math.max(7, Math.min(20, 26 - ocupadas - Math.min(g.sosLista.length, 6)));
+    const ocupadas = g.horarios.reduce((a, h) => a + g.porHorario[h].length, 0);
+    const temPreparo = ocupadas > 0;
+
+    /* Mais pacientes, mais colunas. Três colunas com fonte menor é o limite
+       do que ainda se lê de relance na bancada; passar disso seria economizar
+       papel às custas de quem precisa achar o nome correndo. */
+    const colunas = g.sosLista.length > 8 ? 3 : g.sosLista.length > 4 ? 2 : 1;
+
+    const fixo = PX.cab + PX.ref
+      + (temPreparo ? PX.tarja + PX.instA + PX.thead + ocupadas * PX.linha + PX.entreTabelas : 0)
+      + PX.tarja + PX.instB + PX.thead
+      + PX.secSos + _alturaSos(g.sosLista, colunas)
+      + PX.assin + PX.rod;
+
+    /* Piso de 6: abaixo disso a enfermagem fica sem onde escrever e volta a
+       anotar em papel solto, que foi o problema que gerou esta folha. Teto
+       de 20 para não imprimir meia folha de linhas vazias num dia parado. */
+    const cabem = Math.floor((PX.util + PX.calibragem - fixo) / PX.linha);
+    const linhas = Math.max(6, Math.min(20, cabem));
+
+    /* Num dia cheio — muitos preparos na hora E muitos pacientes com SOS —
+       uma folha A4 não comporta as duas tabelas, o quadro de consulta e seis
+       linhas para escrever. Aí a segunda página é conteúdo, não desperdício.
+       O que não dá é deixar a quebra cair onde calhar: antes ela partia o
+       quadro de consulta no meio e levava só a cauda dele e as assinaturas
+       para a página 2.
+       Quando não couber, o quadro de consulta vai INTEIRO para a segunda
+       página e a parte em que se escreve fica completa na primeira, com as
+       assinaturas. A lista de SOS é referência de cabeceira; a folha de
+       registro é o documento. */
+    g.sosEmOutraPagina = cabem < 6 && g.sosLista.length > 0;
     return `
       ${tarja(g.dia, "REGISTRO DE ADMINISTRAÇÃO FORA DO KIT")}
       <div class="inst"><b>Anote aqui tudo o que for administrado fora do kit do horário:</b> SOS prescrito e também o sintomático que a enfermagem libera — dor de cabeça, febre, dor leve, cólica. Uma linha por administração.
@@ -1099,14 +1178,25 @@ function imprimirFolhaPreparo(opts) {
           <td class="c-queixa"></td><td></td><td class="c-org"></td><td class="c-ass"></td></tr>`).join("")}</tbody>
       </table>
 
-      ${g.sosLista.length ? `
-      <div class="sec">Consulta — SOS já prescrito hoje</div>
-      <div class="sos-box${g.sosLista.length > 6 ? " duas" : ""}">${g.sosLista.map((x) => `<div class="sos-l">
+      ${g.sosEmOutraPagina ? "" : blocoSos(g, colunas)}
+      `;
+  };
+
+  /* Quadro de consulta do SOS prescrito. Fica fora de folhaRegistro() porque
+     em dia cheio ele muda de página, e o que muda de lugar precisa ser um
+     bloco inteiro — foi parti-lo no meio que gerava a página 2 com uma cauda
+     de lista e nada mais. */
+  const blocoSos = (g, colunas) => {
+    if (!g.sosLista.length) {
+      return '<div class="sem-sos">Nenhum SOS prescrito para hoje. O sintomático liberado pela enfermagem continua sendo registrado na tabela acima.</div>';
+    }
+    const cls = colunas >= 3 ? " tres" : colunas === 2 ? " duas" : "";
+    return `
+      <div class="sec${g.sosEmOutraPagina ? " quebra" : ""}">Consulta — SOS já prescrito hoje${g.sosEmOutraPagina ? ` <span style="font-weight:400;text-transform:none;letter-spacing:0">· ${_esc(_diaSemana(g.dia))}, ${fmtDate(g.dia)} — referência, não precisa ser devolvida</span>` : ""}</div>
+      <div class="sos-box${cls}">${g.sosLista.map((x) => `<div class="sos-l">
           <span class="sos-p">${_esc(x.p.nome)}</span>
           <span class="sos-m">${x.itens.map((i) => `${_esc(subNomeExibicao(i.sub))} ${_esc(i.pr.dose || fmtDose(qtdPorHorario(i.pr)))}${i.pr.via ? " " + _esc(i.pr.via) : ""}`).join(" · ")}</span>
-        </div>`).join("")}</div>`
-      : '<div class="sem-sos">Nenhum SOS prescrito para hoje. O sintomático liberado pela enfermagem continua sendo registrado na tabela acima.</div>'}
-      `;
+        </div>`).join("")}</div>`;
   };
 
   const rodape = () => `
@@ -1116,9 +1206,15 @@ function imprimirFolhaPreparo(opts) {
     </div>
     <div class="rod">Devolver à farmácia preenchida ao fim do plantão · POP-FAR-007</div>`;
 
-  const corpo = dados.map((g) => `<section class="folha">
-    ${cab(g)}${folhaPreparo(g)}${folhaRegistro(g)}${rodape()}
-  </section>`).join("");
+  const corpo = dados.map((g) => {
+    const topo = cab(g) + folhaPreparo(g);
+    const reg = folhaRegistro(g);          // define g.sosEmOutraPagina
+    const colunas = g.sosLista.length > 8 ? 3 : g.sosLista.length > 4 ? 2 : 1;
+    /* Com quebra, as assinaturas fecham a página 1 e o quadro de consulta
+       abre a 2. Sem quebra, o quadro já veio dentro de folhaRegistro(). */
+    const fim = g.sosEmOutraPagina ? rodape() + blocoSos(g, colunas) : rodape();
+    return `<section class="folha">${topo}${reg}${fim}</section>`;
+  }).join("");
 
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
   <title>Preparo na hora e registro de SOS — ${fmtDate(dados[0].dia)}</title>
@@ -1158,14 +1254,19 @@ function imprimirFolhaPreparo(opts) {
   .c-org{width:7%;text-align:center;background:#FCFDFB}
   .dose{color:#4a544f;font-size:10.5px}
   table + .tarja{margin-top:9px}
+  .sec.quebra{break-before:page;page-break-before:always;margin-top:0}
   .sec{margin-top:8px;background:#2C5F5A;color:#fff;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 12px}
   .sos-box{border:1.5px solid #1E2A28;border-top:none;padding:5px 12px}
   /* Com muitos pacientes o quadro de consulta empurrava a folha para uma
      segunda página só com assinatura. Em duas colunas ele cabe. */
   .sos-box.duas{column-count:2;column-gap:14px}
+  /* Três colunas e fonte menor entram quando há muito paciente com SOS: é o
+     limite do que ainda se lê de relance na bancada. */
+  .sos-box.tres{column-count:3;column-gap:14px;font-size:9.5px}
+  .sos-box.tres .sos-l{display:block;font-size:9.5px;padding:1.5px 0}
   .sos-l{display:flex;gap:10px;padding:2.5px 0;border-bottom:1px dotted #d6dad3;font-size:10.5px;line-height:1.35;break-inside:avoid}
   .sos-box.duas .sos-l{display:block}
-  .sos-box.duas .sos-p{min-width:0;display:block}
+  .sos-box.duas .sos-p,.sos-box.tres .sos-p{min-width:0;display:block}
   .sos-l:last-child{border-bottom:none}
   .sos-p{font-weight:700;min-width:33%}
   .sos-m{color:#3d4743;flex:1}
