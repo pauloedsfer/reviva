@@ -6,18 +6,95 @@
    o saldo continua derivado das movimentações.
    ============================================================ */
 
-// Opções de lote existentes, com substância e saldo atual no sistema.
-// Lotes agrupados por substância (ordem alfabética), lote por validade.
-function _optLotesAjuste() {
+/* ===================== SELEÇÃO DE LOTE =====================
+   A lista vinha de allLotes(): TODOS os lotes que já existiram. Lote zerado
+   não some do sistema — e não deve sumir, porque é ele que sustenta a
+   escrituração passada —, então a lista só cresce. Com alguns meses de
+   histórico, achar o lote conferido vira rolagem.
+
+   Por padrão aparece só o que tem saldo diferente de zero. Zero é o estado
+   de quem já saiu da prateleira; quem confere contagem olha o que existe.
+
+   Saldo NEGATIVO continua sempre visível, mesmo com o filtro ligado: é a
+   inconsistência que o ajuste existe para resolver, e escondê-la seria
+   escondê-la de quem tem a função de corrigi-la.
+
+   Zerado segue alcançável pela caixa "incluir zerados", porque a contagem
+   física às vezes acha unidade num lote que o sistema dá como vazio — sobra
+   sobre saldo zero é dos casos que mais precisam de ajuste. */
+function _ajListaLotes(termo, incluirZerados, manter) {
+  const t = (termo || "").trim().toLowerCase();
+  return allLotes().filter((l) => {
+    // o lote já escolhido na linha nunca sai da lista, senão trocar o filtro
+    // apagaria a seleção que o usuário já tinha feito
+    if (manter && l.chave === manter) return true;
+    if (!incluirZerados && saldoLoteChave(l.chave) === 0) return false;
+    if (!t) return true;
+    const sub = subById(l.subId) || {};
+    const pac = l.restritoPaciente ? (patById(l.restritoPaciente) || {}).nome || "" : "";
+    return `${sub.nome || ""} ${l.lote} ${pac}`.toLowerCase().indexOf(t) >= 0;
+  });
+}
+
+// Opções de lote, agrupadas por substância (ordem alfabética), lote por validade.
+function _optLotesAjuste(termo, incluirZerados, manter) {
+  const lista = _ajListaLotes(termo, incluirZerados, manter);
+  if (!lista.length) return `<option value="">— nenhum lote encontrado —</option>`;
   const porSub = {};
-  allLotes().forEach((l) => { (porSub[l.subId] ||= []).push(l); });
+  lista.forEach((l) => { (porSub[l.subId] ||= []).push(l); });
   const subs = Object.keys(porSub).sort((a, b) =>
-    (subById(a).nome || "").localeCompare(subById(b).nome || "", "pt-BR"));
+    ((subById(a) || {}).nome || "").localeCompare((subById(b) || {}).nome || "", "pt-BR"));
   return `<option value="">— selecione o lote —</option>` +
-    subs.map((id) => `<optgroup label="${subById(id).nome}">` +
+    subs.map((id) => `<optgroup label="${_esc((subById(id) || {}).nome || "—")}">` +
       porSub[id].sort((a, b) => (a.validade < b.validade ? -1 : 1))
-        .map((l) => `<option value="${l.chave}">${l.lote} · val. ${fmtDate(l.validade)}${l.restritoPaciente ? " · custódia " + _esc((patById(l.restritoPaciente)||{}).nome||"") : ""} (sistema: ${saldoLoteChave(l.chave)})</option>`).join("") +
+        .map((l) => {
+          const s = saldoLoteChave(l.chave);
+          return `<option value="${l.chave}">${_esc(l.lote)} · val. ${fmtDate(l.validade)}${l.restritoPaciente ? " · custódia " + _esc((patById(l.restritoPaciente)||{}).nome||"") : ""} (sistema: ${s}${s < 0 ? " ⚠" : ""})</option>`;
+        }).join("") +
       `</optgroup>`).join("");
+}
+
+/* Os controles de filtro, iguais nos dois formulários de ajuste. */
+function _ajControlesFiltro() {
+  return `
+    <div class="ff row2" style="margin-bottom:4px">
+      <div><label>Buscar lote</label>
+        <input id="ajBusca" type="text" placeholder="substância, número do lote ou paciente" oninput="_ajAplicaFiltro()"></div>
+      <div><label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:7px;font-weight:400;padding:9px 0">
+          <input id="ajZerados" type="checkbox" onchange="_ajAplicaFiltro()" style="width:auto;margin:0">
+          Incluir lotes zerados
+        </label></div>
+    </div>
+    <div class="note-box" id="ajContador" style="margin:0 0 12px"></div>`;
+}
+
+/* Refaz as opções de TODOS os selects de lote abertos, preservando o que já
+   estava escolhido em cada um. No formulário de vários lotes isso importa:
+   escolher três, filtrar para achar o quarto e perder os três seria pior do
+   que a lista comprida. */
+function _ajAplicaFiltro() {
+  const termo = (document.getElementById("ajBusca") || {}).value || "";
+  const incZ = !!(document.getElementById("ajZerados") || {}).checked;
+  document.querySelectorAll("#ajLote, #ajLinhas .a-lote").forEach((sel) => {
+    const atual = sel.value;
+    sel.innerHTML = _optLotesAjuste(termo, incZ, atual);
+    sel.value = atual;
+  });
+  _ajContador();
+}
+
+function _ajContador() {
+  const el = document.getElementById("ajContador"); if (!el) return;
+  const termo = (document.getElementById("ajBusca") || {}).value || "";
+  const incZ = !!(document.getElementById("ajZerados") || {}).checked;
+  const todos = allLotes();
+  const zerados = todos.filter((l) => saldoLoteChave(l.chave) === 0).length;
+  const negativos = todos.filter((l) => saldoLoteChave(l.chave) < 0).length;
+  const vis = _ajListaLotes(termo, incZ).length;
+  el.innerHTML = `<b>${vis}</b> lote(s) na lista` +
+    (incZ ? ` · os ${zerados} zerados estão incluídos` : ` · ${zerados} zerado(s) oculto(s)`) +
+    (negativos ? ` · <b style="color:var(--warn)">${negativos} com saldo negativo</b>, sempre visível(is)` : "");
 }
 
 function _recalcAjuste() {
@@ -36,15 +113,15 @@ function _recalcAjuste() {
 
 function abrirFormAjuste() {
   const corpo = `
-    <div class="ff row2">
-      <div><label>Data da conferência *</label><input id="ajData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-      <div><label>Lote conferido *</label><select id="ajLote" onchange="_recalcAjuste()">${_optLotesAjuste()}</select></div>
-    </div>
+    <div class="ff"><label>Data da conferência *</label><input id="ajData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+    ${_ajControlesFiltro()}
+    <div class="ff"><label>Lote conferido *</label><select id="ajLote" onchange="_recalcAjuste()">${_optLotesAjuste("", false)}</select></div>
     <div class="ff"><label>Contagem física (quantidade real contada) *</label><input id="ajFisico" type="number" min="0" oninput="_recalcAjuste()" placeholder="Ex.: 55"></div>
     <div class="note-box" id="ajDiff" style="margin:2px 0 12px"></div>
     <div class="ff"><label>Justificativa da divergência *</label><textarea id="ajJust" rows="3" placeholder="Ex.: 2 comprimidos não localizados na contagem mensal; perda por quebra; erro de lançamento anterior…"></textarea></div>
     <div class="note-box" style="margin:0">O ajuste entra no Livro de Registro como movimentação, com esta justificativa. Não altera saldo manualmente — reconcilia via lançamento.</div>
   `;
+  setTimeout(_ajContador, 0);
   abrirModal("Novo ajuste / conferência de lote", corpo, async () => {
     const lote = fv("ajLote"); const data = fv("ajData"); const just = fv("ajJust");
     const fis = fvNum("ajFisico");
@@ -76,7 +153,9 @@ function _ajLinha() {
   row.className = "item-row";
   row.style.gridTemplateColumns = "2fr .8fr 1.4fr .3fr";
   row.innerHTML = `
-    <div><select class="a-lote" onchange="_ajRecalcLinha(this)">${_optLotesAjuste()}</select></div>
+    <div><select class="a-lote" onchange="_ajRecalcLinha(this)">${_optLotesAjuste(
+        (document.getElementById("ajBusca") || {}).value || "",
+        !!(document.getElementById("ajZerados") || {}).checked)}</select></div>
     <div><input type="number" class="a-fis" min="0" placeholder="Contagem" oninput="_ajRecalcLinha(this)"></div>
     <div class="a-info" style="font-size:12px;color:var(--muted);padding:8px 0">—</div>
     <button type="button" class="item-del" onclick="this.parentElement.remove(); _ajResumo()">✕</button>`;
@@ -119,6 +198,7 @@ function _ajColeta(parcial) {
 function abrirFormAjusteMultiplo() {
   const corpo = `
     <div class="ff"><label>Data da conferência *</label><input id="ajmData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+    ${_ajControlesFiltro()}
     <div class="item-head">Lotes conferidos</div>
     <div class="item-row" style="grid-template-columns:2fr .8fr 1.4fr .3fr;font-size:11px;color:var(--muted);font-weight:600">
       <div>Lote</div><div>Contagem</div><div>Situação</div><div></div>
@@ -145,7 +225,7 @@ function abrirFormAjusteMultiplo() {
       })));
     if (error) throw error;
   }, "Registrar ajustes");
-  setTimeout(() => { _ajLinha(); _ajLinha(); }, 0);
+  setTimeout(() => { _ajLinha(); _ajLinha(); _ajContador(); }, 0);
 }
 
 /* ===================== FOLHA DE CONTAGEM / INVENTÁRIO ===================== */

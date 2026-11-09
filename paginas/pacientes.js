@@ -55,7 +55,16 @@ function _custodiaDoPaciente(pacId) {
   const linhas = [];
   patientMeds.filter((pm) => pm.paciente === pacId).forEach((pm) => {
     pm.itens.forEach((it) => {
-      const saldoAtual = saldoLote(it.lote);
+      /* O saldo tem de vir do lote DA CUSTÓDIA DESTE paciente — substância +
+         lote + dono. saldoLote(it.lote), só pelo número, soma todos os
+         buckets com aquele número: o estoque da clínica e a custódia de
+         outros pacientes junto. Número de lote não é único; a família compra
+         na drogaria o mesmo lote industrial que a clínica comprou do
+         distribuidor, e na base já há dezenas de números repartidos entre
+         dois ou três pacientes. Na tela da alta isso mostrava ao RT um saldo
+         maior do que o que está sob guarda deste paciente, bem no momento em
+         que ele decide quanto devolver à família. */
+      const saldoAtual = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
       if (saldoAtual > 0 && !itemIntegrado(it.id)) linhas.push({ pm, it, saldo: saldoAtual });
     });
   });
@@ -226,7 +235,11 @@ function imprimirExtratoAlta(pacId, comValores) {
     const dest = destinosDoItem(it.id);
     const devolvido = dest.filter((d) => d.tipo === "devolucao_familia").reduce((a, d) => a + d.qtd, 0);
     const integrado = itemIntegrado(it.id) ? "integrado ao estoque" : "";
-    const saldoAtual = saldoLote(it.lote);
+    /* Mesmo motivo do _custodiaDoPaciente: pelo número do lote, o saldo soma
+       donos diferentes. Aqui o número vai IMPRESSO no Extrato de Alta, que a
+       família recebe e assina — tem de ser o saldo deste paciente, não a
+       soma dos homônimos. */
+    const saldoAtual = saldoLoteChave(loteChave(it.subId, it.lote, pm.paciente));
     const status = integrado || (saldoAtual > 0 ? "aguardando retirada" : (devolvido ? "devolvido à família" : "consumido"));
     custLinhas.push(`<tr><td>${subById(it.subId).nome}</td><td class="c mono">${it.qtd}</td><td class="c mono">${devolvido || "—"}</td><td class="c mono">${saldoAtual}</td><td>${status}</td></tr>`);
   }));
