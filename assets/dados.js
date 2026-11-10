@@ -531,6 +531,82 @@ function qtdConsumida(pr) {
 }
 // há descarte de fração? (administra menos do que consome)
 function temDescarte(pr) { return qtdConsumida(pr) > qtdPorHorario(pr) + 1e-9; }
+
+/* ============================================================
+   DOSE E VIA SUGERIDAS PELA FORMA FARMACÊUTICA
+
+   O formulário de prescrição nascia sempre com "1 comp." e "VO", o que
+   obrigava a corrigir à mão todo injetável — e, quando a correção falhava,
+   um haloperidol injetável ficava documentado como comprimido por via oral.
+   Aqui a sugestão vem da própria forma farmacêutica.
+
+   A forma é lida de três lugares, nesta ordem: o campo `forma`, a `unidade`
+   e o NOME da substância. O nome entra porque o cadastro é texto livre e os
+   itens antigos trazem a forma só ali ("HALOPERIDOL 5MG/ML INJETAVEL",
+   "CLONAZEPAM 2,5MG/ML GOTAS") — sem isso a sugestão erraria justamente nos
+   itens que mais se usa.
+
+   `conta: true` é a forma cuja dose unitária é previsível (um comprimido,
+   uma ampola): sai "1 COMP.", "1 AMPOLA". `conta: false` é a forma medida em
+   quantidade variável (gota, mL, UI): sai só a unidade — "GOTAS" —, e o
+   número aparece quando a Qtd/horário for informada. É deliberado: chutar
+   "20 GOTAS" seria inventar uma dose clínica, e um texto visivelmente
+   incompleto é um erro que se vê na hora, ao contrário de um número errado.
+
+   Nada disso trava o campo: dose e via continuam texto livre e aceitam
+   "1 COMP. ATÉ 3X AO DIA" ou via SC num injetável de insulina.
+   ============================================================ */
+const FORMAS_DOSE = [
+  // insulina antes de injetável: é injetável, mas a dose é em UI e a via SC
+  { id: "insulina",   re: /INSULINA|\bUI\b|UNIDADE INTERNACIONAL/,                    un: "UI",           via: "SC",          conta: false },
+  { id: "colirio",    re: /COLIRIO|OFTALMIC/,                                         un: "GOTAS",        via: "OCULAR",      conta: false },
+  { id: "injetavel",  re: /INJETAV|INJECAO|AMPOLA|FRASCO-AMPOLA|SOLUCAO INJ/,         un: "AMPOLA",       plural: "AMPOLAS",      via: "IM", conta: true },
+  { id: "gotas",      re: /\bGOTA/,                                                   un: "GOTAS",        via: "VO",          conta: false },
+  { id: "liquidoOral",re: /XAROPE|SUSPENSAO|SOLUCAO ORAL|ELIXIR|\bML\b|MILILITRO/,    un: "ML",           via: "VO",          conta: false },
+  { id: "topico",     re: /POMADA|CREME|\bGEL\b|LOCAO|UNGUENTO/,                      un: "APLICAÇÃO",    plural: "APLICAÇÕES",   via: "TÓPICA", conta: true },
+  { id: "spray",      re: /SPRAY|AEROSSOL|INALA|NEBULIZ|\bPUFF|\bJATO/,               un: "JATO",         plural: "JATOS",        via: "INALATÓRIA", conta: true },
+  { id: "supositorio",re: /SUPOSITORIO/,                                              un: "SUPOSITÓRIO",  plural: "SUPOSITÓRIOS", via: "RETAL", conta: true },
+  { id: "adesivo",    re: /ADESIVO|TRANSDERMIC/,                                      un: "ADESIVO",      plural: "ADESIVOS",     via: "TRANSDÉRMICA", conta: true },
+  { id: "sache",      re: /SACHE|ENVELOPE|\bPO\b|GRANULADO|EFERVESCENTE/,             un: "SACHÊ",        plural: "SACHÊS",       via: "VO", conta: true },
+  { id: "soro",       re: /SORO|CLORETO DE SODIO 0,9|GLICOSE 5|RINGER|BOLSA/,         un: "FRASCO",       plural: "FRASCOS",      via: "IV", conta: true },
+  { id: "capsula",    re: /CAPSULA|DRAGEA/,                                           un: "CÁPSULA",      plural: "CÁPSULAS",     via: "VO", conta: true },
+  { id: "comprimido", re: /COMPRIMIDO|\bCOMP\b|\bCP\b|\bCPR\b/,                       un: "COMP.",        via: "VO",          conta: true },
+];
+// texto único em que a forma é procurada, sem acento e em maiúsculas
+function _txtFormaSub(sub) {
+  const s = [(sub && sub.forma) || "", (sub && sub.unidade) || "", (sub && sub.nome) || ""].join(" ");
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+}
+// a forma reconhecida, ou null quando o cadastro não diz nada sobre ela
+function formaDeDose(sub) {
+  const t = _txtFormaSub(sub);
+  return FORMAS_DOSE.find((f) => f.re.test(t)) || null;
+}
+/* Texto de dose sugerido. `qtd` ausente ou 1 numa forma de dose variável sai
+   sem número de propósito (ver acima). Comprimido continua com fração: meio
+   comprimido sai "½ COMP.", igual ao resto do sistema (fmtDose). */
+function doseSugerida(sub, qtd) {
+  const f = formaDeDose(sub);
+  if (!f) return qtd != null && Number(qtd) !== 1 ? `${fmtDose(qtd)} COMP.` : "1 COMP.";
+  const n = qtd == null ? (f.conta ? 1 : null) : Number(qtd);
+  if (n == null || (!f.conta && n === 1)) return f.un;
+  const un = n > 1 && f.plural ? f.plural : f.un;
+  return `${fmtDose(n)} ${un}`;
+}
+function viaSugerida(sub) { const f = formaDeDose(sub); return f ? f.via : "VO"; }
+/* A dose é "só o padrão" (pode ser reescrita quando a substância ou a
+   quantidade muda) enquanto for exatamente número + unidade de alguma forma.
+   Assim que recebe texto do farmacêutico — "1 COMP. ATÉ 3X AO DIA" — deixa
+   de ser padrão e nada mais a sobrescreve. */
+function doseEhPadrao(txt) {
+  const t = String(txt || "").trim();
+  if (!t) return true;
+  const semAcento = (x) => String(x).normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+  const uns = ["COMP.", "COMPRIMIDO", "COMPRIMIDOS"];
+  FORMAS_DOSE.forEach((f) => { uns.push(f.un); if (f.plural) uns.push(f.plural); });
+  const alvo = semAcento(t);
+  return uns.some((u) => new RegExp(`^(\\d+([.,]\\d+)?|[½¼¾]|\\d+[½¼¾])?\\s*${semAcento(u).replace(/\./g, "\\.")}$`).test(alvo));
+}
 // exibição de fração: 0,5 → ½ · 1,5 → 1½ · 2 → 2
 /* Horários padronizados (clicáveis na prescrição). JEJUM e SOS são
    marcadores especiais: JEJUM vai ao topo do mapa, SOS ao final. */

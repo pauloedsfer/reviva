@@ -17,6 +17,10 @@ function _garanteModalRoot() {
       #modalRoot.open .mb-backdrop{ display:flex; }
       #modalRoot .mb-card{ background:#fff; border-radius:14px; width:100%; max-width:640px;
         box-shadow:0 20px 60px rgba(0,0,0,.25); overflow:hidden; }
+      /* Modal largo: formulário de várias colunas por linha (prescrição com
+         substância, dose, qtd, via e nove horários). Em 640px os horários
+         quebravam em quatro fileiras e empurravam as linhas seguintes. */
+      #modalRoot .mb-card.largo{ max-width:1060px; }
       #modalRoot .mb-head{ padding:16px 20px; border-bottom:1px solid var(--line,#DEDACD);
         display:flex; align-items:center; justify-content:space-between; }
       #modalRoot .mb-title{ font-family:"Fraunces",serif; font-weight:600; font-size:17px; }
@@ -38,6 +42,22 @@ function _garanteModalRoot() {
       #modalRoot .item-head{ font-size:11px; color:var(--muted,#8A928F); text-transform:uppercase; letter-spacing:.04em; margin:6px 0; }
       #modalRoot .item-del{ border:1px solid var(--line,#DEDACD); background:#fff; border-radius:8px; cursor:pointer; padding:9px; color:#8B4A3A; }
       #modalRoot .add-item{ margin-top:4px; }
+      /* Ficha de medicamento da prescrição: os campos numa linha e os
+         horários em linha própria, de largura inteira. É o que impede os
+         chips de horário de esticarem a coluna e desalinharem o resto. */
+      #modalRoot .item-row.med-ficha{ display:block; border:1px solid var(--line,#DEDACD);
+        border-radius:10px; padding:10px 12px 11px; margin-bottom:10px; background:#FCFCFB; }
+      #modalRoot .med-ficha .mf-campos{ display:grid; gap:10px; align-items:end;
+        grid-template-columns:2.1fr 1.1fr .62fr .72fr auto; }
+      #modalRoot .med-ficha .mf-hor{ margin-top:10px; padding-top:9px; border-top:1px dashed var(--line,#DEDACD);
+        display:grid; grid-template-columns:170px 1fr; gap:12px; align-items:start; }
+      #modalRoot .med-ficha .mf-hor .hor-chips{ margin-top:0; }
+      #modalRoot .med-ficha label{ font-size:11px; color:var(--muted,#8A928F); text-transform:uppercase; letter-spacing:.03em; }
+      @media (max-width:860px){
+        #modalRoot .med-ficha .mf-campos{ grid-template-columns:1fr 1fr; }
+        #modalRoot .med-ficha .mf-campos > .mf-sub{ grid-column:1 / -1; }
+        #modalRoot .med-ficha .mf-hor{ grid-template-columns:1fr; }
+      }
       @media (max-width:640px){ #modalRoot .ff.row2, #modalRoot .ff.row3{ grid-template-columns:1fr; } }
     </style>
     <div class="mb-backdrop" id="mbBackdrop">
@@ -55,9 +75,14 @@ function _garanteModalRoot() {
   root.querySelector("#mbBackdrop").addEventListener("mousedown", (e) => { if (e.target.id === "mbBackdrop") fecharModal(); });
 }
 
-function abrirModal(titulo, corpoHTML, onSalvar, textoSalvar) {
+/* `opcoes.largo` abre o modal em largura dupla. Serve para o formulário que
+   tem várias colunas na mesma linha; os de uma coluna continuam estreitos,
+   que é mais confortável de ler. A classe é retirada a cada abertura para o
+   modal seguinte não herdar a largura do anterior — é o mesmo nó reusado. */
+function abrirModal(titulo, corpoHTML, onSalvar, textoSalvar, opcoes) {
   _garanteModalRoot();
   const root = document.getElementById("modalRoot");
+  root.querySelector(".mb-card").classList.toggle("largo", !!(opcoes && opcoes.largo));
   document.getElementById("mbTitle").textContent = titulo;
   document.getElementById("mbBody").innerHTML = corpoHTML;
   document.getElementById("mbErr").style.display = "none";

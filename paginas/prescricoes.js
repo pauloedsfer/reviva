@@ -10,20 +10,69 @@
 let _prescPac = "";  // paciente selecionado (filtro / detalhe). "" = lista geral.
 function filtrarPrescPaciente(id) { _prescPac = id; document.getElementById("viewport").innerHTML = renderPage(); }
 
-/* -------- linhas de medicamento (nova prescrição múltipla) -------- */
+/* -------- fichas de medicamento (nova prescrição múltipla) --------
+   Cada medicamento é uma ficha: os campos numa linha e os horários numa
+   linha própria abaixo. Antes tudo era uma única linha de grade, e os nove
+   chips de horário cabiam em quatro fileiras dentro de uma coluna estreita,
+   empurrando as fichas seguintes para baixo.
+
+   As classes .m-sub/.m-dose/.m-qtd/.m-via/.m-hor e a classe .item-row no
+   contêiner são contrato: coletarMeds() e _toggleHorario() procuram por
+   elas. */
 function addMedRow() {
   const cont = document.getElementById("prMeds");
   const row = document.createElement("div");
-  row.className = "item-row";
-  row.style.gridTemplateColumns = "1.5fr .8fr .5fr .5fr .9fr .4fr";
+  row.className = "item-row med-ficha";
   row.innerHTML = `
-    <div><select class="m-sub">${_optSubs("", "medicamento")}</select></div>
-    <div><input type="text" class="m-dose" value="1 comp." placeholder="Dose"></div>
-    <div><input type="number" class="m-qtd" min="0.25" step="0.25" value="1" title="Qtd. por horário (aceita fração: 0,5 = meio comprimido)"></div>
-    <div><input type="text" class="m-via" value="VO" placeholder="Via"></div>
-    <div><input type="text" class="m-hor" placeholder="09:00, 21:00">${_chipsHorario(".m-hor")}</div>
-    <button type="button" class="item-del" onclick="this.parentElement.remove()">✕</button>`;
+    <div class="mf-campos">
+      <div class="mf-sub"><label>Substância</label>
+        <select class="m-sub" onchange="_prSugerirDoseVia(this)"><option value="">— selecione —</option>${_optSubs("", "medicamento")}</select></div>
+      <div><label>Dose (texto que vai ao mapa)</label><input type="text" class="m-dose" value="" placeholder="1 COMP."></div>
+      <div><label>Qtd/horário</label><input type="number" class="m-qtd" min="0.25" step="0.25" value="1"
+        oninput="_prSincronizaDose(this)" title="Quanto por horário. Aceita fração: 0,5 = meio comprimido"></div>
+      <div><label>Via</label><input type="text" class="m-via" value="" placeholder="VO"></div>
+      <button type="button" class="item-del" title="Remover este medicamento" onclick="this.closest('.med-ficha').remove()">✕</button>
+    </div>
+    <div class="mf-hor">
+      <div><label>Horários</label><input type="text" class="m-hor" placeholder="09:00, 21:00"></div>
+      <div>${_chipsHorario(".m-hor")}</div>
+    </div>`;
   cont.appendChild(row);
+}
+
+/* Preenche dose e via a partir da forma farmacêutica da substância escolhida.
+   Só escreve sobre o que ainda é padrão: dose em branco ou no formato
+   "número + unidade". Texto do farmacêutico ("1 COMP. ATÉ 3X AO DIA", via
+   "SC" num injetável) é preservado — trocar a substância não apaga o que ele
+   digitou. */
+function _prSugerirDoseVia(sel) {
+  const ficha = sel.closest(".med-ficha") || sel.closest(".item-row");
+  if (!ficha || !sel.value) return;   // "— selecione —" não sugere nada
+  const sub = subById(sel.value);
+  const cDose = ficha.querySelector(".m-dose"), cVia = ficha.querySelector(".m-via");
+  const cQtd = ficha.querySelector(".m-qtd");
+  const qtd = cQtd ? Math.max(0.25, parseFloat((cQtd.value || "1").replace(",", ".")) || 1) : 1;
+  if (cDose && doseEhPadrao(cDose.value)) cDose.value = doseSugerida(sub, qtd);
+  if (cVia && (!cVia.value.trim() || _prViaEhPadrao(cVia.value))) cVia.value = viaSugerida(sub);
+}
+// via "intocada": em branco ou igual a alguma via sugerida pelo sistema
+function _prViaEhPadrao(txt) {
+  const t = String(txt || "").trim().toUpperCase();
+  if (!t) return true;
+  return FORMAS_DOSE.some((f) => f.via.toUpperCase() === t) || t === "VO";
+}
+/* Qtd/horário alterada reescreve o número da dose, quando a dose ainda é
+   padrão: 20 em gotas vira "20 GOTAS", 0,5 em comprimido vira "½ COMP.".
+   É o que faz o texto do mapa dizer a mesma coisa que o sistema dispensa. */
+function _prSincronizaDose(campo) {
+  const ficha = campo.closest(".med-ficha") || campo.closest(".item-row");
+  if (!ficha) return;
+  const cDose = ficha.querySelector(".m-dose"), sel = ficha.querySelector(".m-sub");
+  if (!cDose || !doseEhPadrao(cDose.value)) return;
+  if (!sel || !sel.value) return;
+  const sub = subById(sel.value);
+  const qtd = Math.max(0.25, parseFloat((campo.value || "1").replace(",", ".")) || 1);
+  cDose.value = doseSugerida(sub, qtd);
 }
 /* ---- horários padronizados clicáveis ----
    Alterna o valor no campo de texto ao qual os chips pertencem. */
@@ -53,7 +102,14 @@ function _toggleHorario(btn) {
   _marcarChips(campo);
 }
 function _marcarChips(campo) {
-  const wrap = campo.parentElement.querySelector(".hor-chips") || campo.closest("div").querySelector(".hor-chips");
+  /* Sobe pelo DOM até o primeiro ancestral que contém os chips. Na ficha de
+     medicamento o campo e os chips são irmãos de colunas diferentes, então
+     procurar só no pai não encontrava nada e os chips paravam de acender. */
+  let wrap = null;
+  for (let el = campo.parentElement; el && el.id !== "modalRoot"; el = el.parentElement) {
+    wrap = el.querySelector(".hor-chips");
+    if (wrap) break;
+  }
   if (!wrap) return;
   const atuais = campo.value.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
   wrap.querySelectorAll(".hchip").forEach((b) => {
@@ -77,27 +133,42 @@ function coletarMeds() {
   return meds;
 }
 
+/* As mesmas sugestões no modal de alteração, onde os campos têm id em vez de
+   classe. Aqui a regra de preservar o que foi digitado pesa mais ainda: a
+   dose em edição costuma trazer a posologia escrita pelo médico. */
+function _prSugerirDoseViaEdicao() {
+  if (!fv("eSub")) return;
+  const sub = subById(fv("eSub"));
+  const cDose = document.getElementById("eDose"), cVia = document.getElementById("eVia");
+  const qtd = Math.max(0.25, fvNum("eQtd") || 1);
+  if (cDose && doseEhPadrao(cDose.value)) cDose.value = doseSugerida(sub, qtd);
+  if (cVia && (!cVia.value.trim() || _prViaEhPadrao(cVia.value))) cVia.value = viaSugerida(sub);
+}
+function _prSincronizaDoseEdicao() {
+  if (!fv("eSub")) return;
+  const sub = subById(fv("eSub"));
+  const cDose = document.getElementById("eDose");
+  if (!cDose || !doseEhPadrao(cDose.value)) return;
+  cDose.value = doseSugerida(sub, Math.max(0.25, fvNum("eQtd") || 1));
+}
+
 /* -------- nova prescrição (múltiplas substâncias) -------- */
 function abrirFormPrescricao(pacientePre) {
   const corpo = `
-    <div class="ff row2">
+    <div class="ff row3">
       <div><label>Paciente *</label><select id="rPac">${_optPats(pacientePre || "")}</select></div>
       <div><label>Data da prescrição *</label><input id="rData" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
-    </div>
-    <div class="ff"><label>Médico prescritor</label>
-      <select id="rPresc" onchange="_toggleBloco('rPresc','blocoNovoPresc')">${_optPresc()}</select>
+      <div><label>Médico prescritor</label>
+        <select id="rPresc" onchange="_toggleBloco('rPresc','blocoNovoPresc')">${_optPresc()}</select></div>
     </div>
     ${_blocoNovoPrescritor()}
     <div class="item-head">Medicamentos da prescrição</div>
-    <div class="item-row" style="grid-template-columns:1.5fr .8fr .5fr .5fr .9fr .4fr;font-size:11px;color:var(--muted);font-weight:600">
-      <div>Substância</div><div>Dose</div><div>Qtd/hor.</div><div>Via</div><div>Horários</div><div></div>
-    </div>
     <div id="prMeds"></div>
     <button type="button" class="btn ghost sm add-item" onclick="addMedRow()">+ Adicionar substância</button>
     <div class="ff" style="margin-top:12px"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, vale para as medicações acima</span></label>
       <input id="mFim" type="date">
       <div style="font-size:11px;color:var(--muted);margin-top:3px">Para tratamento com duração definida (ex.: antimicrobiano por 7 dias). Passada a data, sai do mapa e da dispensação sozinha. Em branco = uso contínuo.</div></div>
-    <div class="note-box" style="margin:8px 0 0">Clique nos horários padronizados ou digite separando por vírgula. <b>JEJUM</b> aparece no topo do mapa e <b>SOS</b> no final. <b>Qtd/hor.</b> = quanto por horário, aceita fração (0,5 = meio comprimido).</div>
+    <div class="note-box" style="margin:8px 0 0">Clique nos horários padronizados ou digite separando por vírgula. <b>JEJUM</b> aparece no topo do mapa e <b>SOS</b> no final. <b>Qtd/horário</b> = quanto por horário, aceita fração (0,5 = meio comprimido). <b>Dose e via</b> saem prontas pela forma farmacêutica — injetável como <b>1 AMPOLA · IM</b>, comprimido como <b>1 COMP. · VO</b> — e podem ser reescritas.</div>
   `;
   abrirModal("Nova prescrição", corpo, async () => {
     const pac = fv("rPac"); const data = fv("rData");
@@ -113,7 +184,7 @@ function abrirFormPrescricao(pacientePre) {
     const { error } = await window.SB.from("prescricoes").insert(rows);
     if (error) throw error;
     _prescPac = pac; // ao criar, já abre o paciente
-  }, "Cadastrar prescrição");
+  }, "Cadastrar prescrição", { largo: true });
   addMedRow();
 }
 
@@ -180,20 +251,18 @@ function abrirEditarPrescricao(id) {
     <div class="ff"><label>Data limite <span style="font-weight:400;color:var(--muted)">— opcional, para tratamento com duração definida</span></label>
       <input id="eFim" type="date" value="${pr.dataFim || ""}">
       <div class="dica">Ex.: antimicrobiano por 7 dias. Passada a data, a prescrição sai do mapa e da dispensação automaticamente. Deixe em branco para uso contínuo.</div></div>
-    <div class="ff"><label>Substância *</label><select id="eSub">${_optSubs(pr.subId, "medicamento")}</select></div>
+    <div class="ff"><label>Substância *</label><select id="eSub" onchange="_prSugerirDoseViaEdicao()">${_optSubs(pr.subId, "medicamento")}</select></div>
     <div class="ff"><label>Médico prescritor</label>
       <select id="ePresc" onchange="_toggleBloco('ePresc','blocoNovoPresc')">${_optPresc(pr.prescritorId)}</select>
     </div>
     ${_blocoNovoPrescritor()}
-    <div class="ff row2">
+    <div class="ff row3">
       <div><label>Dose (texto)</label><input id="eDose" value="${(pr.dose || "").replace(/"/g, "&quot;")}"></div>
-      <div><label>Qtd. por horário *</label><input id="eQtd" type="number" min="0.25" step="0.25" value="${pr.qtdPorHorario || 1}">
-        <div class="dica">Aceita fração: 0,5 = meio comprimido. Em comprimido, o restante é descartado e o estoque baixa a unidade inteira.</div></div>
+      <div><label>Qtd. por horário *</label><input id="eQtd" type="number" min="0.25" step="0.25" value="${pr.qtdPorHorario || 1}" oninput="_prSincronizaDoseEdicao()"></div>
+      <div><label>Via</label><input id="eVia" value="${pr.via || viaSugerida(subById(pr.subId))}"></div>
     </div>
-    <div class="ff row2">
-      <div><label>Via</label><input id="eVia" value="${pr.via || "VO"}"></div>
-      <div><label>Horários</label><input id="eHor" value="${(pr.horarios || []).join(", ")}">${_chipsHorario("#eHor")}</div>
-    </div>
+    <div class="dica" style="margin:-6px 0 13px">Qtd. por horário aceita fração: 0,5 = meio comprimido. Em comprimido o restante é descartado e o estoque baixa a unidade inteira.</div>
+    <div class="ff"><label>Horários</label><input id="eHor" value="${(pr.horarios || []).join(", ")}">${_chipsHorario("#eHor")}</div>
   `;
   abrirModal("Alterar prescrição", corpo, async () => {
     const pac = fv("ePac"); const sub = fv("eSub");
@@ -358,7 +427,9 @@ function _detalhePaciente(pacId) {
       <td>${pr.dose || "—"}${nq !== 1 ? ` <span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${fmtDose(nq)}/horário</span>` : ""}${temDescarte(pr) ? ` <span class="tag" style="background:#FBF3E3;color:#B07A2F" title="Parte o comprimido: administra a fração e descarta o restante; o estoque baixa ${fmtDose(qtdConsumida(pr))}">baixa ${fmtDose(qtdConsumida(pr))}</span>` : ""}</td>
       <td class="mono">${pr.via || "—"}</td>
       <td>${(pr.horarios || []).map((h) => `<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">${h}</span>`).join(" ")}</td>
-      <td style="color:var(--muted)">${pr.prescritorId ? prescNome(pr.prescritorId) + ext : "—"}</td>
+      <td style="color:var(--muted)">${pr.prescritorId
+        ? `<a href="javascript:void 0" onclick="abrirFormPrescritor('${pr.prescritorId}')" title="Corrigir o cadastro deste médico" style="color:inherit;text-decoration:underline dotted">${prescNome(pr.prescritorId)}</a>${ext}`
+        : "—"}</td>
       <td class="mono">${pr.dataInicio ? fmtDate(pr.dataInicio) : "—"}${(() => {
         if (!pr.dataFim) return "";
         const d = prescDiasRestantes(pr);
@@ -475,6 +546,122 @@ function _prescAvisoDuplicadas(pacId) {
     </div>`;
 }
 
+/* ============================================================
+   CADASTRO DE MÉDICOS PRESCRITORES
+
+   O prescritor só podia ser criado — pelo "+ Novo prescritor…" dentro da
+   prescrição — e nunca mais corrigido. Um CRM digitado errado ficava errado
+   para sempre e ia impresso em todo receituário e em toda folha de
+   prescrição daquele médico.
+
+   Corrigir aqui vale para trás, porque prescrição e paciente guardam o id do
+   prescritor e o nome é lido do cadastro na hora de imprimir. Isso é o que se
+   quer numa correção de digitação (o receituário volta a sair certo), e é
+   por isso que o modal avisa quando há histórico: trocar o cadastro por OUTRO
+   médico reescreveria a autoria de prescrições antigas. Para médico novo, o
+   caminho é cadastrar outro.
+   ============================================================ */
+// o que já aponta para este prescritor — decide se pode ser excluído
+function _prescritorVinculos(id) {
+  const prescs = prescriptions.filter((pr) => pr.prescritorId === id).length;
+  const pacs = patients.filter((p) => p.prescritorId === id).length;
+  return { prescs, pacs, total: prescs + pacs };
+}
+
+function abrirFormPrescritor(id) {
+  const m = id ? prescById(id) : null;
+  const v = id ? _prescritorVinculos(id) : { total: 0 };
+  const aviso = id && v.total ? `<div class="note-box" style="margin-top:0;background:#FBF3E3;border-color:#E8D9B5">
+      <b>Este médico tem histórico</b> — ${v.prescs ? `${v.prescs} prescrição(ões)` : ""}${v.prescs && v.pacs ? " e " : ""}${v.pacs ? `${v.pacs} paciente(s) sob sua responsabilidade` : ""}.
+      O que for alterado aqui passa a aparecer <b>também nos registros antigos</b> e nos receituários impressos daqui em diante.
+      Use para <b>corrigir digitação</b> (nome, conselho, UF, número). Se for <b>outro médico</b>, cadastre um novo em vez de alterar este.
+    </div>` : "";
+  abrirModal(id ? "Editar médico prescritor" : "Novo médico prescritor", `
+    ${aviso}
+    <div class="ff"><label>Nome *</label><input id="mpNome" value="${((m && m.nome) || "").replace(/"/g, "&quot;")}" placeholder="Dr(a). Nome completo"></div>
+    <div class="ff row3">
+      <div><label>Conselho *</label><input id="mpConselho" value="${(m && m.conselho) || "CRM"}"></div>
+      <div><label>UF *</label><input id="mpUf" value="${(m && m.uf) || ""}" placeholder="GO" maxlength="2"></div>
+      <div><label>Número *</label><input id="mpNumero" value="${((m && m.numero) || "").replace(/"/g, "&quot;")}" placeholder="12345"></div>
+    </div>
+    <div class="ff"><label>Vínculo</label>
+      <select id="mpVinculo">
+        <option value="interno"${m && m.externo ? "" : " selected"}>Interno (médico da clínica)</option>
+        <option value="externo"${m && m.externo ? " selected" : ""}>Externo (prescrição trazida de fora)</option>
+      </select>
+      <div class="dica">Externo aparece marcado na prescrição do paciente — é o que lembra que a receita veio de fora e precisa de via arquivada.</div></div>`,
+    async () => {
+      const nome = fv("mpNome"); if (!nome) throw new Error("Informe o nome do médico.");
+      const numero = fv("mpNumero"); if (!numero) throw new Error("Informe o número do conselho (CRM).");
+      const uf = fv("mpUf").toUpperCase(); if (!uf) throw new Error("Informe a UF do conselho.");
+      const dados = { nome, conselho: fv("mpConselho") || "CRM", uf, numero, externo: fv("mpVinculo") === "externo" };
+      if (id) {
+        const { error } = await window.SB.from("prescritores").update(dados).eq("id", id);
+        if (error) throw error;
+      } else {
+        const { error } = await window.SB.from("prescritores").insert(dados);
+        if (error) throw error;
+      }
+    }, id ? "Salvar alterações" : "Cadastrar médico");
+}
+
+async function excluirPrescritor(id) {
+  const m = prescById(id); if (!m) return;
+  const v = _prescritorVinculos(id);
+  if (v.total > 0) {
+    const partes = [];
+    if (v.prescs) partes.push(`${v.prescs} prescrição(ões)`);
+    if (v.pacs) partes.push(`${v.pacs} paciente(s)`);
+    alert(
+      `${m.nome} não pode ser excluído.\n\n` +
+      `Há registros vinculados: ${partes.join(" e ")}.\n\n` +
+      `Excluir apagaria a autoria dessas prescrições, que é parte da escrituração ` +
+      `de controlados. Para corrigir um dado, use "Editar".`);
+    return;
+  }
+  if (!confirm(`Excluir ${m.nome} (${m.conselho}-${m.uf} ${m.numero})?\n\n` +
+    `Não há nenhuma prescrição nem paciente vinculado a ele, então pode ser removido ` +
+    `sem perda de histórico.\n\nEsta ação não pode ser desfeita.`)) return;
+  const { error } = await window.SB.from("prescritores").delete().eq("id", id);
+  if (error) { alert("Erro ao excluir: " + error.message); return; }
+  await recarregarTela();
+}
+
+function _painelPrescritores() {
+  const lista = [...prescritores].sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
+  const linhas = lista.map((m) => {
+    const v = _prescritorVinculos(m.id);
+    return `<tr>
+      <td><b>${_esc(m.nome)}</b>${m.externo ? ' <span class="tag" style="background:var(--accent-tint);color:var(--accent)">EXTERNO</span>' : ""}</td>
+      <td class="mono">${_esc(m.conselho || "CRM")}-${_esc(m.uf || "")} ${_esc(m.numero || "")}</td>
+      <td style="color:var(--muted)">${v.prescs ? `${v.prescs} prescrição(ões)` : "—"}${v.pacs ? ` · ${v.pacs} paciente(s)` : ""}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn ghost sm" onclick="abrirFormPrescritor('${m.id}')">Editar</button>
+        <button class="btn ghost sm" onclick="excluirPrescritor('${m.id}')">Excluir</button>
+      </td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Médicos prescritores</div>
+          <div class="panel-title-sub">${lista.length} cadastrado(s) · corrija nome, conselho, UF e número aqui</div></div>
+        <div class="toolbar"><button class="btn ghost sm" onclick="abrirFormPrescritor()">+ Novo médico</button></div>
+      </div>
+      <div class="panel-body">
+        ${lista.length ? `<details>
+          <summary style="cursor:pointer;color:var(--primary);font-weight:600;font-size:13px;padding:2px 0">Ver e editar o cadastro de médicos</summary>
+          <table style="margin-top:10px">
+            <thead><tr><th>Médico</th><th>Conselho</th><th>Registros vinculados</th><th></th></tr></thead>
+            <tbody>${linhas}</tbody>
+          </table>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px">A correção vale também para os registros antigos — é assim que um CRM digitado errado volta a sair certo nos receituários. Quem tem histórico não pode ser excluído.</div>
+        </details>`
+        : `<div style="color:var(--muted);font-size:13px;padding:8px 0">Nenhum médico cadastrado. Use <b>+ Novo médico</b> — ou cadastre na hora, pelo campo de prescritor da prescrição.</div>`}
+      </div>
+    </div>`;
+}
+
 function renderPage() {
   if (_prescPac && prescriptions.some((pr) => pr.paciente === _prescPac)) return _detalhePaciente(_prescPac);
   const optPacs = `<option value="">Ver todos os pacientes</option>` +
@@ -507,6 +694,7 @@ function renderPage() {
           }).join(" · ")}${enc.length > 8 ? ` <span style="color:var(--muted)">e mais ${enc.length - 8}</span>` : ""}</div></div>`;
       })()}${_cardsPorPaciente()}</div>
     </div>
+    ${_painelPrescritores()}
   `;
 }
 
