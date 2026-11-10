@@ -153,6 +153,8 @@ function renderPage() {
       </div>
     </div>
 
+    ${_painelInsumosAplicacao()}
+
     <div class="panel">
       <div class="panel-head"><div><div class="panel-title">Backup e Segurança</div><div class="panel-title-sub">Cópia de segurança de todos os dados, guardada fora do Supabase</div></div></div>
       <div class="panel-body">
@@ -168,6 +170,176 @@ function renderPage() {
   `;
 }
 
+
+/* ============================================================
+   INSUMO CONSUMIDO POR APLICAÇÃO
+
+   A regra é por GRUPO (SERINGA, AGULHA): um item do grupo sai por aplicação
+   de injetável, na conta do paciente. O padrão é o que vem marcado na hora
+   da dispensação; os outros ficam no seletor porque o calibre é escolha do
+   enfermeiro no momento da aplicação.
+
+   Grupo sem padrão não lança nada — é como se deixa a AGULHA cadastrada e
+   desligada até escolher o calibre, sem precisar apagar os itens.
+
+   Álcool 70% e algodão NÃO entram aqui, de propósito: frasco de 1 L e rolo
+   de 500 g não têm dose por aplicação, e qualquer quantidade por paciente
+   seria inventada. Esses saem por centro de custo, na requisição do setor.
+   ============================================================ */
+function _insGrupos() {
+  const g = {};
+  insumosAplicacao.forEach((i) => { (g[i.grupo] = g[i.grupo] || []).push(i); });
+  Object.keys(g).forEach((k) => g[k].sort((a, b) => a.ordem - b.ordem ||
+    (subById(a.insumoId).nome || "").localeCompare(subById(b.insumoId).nome || "", "pt-BR")));
+  return g;
+}
+
+function _painelInsumosAplicacao() {
+  const grupos = _insGrupos();
+  const nomes = Object.keys(grupos).sort(ordenaGrupoInsumo);
+  const corpo = !nomes.length
+    ? `<div class="note-box" style="margin:0;background:#FBF3E3;border-color:#e8d9b0">
+        <b>Nenhuma regra cadastrada.</b> Se você ainda não rodou a migração <span class="mono">db/migration_insumos_aplicacao.sql</span> no Supabase, rode-a primeiro — ela cria a tabela e já traz as seringas cadastradas. Depois use <b>+ Adicionar item</b>.</div>`
+    : nomes.map((nome) => {
+        const itens = grupos[nome];
+        const semPadrao = !itens.some((i) => i.padrao && i.ativo);
+        return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div><b>${_esc(nome)}</b> <span style="color:var(--muted);font-size:12px">· ${itens.length} item(ns)</span></div>
+            ${semPadrao ? `<span class="tag" style="background:#FBF3E3;color:#B07A2F">sem padrão — não lança</span>` : ""}
+          </div>
+          <table style="margin-top:8px">
+            <thead><tr><th>Item</th><th>Qtd.</th><th>Saldo</th><th>Vale para</th><th></th></tr></thead>
+            <tbody>${itens.map((i) => {
+              const s = subById(i.insumoId);
+              const em = saldo(i.insumoId);
+              return `<tr${i.ativo ? "" : ' style="opacity:.5"'}>
+                <td><b>${_esc(s.nome)}</b>${i.padrao ? ` <span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">PADRÃO</span>` : ""}${i.ativo ? "" : ` <span class="tag" style="background:#F1F3F1;color:#6a736e">inativo</span>`}</td>
+                <td class="num mono">${fmtDose(i.qtd)}</td>
+                <td class="num mono"${em <= 0 ? ' style="color:#B04A3F"' : ""}>${fmtDose(em)}</td>
+                <td style="color:var(--muted)">${i.subId ? _esc(subById(i.subId).nome) : "todo injetável"}</td>
+                <td style="text-align:right;white-space:nowrap">
+                  ${i.padrao ? "" : `<button class="btn ghost sm" onclick="definirInsumoPadrao('${i.id}')">Tornar padrão</button>`}
+                  <button class="btn ghost sm" onclick="abrirFormInsumo('${i.id}')">Editar</button>
+                  <button class="btn ghost sm" onclick="excluirInsumo('${i.id}')">Excluir</button>
+                </td></tr>`;
+            }).join("")}</tbody>
+          </table>
+        </div>`;
+      }).join("");
+
+  return `<div class="panel">
+    <div class="panel-head">
+      <div><div class="panel-title">Insumo por aplicação de injetável</div>
+        <div class="panel-title-sub">Seringa e agulha lançadas na conta do paciente a cada aplicação</div></div>
+      <div class="toolbar"><button class="btn sm" onclick="abrirFormInsumo()">+ Adicionar item</button></div>
+    </div>
+    <div class="panel-body">
+      <div class="note-box" style="margin-top:0">Sai <b>um item de cada grupo por aplicação</b>, não um por medicamento: Haldol e Fenergan aplicados juntos consomem uma seringa só. Na dispensação o padrão já vem marcado e pode ser trocado, porque quem escolhe o calibre é o enfermeiro na hora.
+        <div style="margin-top:6px">Álcool 70% e algodão ficam de fora: frasco de 1 L e rolo de 500 g não têm dose por aplicação, e lançar um número inventado na conta de um paciente é pior do que não lançar. Esses saem por <b>centro de custo</b>, na requisição da enfermagem.</div></div>
+      ${corpo}
+    </div>
+  </div>`;
+}
+
+function abrirFormInsumo(id) {
+  const i = id ? insumosAplicacao.find((x) => x.id === id) : null;
+  const mats = subsMateriais().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  if (!mats.length) { alert("Nenhum material cadastrado.\n\nCadastre a seringa e a agulha em Estoque, com tipo \"material\", antes de criar a regra."); return; }
+  const grupos = [...new Set([...Object.keys(_insGrupos()), "SERINGA", "AGULHA"])].sort(ordenaGrupoInsumo);
+  abrirModal(id ? "Editar item de insumo" : "Novo item de insumo", `
+    <div class="ff row2">
+      <div><label>Grupo *</label>
+        <select id="insGrupo">${grupos.map((g) => `<option value="${_esc(g)}"${i && i.grupo === g ? " selected" : ""}>${_esc(g)}</option>`).join("")}
+          <option value="__novo__">+ Novo grupo…</option></select>
+        <div class="dica">Um item de cada grupo sai por aplicação.</div></div>
+      <div><label>Quantidade por aplicação *</label>
+        <input id="insQtd" type="number" min="0.25" step="0.25" value="${i ? i.qtd : 1}"></div>
+    </div>
+    <div class="ff" id="insGrupoNovoBloco" style="display:none"><label>Nome do novo grupo</label>
+      <input id="insGrupoNovo" placeholder="Ex.: EQUIPO" style="text-transform:uppercase"></div>
+    <div class="ff"><label>Material *</label>
+      <select id="insMat">${mats.map((m) => `<option value="${m.id}"${i && i.insumoId === m.id ? " selected" : ""}>${_esc(m.nome)} · saldo ${fmtDose(saldo(m.id))}</option>`).join("")}</select></div>
+    <div class="ff"><label>Vale para</label>
+      <select id="insSub">
+        <option value="">Todo injetável (regra geral)</option>
+        ${subsMedicamentos().filter((s) => ehInjetavel(s)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
+          .map((s) => `<option value="${s.id}"${i && i.subId === s.id ? " selected" : ""}>Somente ${_esc(s.nome)}</option>`).join("")}
+      </select>
+      <div class="dica">A regra de um medicamento <b>substitui</b> a regra geral daquele grupo — é o escape para o decanoato, que pede agulha mais longa.</div></div>
+    <div class="ff row2">
+      <div><label>Padrão do grupo</label>
+        <select id="insPadrao">
+          <option value="1"${i && i.padrao ? " selected" : ""}>Sim — já vem marcado na dispensação</option>
+          <option value="0"${i && i.padrao ? "" : " selected"}>Não — fica como opção no seletor</option>
+        </select></div>
+      <div><label>Situação</label>
+        <select id="insAtivo">
+          <option value="1"${!i || i.ativo ? " selected" : ""}>Ativo</option>
+          <option value="0"${i && !i.ativo ? " selected" : ""}>Inativo</option>
+        </select></div>
+    </div>
+    <div class="ff"><label>Ordem no seletor</label>
+      <input id="insOrdem" type="number" step="1" value="${i ? i.ordem : 0}">
+      <div class="dica">As seringas vêm ordenadas pelo calibre (3, 5, 10, 20), para o seletor sair na ordem que você procura.</div></div>`,
+    async () => {
+      let grupo = fv("insGrupo");
+      if (grupo === "__novo__") grupo = fv("insGrupoNovo").toUpperCase();
+      if (!grupo) throw new Error("Informe o grupo.");
+      const dados = {
+        grupo, insumo_id: fv("insMat"), quantidade: Math.max(0.25, fvNum("insQtd") || 1),
+        padrao: fv("insPadrao") === "1", ativo: fv("insAtivo") === "1",
+        substancia_id: fvOrNull("insSub"), forma: "injetavel",
+        ordem: fvNum("insOrdem") || 0,
+      };
+      if (!dados.insumo_id) throw new Error("Escolha o material.");
+      /* Um padrão por grupo: o banco tem índice único para isso e recusaria o
+         segundo. Em vez de devolver erro de constraint, o anterior é
+         rebaixado aqui — é o que o usuário quer dizer ao marcar outro. */
+      if (dados.padrao) await _insLimpaPadrao(grupo, dados.substancia_id, id);
+      if (id) {
+        const { error } = await window.SB.from("insumos_aplicacao").update(dados).eq("id", id);
+        if (error) throw error;
+      } else {
+        const { error } = await window.SB.from("insumos_aplicacao").insert(dados);
+        if (error) throw error;
+      }
+    }, id ? "Salvar alterações" : "Adicionar item");
+  const sel = document.getElementById("insGrupo");
+  if (sel) sel.onchange = () => {
+    document.getElementById("insGrupoNovoBloco").style.display = sel.value === "__novo__" ? "" : "none";
+  };
+}
+
+async function _insLimpaPadrao(grupo, subId, exceto) {
+  const alvos = insumosAplicacao.filter((x) => x.grupo === grupo && x.padrao &&
+    (x.subId || null) === (subId || null) && x.id !== exceto);
+  for (const a of alvos) {
+    const { error } = await window.SB.from("insumos_aplicacao").update({ padrao: false }).eq("id", a.id);
+    if (error) throw error;
+  }
+}
+
+async function definirInsumoPadrao(id) {
+  const i = insumosAplicacao.find((x) => x.id === id); if (!i) return;
+  try {
+    await _insLimpaPadrao(i.grupo, i.subId, id);
+    const { error } = await window.SB.from("insumos_aplicacao").update({ padrao: true, ativo: true }).eq("id", id);
+    if (error) throw error;
+    await recarregarTela();
+  } catch (e) { alert("Erro: " + (e.message || e)); }
+}
+
+async function excluirInsumo(id) {
+  const i = insumosAplicacao.find((x) => x.id === id); if (!i) return;
+  /* Excluir a regra não mexe nas saídas já lançadas: elas são linhas de
+     dispensacoes e continuam na conta do paciente, como têm de continuar. */
+  if (!confirm(`Tirar ${subById(i.insumoId).nome} do grupo ${i.grupo}?\n\n` +
+    `As seringas já lançadas continuam nas contas dos pacientes — isto só muda o que será lançado daqui para frente.`)) return;
+  const { error } = await window.SB.from("insumos_aplicacao").delete().eq("id", id);
+  if (error) { alert("Erro ao excluir: " + error.message); return; }
+  await recarregarTela();
+}
 
 /* Fechamento da escrituração: trava o período já transmitido. */
 async function salvarFechamento(reabrir) {

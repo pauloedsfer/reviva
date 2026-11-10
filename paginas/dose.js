@@ -497,9 +497,14 @@ async function confirmarDispensacao() {
         `Dispensar o que existe (zerando o lote) e deixar o restante pendente até chegar medicação?`);
       if (!parcial) return;
     }
+    /* Chave da APLICAÇÃO: paciente + horário (SOS conta como uma só, porque
+       o lote de SOS é confirmado num evento). É o que faz Haldol + Fenergan
+       das 9h do mesmo paciente consumirem UMA seringa, e não duas — eles são
+       aspirados na mesma seringa. */
+    const apl = c.dataset.pac + "|" + (ehSOS ? "SOS" : c.dataset.hor);
     alloc.usados.forEach((u, i) => {
       porChave[u.chave] = (porChave[u.chave] || 0) + u.qtd;
-      rows.push({ data: d, substancia_id: c.dataset.sub, numero_lote: u.lote,
+      rows.push({ _apl: apl, data: d, substancia_id: c.dataset.sub, numero_lote: u.lote,
         quantidade: u.qtd,
         // de qual saldo a dose saiu. Gravado, não inferido depois: o número do
         // lote sozinho não distingue o estoque da clínica da custódia do
@@ -526,23 +531,183 @@ async function confirmarDispensacao() {
         x.usados.map((u) => `${fmtDose(u.qtd)} do lote ${u.lote}${u.custodia ? " (custódia)" : ""}`).join(" + ") +
         (x.faltando ? `\n    faltando ${fmtDose(x.faltando)} — pendente` : "")).join("\n")
     : "";
-  if (!confirm(`Confirmar a dispensação de ${rows.length} lançamento(s)${msgData}? Isso dará baixa no estoque.${resumoSOS}${resumoDiv}`)) return;
+  /* Insumo da aplicação (seringa, agulha). Quando há injetável na seleção, a
+     confirmação vira um modal com o que será consumido, porque o calibre é
+     escolha do enfermeiro no momento da aplicação e não pode ser decidido em
+     silêncio pelo sistema. Sem injetável, segue o confirm() de sempre. */
+  const aplicacoes = _aplicacoesComInsumo(rows);
+  const resumo = `Confirmar a dispensação de ${rows.length} lançamento(s)${msgData}? Isso dará baixa no estoque.${resumoSOS}${resumoDiv}`;
+  if (aplicacoes.length) { _abrirModalInsumos(rows, porChave, aplicacoes, resumo); return; }
+  if (!confirm(resumo)) return;
+  await _dispGravar(rows, porChave, []);
+}
+
+/* Gravação: as doses primeiro, os insumos depois, ligados por insumo_de.
+   Nessa ordem porque o insumo precisa do id da dose — e porque, se o insumo
+   falhar, a dose já está gravada: o remédio administrado tem que constar,
+   mesmo que a seringa não tenha sido lançada. O contrário deixaria a
+   enfermagem sem registro da dose por causa de material. */
+async function _dispGravar(rows, porChave, insumos, recarregar) {
   const btn = document.getElementById("btnDispensar");
   if (btn) { btn.disabled = true; btn.textContent = "Dispensando…"; }
   try {
     // confere saldo de cada lote antes de gravar (trava de negativo)
     for (const k of Object.keys(porChave)) validarSaidaLote(k, porChave[k]);
-    const { error } = await window.SB.from("dispensacoes").insert(rows);
+    const limpas = rows.map(({ _apl, ...r }) => r);
+    const { data, error } = await window.SB.from("dispensacoes").insert(limpas).select("id");
     if (error) throw error;
-    await recarregarTela();
+    if (insumos.length) {
+      /* O insert devolve as linhas na ordem enviada; é assim que cada
+         aplicação encontra o id da própria dose para pendurar o insumo. Se a
+         contagem não bater, não há como ligar com segurança: grava-se a dose
+         e avisa-se, em vez de pendurar o insumo na dose errada. */
+      const ids = (data || []).map((x) => x.id);
+      if (ids.length !== rows.length) throw new Error("__sem_vinculo__");
+      const primeiraDaApl = {};
+      rows.forEach((r, i) => { if (primeiraDaApl[r._apl] == null) primeiraDaApl[r._apl] = ids[i]; });
+      const linhas = [];
+      const faltou = [];
+      insumos.forEach((ins) => {
+        const alloc = alocarLotes(ins.insumoId, null, ins.qtd);
+        if (!alloc.usados.length || alloc.faltando > 0) { faltou.push(ins); if (!alloc.usados.length) return; }
+        alloc.usados.forEach((u) => linhas.push({
+          data: ins.data, substancia_id: ins.insumoId, numero_lote: u.lote, quantidade: u.qtd,
+          lote_dono: "clinica", referencia: ins.ref, paciente_id: ins.paciente,
+          insumo_de: primeiraDaApl[ins.apl], ...usuarioId(),
+        }));
+      });
+      if (linhas.length) {
+        const r2 = await window.SB.from("dispensacoes").insert(linhas);
+        if (r2.error) throw new Error("__insumo__" + (r2.error.message || r2.error));
+      }
+      if (faltou.length) {
+        alert("Doses gravadas.\n\nSem saldo suficiente para lançar:\n" +
+          faltou.map((f) => `  ${subById(f.insumoId).nome}`).join("\n") +
+          "\n\nDê entrada desse material e lance a saída pelo ajuste, se quiser que entre na conta.");
+      }
+    }
+    if (recarregar !== false) await recarregarTela();
   } catch (e) {
-    alert("Erro ao dispensar: " + (e.message || e));
+    /* Dose gravada e insumo não: a tela recarrega e o erro vira aviso, porque
+       repetir a dispensação duplicaria a dose. Dose não gravada: o erro sobe,
+       para o modal continuar aberto com a seleção preservada. */
+    const msg = String(e.message || e);
+    if (msg === "__sem_vinculo__") {
+      alert("As doses foram gravadas, mas o sistema não conseguiu ligar os insumos a elas.\n\n" +
+            "Nenhuma seringa foi lançada — lance pelo ajuste, se precisar.");
+      if (recarregar !== false) await recarregarTela();
+      return;
+    }
+    if (msg.indexOf("__insumo__") === 0) {
+      alert("As doses foram gravadas.\n\nErro ao lançar os insumos: " + msg.slice(10));
+      if (recarregar !== false) await recarregarTela();
+      return;
+    }
     if (btn) { btn.disabled = false; btn.textContent = "Confirmar dispensação"; }
+    if (recarregar === false) throw e;      // modal mostra a mensagem e fica aberto
+    alert("Erro ao dispensar: " + msg);
   }
 }
 
+/* ============================================================
+   INSUMO DA APLICAÇÃO
+
+   Uma aplicação = um paciente, num horário (ou num evento de SOS). Os
+   injetáveis dessa aplicação consomem UM item de cada grupo da regra
+   (SERINGA, AGULHA), não um por medicamento.
+
+   Quando dois injetáveis da mesma aplicação têm regras diferentes para o
+   mesmo grupo, vale a regra ESPECÍFICA da substância — é o caso do
+   decanoato, que pede agulha mais longa que o haloperidol comum.
+   ============================================================ */
+function _aplicacoesComInsumo(rows) {
+  const porApl = {};
+  rows.forEach((r) => {
+    if (!ehInjetavel(subById(r.substancia_id))) return;
+    const a = porApl[r._apl] || (porApl[r._apl] = {
+      apl: r._apl, paciente: r.paciente_id, data: r.data,
+      rotulo: String(r.referencia).indexOf("SOS") === 0 ? "SOS" : String(r.referencia).replace(/\s*\(lote \d+\/\d+\)$/, ""),
+      subs: [], grupos: {},
+    });
+    if (a.subs.indexOf(r.substancia_id) < 0) a.subs.push(r.substancia_id);
+  });
+  Object.values(porApl).forEach((a) => {
+    a.subs.forEach((subId) => {
+      regrasInsumoDaSubstancia(subId).forEach((g) => {
+        const atual = a.grupos[g.grupo];
+        if (!atual || (g.especifica && !atual.especifica)) a.grupos[g.grupo] = g;
+      });
+    });
+    a.grupos = Object.values(a.grupos);
+  });
+  return Object.values(porApl).filter((a) => a.grupos.length);
+}
+
+function _abrirModalInsumos(rows, porChave, aplicacoes, resumo) {
+  // saldo do estoque da clínica; material não tem custódia de paciente
+  const emEstoque = (insumoId) => saldo(insumoId);
+  const opcao = (i, sel) => {
+    const s = subById(i.insumoId), em = emEstoque(i.insumoId);
+    return `<option value="${i.id}"${i.id === sel ? " selected" : ""}${em <= 0 ? " disabled" : ""}>${_esc(s.nome)} · saldo ${fmtDose(em)}${em <= 0 ? " — sem saldo" : ""}</option>`;
+  };
+  const blocos = aplicacoes.map((a) => {
+    const p = patById(a.paciente);
+    const meds = a.subs.map((s) => subNomeExibicao(s)).join(" + ");
+    const linhas = a.grupos.map((g) => {
+      /* Padrão sem saldo não pode vir marcado: o navegador escolheria sozinho
+         a primeira opção habilitada e o farmacêutico lançaria um calibre que
+         não escolheu. Sem saldo no padrão, marca-se o primeiro que tem. */
+      const temSaldo = g.itens.some((i) => emEstoque(i.insumoId) > 0);
+      const padReal = insumoPadraoDoGrupo(g);
+      const pad = padReal && emEstoque(padReal.insumoId) > 0
+        ? padReal : g.itens.find((i) => emEstoque(i.insumoId) > 0) || padReal;
+      return `<div style="display:grid;grid-template-columns:90px 1fr 78px;gap:8px;align-items:center;margin-top:6px">
+        <label style="margin:0;font-size:11px;color:var(--muted);text-transform:uppercase">${_esc(g.grupo)}</label>
+        <select class="ins-item" data-apl="${_esc(a.apl)}" data-grupo="${_esc(g.grupo)}"${temSaldo ? "" : " disabled"}>
+          ${temSaldo ? g.itens.map((i) => opcao(i, pad ? pad.id : "")).join("") : ""}
+          <option value=""${temSaldo ? "" : " selected"}>— não lançar —</option>
+        </select>
+        <input type="number" class="ins-qtd" min="0.25" step="0.25" value="${pad ? pad.qtd : 1}"${temSaldo ? "" : " disabled"} title="Quantidade usada nesta aplicação">
+      </div>`;
+    }).join("");
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:9px;background:#FCFCFB">
+      <div style="font-size:12.5px"><b>${_esc(p ? p.nome : "—")}</b> <span style="color:var(--muted)">· ${_esc(a.rotulo)} · ${_esc(meds)}</span></div>
+      ${linhas}
+    </div>`;
+  }).join("");
+
+  abrirModal("Confirmar dispensação", `
+    <div class="note-box" style="margin-top:0;white-space:pre-wrap">${_esc(resumo)}</div>
+    <div class="item-head">Insumos da aplicação</div>
+    <div style="font-size:12px;color:var(--muted);margin:-2px 0 8px">Um item de cada grupo por aplicação — Haldol e Fenergan aplicados juntos usam uma seringa só. O padrão já vem marcado; troque se o enfermeiro usou outro calibre. Vai para a conta do paciente.</div>
+    ${blocos}`,
+    async () => {
+      const insumos = [];
+      document.querySelectorAll("#mbBody .ins-item").forEach((sel) => {
+        if (!sel.value) return;
+        const regra = insumosAplicacao.find((i) => i.id === sel.value);
+        if (!regra) return;
+        const a = aplicacoes.find((x) => x.apl === sel.dataset.apl);
+        const qtdEl = sel.parentElement.querySelector(".ins-qtd");
+        const qtd = Math.max(0.25, parseFloat(String(qtdEl ? qtdEl.value : "1").replace(",", ".")) || 1);
+        insumos.push({ apl: a.apl, data: a.data, paciente: a.paciente, insumoId: regra.insumoId, qtd,
+          ref: `Insumo — ${a.rotulo}` });
+      });
+      // false: quem recarrega é o próprio modal, ao fechar
+      await _dispGravar(rows, porChave, insumos, false);
+    }, "Confirmar dispensação", { largo: true });
+}
+
 async function estornarDispensacao(id) {
-  if (!confirm("Estornar esta dispensação? A quantidade volta ao estoque.")) return;
+  /* O insumo é filho da dose no banco (insumo_de ... on delete cascade):
+     estornar a dose devolve a seringa junto, sem segundo clique. Isso é dito
+     aqui porque some uma linha da tela que o usuário não mandou apagar. */
+  const filhos = dispensations.filter((x) => x.insumoDe === id);
+  const aviso = filhos.length
+    ? `\n\nVolta também o insumo lançado junto:\n` +
+      filhos.map((f) => `  ${fmtDose(f.qtd)} — ${subById(f.subId).nome}`).join("\n")
+    : "";
+  if (!confirm("Estornar esta dispensação? A quantidade volta ao estoque." + aviso)) return;
   try {
     const { error } = await window.SB.from("dispensacoes").delete().eq("id", id);
     if (error) throw error;
@@ -624,7 +789,7 @@ function renderPage() {
   const pendentes = esperadas.filter((x) => !_dispensadoNaData(x.pac, x.subId, x.horario));
   // histórico do dia: doses programadas ("Dose HH") e SOS ("SOS — obs")
   const dispensadasData = dispensations.filter((x) => x.data === d && x.ref &&
-    (x.ref.indexOf("Dose ") === 0 || x.ref.indexOf("SOS") === 0));
+    (x.ref.indexOf("Dose ") === 0 || x.ref.indexOf("SOS") === 0 || x.insumoDe));
   const returnsData = returns.filter((r) => r.data === d);
 
   /* Data futura não é erro: na sexta a farmácia entrega os kits de sábado,
@@ -724,9 +889,11 @@ function renderPage() {
     <table>
       <thead><tr><th>Paciente</th><th>Horário/Ref.</th><th>Substância</th><th>Lote</th><th>Qtd.</th><th></th></tr></thead>
       <tbody>
-        ${dispensadasData.map((x) => `<tr>
+        ${dispensadasData.map((x) => `<tr${x.insumoDe ? ' style="background:#FBFBF9"' : ""}>
           <td><b>${x.paciente ? patById(x.paciente).nome : "—"}</b></td>
-          <td>${x.ref.indexOf("SOS") === 0 ? `<span class="tag" style="background:#FBF3E3;color:#B07A2F">SOS</span> ${_esc(x.ref.replace(/^SOS\s*—?\s*/, "")) || "<span style=\"color:var(--muted)\">sem observação</span>"}` : _esc(x.ref)}</td>
+          <td>${x.insumoDe
+            ? `<span class="tag" style="background:var(--primary-tint);color:var(--primary-dark)">INSUMO</span> ${_esc(String(x.ref).replace(/^Insumo\s*—\s*/, ""))}`
+            : x.ref.indexOf("SOS") === 0 ? `<span class="tag" style="background:#FBF3E3;color:#B07A2F">SOS</span> ${_esc(x.ref.replace(/^SOS\s*—?\s*/, "")) || "<span style=\"color:var(--muted)\">sem observação</span>"}` : _esc(x.ref)}</td>
           <td>${subNomeExibicao(x.subId)}</td>
           <td><span class="folio">${x.lote}</span></td>
           <td class="num mono">−${x.qtd}</td>

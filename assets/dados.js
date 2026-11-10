@@ -39,6 +39,7 @@ let pops = [];
 let cotacoes = [];
 let custodiaDestinos = [];
 let pacienteEventos = [];
+let insumosAplicacao = [];   // regras de insumo consumido por aplicação (seringa, agulha)
 let emergencyCart = { lacreAtual: "—", status: "—", ultimaConferencia: null, responsavelConferencia: "—", itens: [], historico: [] };
 let movements = [];
 
@@ -80,7 +81,7 @@ async function _buscarTudo(tabela, select) {
 async function carregarDados() {
   const q = (sel) => window.SB.from(sel.t).select(sel.s || "*");
   const [
-    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns, transf,
+    subs, pacs, presc, invs, dons, mprop, inv, disp, devs, popsR, cart, cartItens, cartHist, prescs, forns, transf, insApl,
   ] = await Promise.all([
     _buscarTudo("substancias"),
     _buscarTudo("pacientes", "*, prescritores(nome,conselho,uf,numero)"),
@@ -98,6 +99,10 @@ async function carregarDados() {
     _buscarTudo("prescritores"),
     _buscarTudo("fornecedores"),
     _buscarTudo("transferencias_custodia"),
+    /* Tolerante a quem ainda não rodou a migração: sem a tabela, o sistema
+       segue inteiro e só não lança insumo por aplicação. Um throw aqui
+       derrubaria a carga de TODAS as telas por causa de um recurso novo. */
+    window.SB.from("insumos_aplicacao").select("*").then((r) => r.error ? [] : (r.data || [])),
   ]);
 
   substances = subs.map((s) => ({
@@ -173,6 +178,15 @@ async function carregarDados() {
   dispensations = disp.map((d) => ({
     id: d.id, data: d.data, subId: d.substancia_id, lote: d.numero_lote, qtd: d.quantidade,
     ref: d.referencia, paciente: d.paciente_id, loteDono: d.lote_dono || null,
+    // saída do insumo da aplicação: aponta para a dose que a gerou
+    insumoDe: d.insumo_de || null,
+  }));
+
+  insumosAplicacao = (insApl || []).map((i) => ({
+    id: i.id, grupo: i.grupo, insumoId: i.insumo_id, qtd: Number(i.quantidade || 1),
+    padrao: i.padrao === true, forma: i.forma || "injetavel",
+    subId: i.substancia_id || null, ativo: i.ativo !== false,
+    ordem: i.ordem == null ? 0 : Number(i.ordem), obs: i.observacao,
   }));
 
   returns = devs.map((r) => ({
@@ -558,9 +572,9 @@ function temDescarte(pr) { return qtdConsumida(pr) > qtdPorHorario(pr) + 1e-9; }
    ============================================================ */
 const FORMAS_DOSE = [
   // insulina antes de injetável: é injetável, mas a dose é em UI e a via SC
-  { id: "insulina",   re: /INSULINA|\bUI\b|UNIDADE INTERNACIONAL/,                    un: "UI",           via: "SC",          conta: false },
+  { id: "insulina",   re: /INSULINA|\bUI\b|UNIDADE INTERNACIONAL/,                    un: "UI",           via: "SC",          conta: false, injetavel: true },
   { id: "colirio",    re: /COLIRIO|OFTALMIC/,                                         un: "GOTAS",        via: "OCULAR",      conta: false },
-  { id: "injetavel",  re: /INJETAV|INJECAO|AMPOLA|FRASCO-AMPOLA|SOLUCAO INJ/,         un: "AMPOLA",       plural: "AMPOLAS",      via: "IM", conta: true },
+  { id: "injetavel",  re: /INJETAV|INJECAO|AMPOLA|FRASCO-AMPOLA|SOLUCAO INJ/,         un: "AMPOLA",       plural: "AMPOLAS",      via: "IM", conta: true, injetavel: true },
   { id: "gotas",      re: /\bGOTA/,                                                   un: "GOTAS",        via: "VO",          conta: false },
   { id: "liquidoOral",re: /XAROPE|SUSPENSAO|SOLUCAO ORAL|ELIXIR|\bML\b|MILILITRO/,    un: "ML",           via: "VO",          conta: false },
   { id: "topico",     re: /POMADA|CREME|\bGEL\b|LOCAO|UNGUENTO/,                      un: "APLICAÇÃO",    plural: "APLICAÇÕES",   via: "TÓPICA", conta: true },
@@ -594,6 +608,49 @@ function doseSugerida(sub, qtd) {
   return `${fmtDose(n)} ${un}`;
 }
 function viaSugerida(sub) { const f = formaDeDose(sub); return f ? f.via : "VO"; }
+// a substância é aplicada por injeção? (decide se consome insumo de aplicação)
+function ehInjetavel(sub) { const f = formaDeDose(sub); return !!(f && f.injetavel); }
+
+/* ============================================================
+   INSUMO CONSUMIDO POR APLICAÇÃO (seringa, agulha)
+
+   A regra é por GRUPO: "SERINGA" tem 3, 5, 10 e 20 mL dentro e sai UM item
+   por aplicação — o padrão, ou outro que o farmacêutico troque na hora,
+   porque quem escolhe o calibre é o enfermeiro no momento da aplicação.
+
+   Regra de uma substância específica SUBSTITUI a regra geral daquele grupo,
+   não se soma a ela: senão o decanoato, que pede agulha mais longa, sairia
+   com as duas agulhas na conta do paciente.
+   ============================================================ */
+function regrasInsumoDaSubstancia(subId) {
+  const sub = subById(subId);
+  const ativas = insumosAplicacao.filter((i) => i.ativo && subById(i.insumoId));
+  const daSub = ativas.filter((i) => i.subId === subId);
+  const gerais = ehInjetavel(sub) ? ativas.filter((i) => !i.subId && i.forma === "injetavel") : [];
+  const grupos = {};
+  // a específica entra depois e sobrescreve o grupo inteiro da geral
+  [...gerais, ...daSub].forEach((i) => {
+    const g = grupos[i.grupo] || (grupos[i.grupo] = { grupo: i.grupo, itens: [], especifica: false });
+    if (i.subId && !g.especifica) { g.itens = []; g.especifica = true; }   // troca a geral pela da substância
+    if (i.subId || !g.especifica) g.itens.push(i);
+  });
+  return Object.values(grupos)
+    .map((g) => ({ ...g, itens: g.itens.sort((a, b) => a.ordem - b.ordem || subById(a.insumoId).nome.localeCompare(subById(b.insumoId).nome, "pt-BR")) }))
+    // grupo sem padrão não lança nada: é a forma de deixar a agulha cadastrada
+    // e desligada até o RT escolher o calibre
+    .filter((g) => g.itens.some((i) => i.padrao))
+    .sort(ordenaGrupoInsumo);
+}
+/* Seringa antes de agulha, e o resto em ordem alfabética: é a ordem em que a
+   aplicação é montada, e a tela ficava pedindo a agulha primeiro só porque
+   "AGULHA" vem antes no alfabeto. */
+function ordenaGrupoInsumo(a, b) {
+  const nome = (x) => (typeof x === "string" ? x : x.grupo);
+  const peso = (x) => (nome(x) === "SERINGA" ? 0 : 1);
+  return peso(a) - peso(b) || nome(a).localeCompare(nome(b), "pt-BR");
+}
+// o item pré-selecionado de um grupo
+function insumoPadraoDoGrupo(g) { return g.itens.find((i) => i.padrao) || g.itens[0] || null; }
 /* A dose é "só o padrão" (pode ser reescrita quando a substância ou a
    quantidade muda) enquanto for exatamente número + unidade de alguma forma.
    Assim que recebe texto do farmacêutico — "1 COMP. ATÉ 3X AO DIA" — deixa
