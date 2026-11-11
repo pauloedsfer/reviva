@@ -189,23 +189,52 @@ function _lblLote(it, inline) {
   return `<${tag} class="${cls}${it.lotes.some((x) => x.custodia) ? " cust" : ""}">${txt}${it.faltando ? ` · faltam ${fmtDose(it.faltando)}` : ""}</${tag}>`;
 }
 
+/* Identidade de uma etiqueta: dia + paciente + horário. É o que o kit é —
+   um pacote por paciente e horário, exclusivo daquele dia —, e é por isso
+   que serve de chave para reimprimir uma etiqueta perdida sem reimprimir a
+   folha inteira. */
+function chaveEtiqueta(dia, pacId, slot) { return `${dia}|${pacId}|${slot}`; }
+
+/* Todas as etiquetas que a seleção geraria, já com o lote simulado e na
+   ordem de montagem. Fica separado da impressão porque a tela de Separação
+   precisa da MESMA lista para deixar escolher quais reimprimir — se cada uma
+   montasse a sua, as duas poderiam divergir no lote. */
+function etiquetasDoPeriodo(opts) {
+  opts = opts || {};
+  const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
+  /* Um único saldo simulado para todo o período: os dias são percorridos em
+     ordem, então o débito acompanha a ordem real de montagem dos kits. */
+  const sim = {};
+  return dias.flatMap((dia) =>
+    _gerarEtiquetas({ ...opts, data: dia, sim })
+      .map((l) => ({ ...l, dia, chave: chaveEtiqueta(dia, l.patient.id, l.slot),
+                     items: l.items.filter((it) => !it.preparo) }))
+      .filter((l) => l.items.length));
+}
+
 window.printLabels = function (opts) {
   opts = opts || {};
   const est = window.ESTAB || {};
   const hosp = est.nome_fantasia || est.razao_social || "Hospital Reviva";
-  const dias = (opts.dias && opts.dias.length) ? opts.dias : [dataRef()];
   // cada etiqueta carrega o dia a que pertence — o kit é exclusivo daquele dia
   /* Medicação de preparo na hora não vai em kit — sai da etiqueta para não
      gastar adesivo com item que a enfermagem vai preparar do frasco. Horário
      que fica sem nenhum item depois disso não gera etiqueta. */
-  /* Um único saldo simulado para toda a impressão: os dias são percorridos em
-     ordem, então o débito acompanha a ordem real de montagem dos kits. */
-  const sim = {};
-  const labels = dias.flatMap((dia) =>
-    _gerarEtiquetas({ ...opts, data: dia, sim })
-      .map((l) => ({ ...l, dia, items: l.items.filter((it) => !it.preparo) }))
-      .filter((l) => l.items.length));
-  if (!labels.length) { alert("Não há prescrições ativas para gerar etiquetas nesse período (medicação de preparo na hora não gera etiqueta)."); return; }
+  const todas = etiquetasDoPeriodo(opts);
+  /* Reimpressão avulsa: a simulação de lote roda SEMPRE sobre o período
+     inteiro e só depois as etiquetas são filtradas. Se o filtro entrasse
+     antes, as etiquetas anteriores não debitariam o saldo simulado e a
+     etiqueta reimpressa poderia mostrar um lote diferente do que saiu na
+     primeira impressão — e do que está dentro do kit já montado. */
+  const labels = opts.somente && opts.somente.length
+    ? todas.filter((l) => opts.somente.indexOf(l.chave) !== -1)
+    : todas;
+  if (!labels.length) {
+    alert(opts.somente && opts.somente.length
+      ? "Nenhuma das etiquetas marcadas existe mais nesta seleção. Confira o período e os horários."
+      : "Não há prescrições ativas para gerar etiquetas nesse período (medicação de preparo na hora não gera etiqueta).");
+    return;
+  }
   const cols = opts.colunas === 3 ? 3 : 2;
   const cards = labels.map((l) => `
     <div class="cell">

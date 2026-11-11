@@ -59,6 +59,8 @@ function sepAtualizar() {
   const box = document.getElementById("sepHorBox");
   if (box) box.innerHTML = _sepChips(_sepDias(), fv("sepPac") || null, marcados.length ? marcados : null);
   sepResumo();
+  // o seletor de avulsas lista as etiquetas do período: mudou o período, mudou a lista
+  _sepRedesenhaPicker();
 }
 
 function _sepChips(dias, pacId, marcados) {
@@ -95,9 +97,125 @@ function _sepValida(o, tipo) {
   return true;
 }
 
+/* ============================================================
+   REIMPRESSÃO DE ETIQUETAS AVULSAS
+
+   Etiqueta se perde o tempo todo na bancada: corte errado do papel, rasgo
+   ao colar no kit, prescrição alterada depois do kit montado. Antes, para
+   recuperar sete etiquetas de cinco pacientes em horários diferentes, só
+   havia dois caminhos — reimprimir a folha inteira, ou apertar os filtros
+   de período e horário até sobrar perto do que se quer, o que nunca fecha
+   quando os horários são diferentes entre os pacientes.
+
+   Aqui cada etiqueta do período vira um chip clicável, numa grade de
+   paciente × horário por dia: sete cliques e só aquelas sete saem.
+
+   O que NÃO muda: a simulação de lote continua rodando sobre o período
+   inteiro, e o filtro é aplicado só na hora de desenhar. É o que garante
+   que a etiqueta reimpressa traga o MESMO lote da primeira impressão — e,
+   portanto, o mesmo que está dentro do kit já montado.
+   ============================================================ */
+let _sepSel = [];          // chaves marcadas para reimpressão
+let _sepPicker = false;    // o seletor está aberto?
+
+function sepTogglePicker() {
+  _sepPicker = !_sepPicker;
+  if (!_sepPicker) _sepSel = [];   // fechar é desistir: não guarda marcação invisível
+  const b = document.getElementById("sepPickerBtn");
+  if (b) b.textContent = _sepPicker ? "Fechar" : "Escolher etiquetas";
+  _sepRedesenhaPicker();
+}
+
+function sepMarcaEtiqueta(chave) {
+  const i = _sepSel.indexOf(chave);
+  if (i === -1) _sepSel.push(chave); else _sepSel.splice(i, 1);
+  _sepRedesenhaPicker();
+}
+
+/* O seletor IGNORA os filtros de horário e de SOS de propósito: a etiqueta
+   que rasgou costuma ser de um horário que não está marcado na tela, e
+   apertar os filtros até sobrar o que se quer nunca fecha quando os
+   pacientes perderam etiquetas de horários diferentes. Período e paciente
+   continuam valendo, porque são escolhas explícitas e de um clique.
+
+   Também é esta a seleção que a impressão usa, e isso importa para o lote:
+   a simulação roda sobre todos os horários do período, que é o estado
+   normal da tela na separação do dia — então o lote simulado aqui é o mesmo
+   que saiu na primeira impressão. (SOS não debita saldo simulado, então
+   incluí-lo não desloca nada.) */
+function _sepOptsEtiquetas() {
+  return { ..._sepOpts(), horarios: [], incluirSOS: true };
+}
+
+function sepMarcaTodas(ligar) {
+  _sepSel = ligar ? etiquetasDoPeriodo(_sepOptsEtiquetas()).map((l) => l.chave) : [];
+  _sepRedesenhaPicker();
+}
+
+function _sepRedesenhaPicker() {
+  const el = document.getElementById("sepPickerBox");
+  if (el) el.innerHTML = _sepPickerHTML();
+}
+
+function _sepPickerHTML() {
+  if (!_sepPicker) return "";
+  const todas = etiquetasDoPeriodo(_sepOptsEtiquetas());
+  if (!todas.length) {
+    return `<div class="note-box" style="margin:12px 0 0">Nenhuma etiqueta neste período — confira a data inicial, a quantidade de dias e o paciente.</div>`;
+  }
+  /* As chaves que sumiram da seleção (o período mudou, a prescrição mudou)
+     saem da marcação sozinhas: é melhor do que imprimir menos do que o
+     contador prometeu e o farmacêutico só descobrir no papel. */
+  const vivas = todas.map((l) => l.chave);
+  _sepSel = _sepSel.filter((c) => vivas.indexOf(c) !== -1);
+
+  const porDia = {};
+  todas.forEach((l) => { (porDia[l.dia] = porDia[l.dia] || []).push(l); });
+  const blocos = Object.keys(porDia).sort().map((dia) => {
+    const doDia = porDia[dia];
+    const pacs = [];
+    doDia.forEach((l) => { if (!pacs.some((p) => p.id === l.patient.id)) pacs.push(l.patient); });
+    pacs.sort((a, b) => (a.leito || "").localeCompare(b.leito || "", "pt-BR", { numeric: true })
+      || a.nome.localeCompare(b.nome, "pt-BR"));
+    const linhas = pacs.map((p) => {
+      const chips = doDia.filter((l) => l.patient.id === p.id)
+        .sort((a, b) => _horValor(a.slot) - _horValor(b.slot))
+        .map((l) => {
+          const on = _sepSel.indexOf(l.chave) !== -1;
+          return `<button type="button" class="sep-chip${on ? " on" : ""}"
+            onclick="sepMarcaEtiqueta('${_esc(l.chave)}')"
+            title="${l.items.length} medicamento(s)">${_esc(l.slot)}</button>`;
+        }).join("");
+      return `<tr>
+        <td class="sep-pac">${p.leito ? `<span class="sep-leito">${_esc(p.leito)}</span>` : ""}${_esc(p.nome)}</td>
+        <td>${chips}</td></tr>`;
+    }).join("");
+    return `<div class="sep-dia">
+      <div class="sep-dia-h">${fmtDate(dia)} · ${_diaSemana(dia)} <span style="color:var(--muted);font-weight:400">— ${doDia.length} etiqueta(s)</span></div>
+      <table class="sep-grade"><tbody>${linhas}</tbody></table>
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="note-box" style="margin:12px 0 10px">Clique no horário de cada etiqueta que precisa sair de novo. A etiqueta reimpressa traz o <b>mesmo lote</b> da primeira impressão — mas confira contra a cartela antes de colar, como manda o POP.</div>
+    <div class="sep-acoes" style="margin-bottom:10px">
+      <button class="btn ghost sm" onclick="sepMarcaTodas(true)">Marcar todas (${todas.length})</button>
+      <button class="btn ghost sm" onclick="sepMarcaTodas(false)">Limpar</button>
+      <span style="align-self:center;font-size:12.5px;color:var(--muted)"><b style="color:var(--ink)">${_sepSel.length}</b> etiqueta(s) marcada(s)</span>
+    </div>
+    ${blocos}
+    <div class="sep-acoes" style="margin:12px 0 0">
+      <button class="btn"${_sepSel.length ? "" : " disabled"} onclick="sepImprimir('avulsas')">🖶 Imprimir as ${_sepSel.length} marcada(s)</button>
+    </div>`;
+}
+
 // Cada botão imprime e a tela continua aqui, com a seleção intacta.
 function sepImprimir(tipo) {
   const o = _sepOpts();
+  if (tipo === "avulsas") {
+    if (!_sepSel.length) { alert("Marque ao menos uma etiqueta."); return; }
+    return window.printLabels({ ..._sepOptsEtiquetas(), somente: _sepSel.slice() });
+  }
   if (!_sepValida(o, tipo)) return;
   if (tipo === "check") return imprimirChecklistSeparacao(o);
   if (tipo === "etiq") return window.printLabels(o);
@@ -129,7 +247,23 @@ function renderPage() {
     .sep-f label,.sep-row label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:5px}
     .sep-f select,.sep-f input,.sep-row select,.sep-row input{width:100%}
     .sep-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
-    @media (max-width:820px){.sep-row{grid-template-columns:1fr}}
+    /* Reimpressão avulsa: chip grande o bastante para acertar com o dedo na
+       bancada, e com o estado visível de longe — marcar sete etiquetas
+       erradas custa outra folha. */
+    .sep-avulsa{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:4px;background:#FCFCFB}
+    .sep-dia{margin-bottom:12px}
+    .sep-dia-h{font-size:12.5px;font-weight:700;color:var(--ink-soft);padding:0 0 4px;border-bottom:1px solid var(--line);margin-bottom:4px}
+    .sep-grade{width:100%;border-collapse:collapse}
+    .sep-grade td{padding:4px 6px 4px 0;border:0;vertical-align:middle}
+    .sep-grade tr+tr td{border-top:1px dashed var(--line)}
+    .sep-pac{width:38%;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0}
+    .sep-leito{display:inline-block;min-width:20px;text-align:center;background:var(--primary-tint);color:var(--primary-dark);
+      border-radius:5px;padding:1px 5px;margin-right:6px;font-size:11px;font-weight:700}
+    .sep-chip{font:600 12px/1 inherit;padding:7px 11px;margin:2px 5px 2px 0;border:1px solid var(--line);
+      border-radius:999px;background:#fff;color:var(--ink);cursor:pointer}
+    .sep-chip:hover{border-color:var(--primary)}
+    .sep-chip.on{background:var(--primary-dark);border-color:var(--primary-dark);color:#fff}
+    @media (max-width:820px){.sep-row{grid-template-columns:1fr}.sep-pac{width:100%;display:block;max-width:none}}
   </style>
   <div class="card">
     <div class="note-box" style="margin-top:0">Gera o material para montar os kits. O <b>checklist</b> é a folha de conferência da farmácia (uma por paciente); as <b>etiquetas dos kits</b> identificam cada pacote, um por paciente e por horário; as <b>etiquetas dos sacos</b> são as do saco do dia e as dos três períodos. Isto <b>não baixa estoque</b> — a baixa é feita na tela de Dispensação, no dia da administração.</div>
@@ -171,6 +305,15 @@ function renderPage() {
       <button class="btn" onclick="sepImprimir('sacos')">🖶 Etiquetas dos sacos</button>
       <button class="btn" onclick="sepImprimir('prep')">🖶 Folha de preparo e SOS</button>
       <button class="btn ghost" onclick="sepImprimir('tudo')">🖶 Tudo</button>
+    </div>
+
+    <div class="sep-avulsa">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><b style="font-size:13.5px">Reimprimir etiquetas avulsas</b>
+          <div style="font-size:12.5px;color:var(--muted)">Para a que rasgou, saiu com corte errado ou mudou de prescrição depois do kit montado</div></div>
+        <button class="btn ghost sm" id="sepPickerBtn" onclick="sepTogglePicker()">${_sepPicker ? "Fechar" : "Escolher etiquetas"}</button>
+      </div>
+      <div id="sepPickerBox">${_sepPickerHTML()}</div>
     </div>
 
     <div class="note-box" style="margin-bottom:0">Insulina, gotas, xarope e pomada <b>não geram etiqueta</b>: aparecem no checklist marcadas como preparo na hora e saem na folha própria, com espaço para a enfermagem registrar glicemia, quantidade e rubrica. O SOS sai só nessa folha.</div>
