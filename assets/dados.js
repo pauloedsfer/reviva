@@ -952,6 +952,14 @@ function saldoLoteChaveEm(chave, ate) {
 function alocarLotes(subId, pacienteId, qtd, chavePreferida) {
   const restante = { v: qtd };
   const usados = [];
+  /* `chavePreferida` é a CHAVE do bucket (substância|lote|dono), não o número
+     do lote. Passar o número faz a preferência ser silenciosamente ignorada e
+     a baixa cair no FEFO — defeito que durou meses na tela de dispensação,
+     onde escolher outro lote não tinha efeito nenhum. O aviso existe para
+     esse erro aparecer no console em vez de virar um lote errado no Livro. */
+  if (chavePreferida && !_lotesAgrupados()[chavePreferida]) {
+    console.warn("alocarLotes: chave preferida desconhecida (esperava loteChave, não o número do lote):", chavePreferida);
+  }
   const tenta = (chave) => {
     if (restante.v <= 0 || !chave) return;
     if (usados.some((u) => u.chave === chave)) return;

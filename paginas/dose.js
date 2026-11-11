@@ -464,13 +464,27 @@ function _avisoValidadeCustodia(cust) {
   return `<div style="font-size:10px;color:var(--warn);margin-top:2px">lote ${_esc(anterior.lote)} vence antes (${fmtDate(anterior.validade)})</div>`;
 }
 
+/* O value do seletor é a CHAVE do lote (substância|lote|dono), não o número.
+
+   Era aqui o defeito: o seletor devolvia só o número e o alocador espera a
+   chave, então a preferência nunca era encontrada e a baixa caía sempre no
+   lote que vence primeiro — escolher outro lote não tinha efeito nenhum.
+
+   A chave também é o que distingue o mesmo número de lote no estoque da
+   clínica e na custódia de um paciente, que acontece sempre que a família
+   compra o mesmo lote industrial que a clínica comprou. */
 function _selLote(subId, pacienteId) {
   const cust = lotesCustodiaDoPaciente(subId, pacienteId);   // custódia DELE — preferência
   const geral = lotesDisponiveis(subId);                     // estoque geral — escolha manual
   if (!cust.length && !geral.length) return `<select class="disp-lote" disabled><option value="">sem saldo</option></select>`;
+  /* "sugerido" marca o que o sistema escolheria sozinho — custódia do
+     paciente primeiro, depois FEFO. Fica visível para o RT saber de que
+     está discordando quando precisa terminar um lote específico. */
+  const sugerido = cust.length ? cust[0].chave : (geral.length ? geral[0].chave : "");
+  const rotulo = (l, txt) => `<option value="${_esc(l.chave)}"${l.chave === sugerido ? " selected" : ""}>${txt}${l.chave === sugerido ? " · sugerido" : ""}</option>`;
   const opts = [
-    ...cust.map((l, i) => `<option value="${l.lote}"${i === 0 ? " selected" : ""}>★ custódia · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}${l.emUso ? " · EM USO" : " · fechado"}</option>`),
-    ...geral.map((l, i) => `<option value="${l.lote}"${!cust.length && i === 0 ? " selected" : ""}>estoque · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}</option>`),
+    ...cust.map((l) => rotulo(l, `★ custódia · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}${l.emUso ? " · EM USO" : " · fechado"}`)),
+    ...geral.map((l) => rotulo(l, `estoque · ${l.lote} · saldo ${l.saldo} · val ${fmtDate(l.validade)}`)),
   ];
   return `<select class="disp-lote">${opts.join("")}</select>${_avisoValidadeCustodia(cust)}`;
 }
@@ -490,8 +504,8 @@ async function confirmarDispensacao() {
   for (const c of checks) {
     const tr = c.closest("tr");
     const sel = tr.querySelector(".disp-lote");
-    const lote = sel ? sel.value : "";
-    if (!lote) { alert(`Sem lote com saldo para ${c.dataset.nome} (${subById(c.dataset.sub).nome}). Dê entrada de estoque antes.`); return; }
+    const chaveEscolhida = sel ? sel.value : "";   // chave do lote, não o número
+    if (!chaveEscolhida) { alert(`Sem lote com saldo para ${c.dataset.nome} (${subById(c.dataset.sub).nome}). Dê entrada de estoque antes.`); return; }
     const ehSOS = c.dataset.sos === "1";
     let qtd = Number(c.dataset.qtd);
     let ref = "Dose " + c.dataset.hor;
@@ -513,7 +527,7 @@ async function confirmarDispensacao() {
     // A dose pode não caber num lote só: aloca entre os lotes disponíveis,
     // começando pelo escolhido. Cada lote vira um lançamento próprio, para
     // o Livro manter a rastreabilidade por lote.
-    const alloc = alocarLotes(c.dataset.sub, c.dataset.pac, qtd, lote);
+    const alloc = alocarLotes(c.dataset.sub, c.dataset.pac, qtd, chaveEscolhida);
     if (!alloc.usados.length) {
       alert(`Sem saldo para ${c.dataset.nome} — ${subNomeExibicao(c.dataset.sub)}.\n\nDê entrada de estoque antes de dispensar.`);
       return;
